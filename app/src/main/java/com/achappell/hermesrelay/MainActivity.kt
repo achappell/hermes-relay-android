@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,9 +52,30 @@ internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
     val controller = remember(clientPort) { AndroidInitiationController(clientPort) }
     var prompt by rememberSaveable { mutableStateOf("") }
     var initiationState by remember { mutableStateOf<AndroidInitiationState>(AndroidInitiationState.Idle) }
+    var turnState by remember { mutableStateOf(AndroidTurnState()) }
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
-    val hasAcceptedTurn = initiationState is AndroidInitiationState.Accepted
+    val acceptedBinding = (initiationState as? AndroidInitiationState.Accepted)?.binding
+    val hasAcceptedTurn = acceptedBinding != null && !turnState.isTerminal
+
+    DisposableEffect(clientPort, acceptedBinding) {
+        val observation = acceptedBinding?.let { binding ->
+            clientPort.observeTurn(binding) { event ->
+                turnState = AndroidTurnStateReducer.reduce(turnState, event)
+            }
+        }
+        onDispose {
+            observation?.cancel()
+        }
+    }
+
+    fun initiate(input: AndroidTurnInput) {
+        val state = controller.initiate(input)
+        initiationState = state
+        if (state is AndroidInitiationState.Accepted) {
+            turnState = AndroidTurnState.awaitingEvents(state.binding)
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -127,7 +149,7 @@ internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
             )
             Button(
                 onClick = {
-                    initiationState = controller.initiate(AndroidTurnInput.Typed(prompt))
+                    initiate(AndroidTurnInput.Typed(prompt))
                 },
                 enabled = isAuthorized && !hasAcceptedTurn && prompt.isNotBlank(),
             ) {
@@ -135,7 +157,7 @@ internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
             }
             Button(
                 onClick = {
-                    initiationState = controller.initiate(AndroidTurnInput.TapToSpeak)
+                    initiate(AndroidTurnInput.TapToSpeak)
                 },
                 enabled = isAuthorized && !hasAcceptedTurn,
             ) {
@@ -153,6 +175,47 @@ internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                     )
+
+                    if (turnState.binding == state.binding && turnState.phase != AndroidTurnPhase.Idle) {
+                        Text(
+                            text = stringResource(
+                                R.string.android_turn_phase_label,
+                                stringResource(turnState.phase.labelRes()),
+                            ),
+                            modifier = Modifier.testTag("android_turn_phase"),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+
+                    if (turnState.responseText.isNotEmpty()) {
+                        Text(
+                            text = stringResource(R.string.android_response_label),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            modifier = Modifier.testTag("android_response_text"),
+                            text = turnState.responseText,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+
+                    if (turnState.audio == AndroidAudioDelivery.Unavailable) {
+                        Text(
+                            modifier = Modifier.testTag("android_audio_unavailable"),
+                            text = stringResource(R.string.android_audio_unavailable),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+
+                    if (turnState.phase == AndroidTurnPhase.Disconnected) {
+                        Text(
+                            modifier = Modifier.testTag("android_disconnected"),
+                            text = stringResource(R.string.android_turn_disconnected),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
 
                 is AndroidInitiationState.Rejected -> {
@@ -179,4 +242,16 @@ private fun AndroidInitiationFailure.messageRes(): Int = when (this) {
     AndroidInitiationFailure.AuthorizationRequired -> R.string.android_failure_authorization_required
     AndroidInitiationFailure.EmptyTypedPrompt -> R.string.android_failure_empty_prompt
     AndroidInitiationFailure.SessionUnavailable -> R.string.android_failure_session_unavailable
+}
+
+private fun AndroidTurnPhase.labelRes(): Int = when (this) {
+    AndroidTurnPhase.Idle -> R.string.android_turn_phase_waiting
+    AndroidTurnPhase.Listening -> R.string.android_turn_phase_listening
+    AndroidTurnPhase.Transcribing -> R.string.android_turn_phase_transcribing
+    AndroidTurnPhase.Thinking -> R.string.android_turn_phase_thinking
+    AndroidTurnPhase.Buffering -> R.string.android_turn_phase_buffering
+    AndroidTurnPhase.Speaking -> R.string.android_turn_phase_speaking
+    AndroidTurnPhase.Complete -> R.string.android_turn_phase_complete
+    AndroidTurnPhase.Unavailable -> R.string.android_turn_phase_unavailable
+    AndroidTurnPhase.Disconnected -> R.string.android_turn_phase_disconnected
 }
