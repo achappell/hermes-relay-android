@@ -1,0 +1,17 @@
+.gradle/
+build/
+**/build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local credentials, audio, and machine-specific files.
+*.env
+*.pem
+*.p12
+*.wav
+*.pcm
+*.m4a
