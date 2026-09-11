@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.achappell.hermesrelay"
     compileSdk = 37
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "com.achappell.hermesrelay"
@@ -54,6 +55,10 @@ dependencies {
     implementation(libs.androidx.compose.material3)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }

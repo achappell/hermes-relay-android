@@ -7,11 +7,22 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+.DS_Store
+.kotlin/
 
 # Local credentials, audio, and machine-specific files.
 *.env
 *.pem
 *.p12
+*.jks
+*.keystore
+*.key
+key.properties
 *.wav
 *.pcm
 *.m4a
+*.mp3
+*.aac
+*.ogg
+*.opus
+*.flac

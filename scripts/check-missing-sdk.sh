@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+if [[ -f local.properties ]]; then
+    printf '%s\n' "Remove local.properties before running the missing-SDK check." >&2
+    exit 1
+fi
+
 fake_sdk="$(mktemp -d "${TMPDIR:-/tmp}/hermes-relay-android-sdk.XXXXXX")"
 trap 'rm -rf "$fake_sdk"' EXIT
 

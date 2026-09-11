@@ -22,9 +22,10 @@ through `2-A-2`, `3-A-1` through `3-A-6`, and `5-A-1`.
 - Compile/target SDK 37; minimum SDK 26
 - Compose BOM 2026.08.00
 
-The repository uses the Android Gradle Plugin and a Gradle wrapper so local and
-CI builds share the same build version. Do not commit `local.properties`, SDK
-paths, tokens, profile files, audio captures, or signing material.
+The repository uses the Android Gradle Plugin and a Gradle wrapper so local
+builds and future CI jobs can share the same build version. Do not commit
+`local.properties`, SDK paths, tokens, profile files, audio captures, or
+signing material.
 
 ## Local setup
 
@@ -39,7 +40,15 @@ Run the verification commands from this directory:
 ```bash
 ./gradlew testDebugUnitTest
 ./gradlew assembleDebug
+./gradlew lintDebug
+scripts/check-apk-metadata.sh
 scripts/check-missing-sdk.sh
+```
+
+With an Android emulator or device available, also run:
+
+```bash
+./gradlew connectedDebugAndroidTest
 ```
 
 To install the debug shell on a connected device or emulator:
@@ -49,6 +58,18 @@ To install the debug shell on a connected device or emulator:
 ```
 
 There is no live Hermes endpoint requirement for the bootstrap tests or build.
+
+## Story map
+
+The authoritative cross-surface coverage index and Android story specifications
+remain in the sibling TUI repository while this delivery repository is being
+bootstrapped:
+
+- `../hermes-relay-tui/_bmad-output/implementation-artifacts/surface-coverage-matrix.md`
+- `../hermes-relay-tui/_bmad-output/planning-artifacts/epics.md`
+
+This README records the bootstrap boundary; story closure belongs to the
+Android repository's own specifications and validation records.
 
 ## Boundary rules
 

@@ -1,9 +1,17 @@
 package com.achappell.hermesrelay
 
+import androidx.annotation.StringRes
+
 internal object BootstrapState {
-    const val title = "Android Client bootstrap"
-    const val description =
-        "The native Android surface is alive, but Hermes session transport is not connected yet."
-    const val boundary =
-        "Conversation, response audio, Profiles, Local History, and Device administration arrive as independently verified slices."
+    @get:StringRes
+    val titleRes: Int
+        get() = R.string.bootstrap_title
+
+    @get:StringRes
+    val descriptionRes: Int
+        get() = R.string.bootstrap_description
+
+    @get:StringRes
+    val boundaryRes: Int
+        get() = R.string.bootstrap_boundary
 }
