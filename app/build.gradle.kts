@@ -32,13 +32,15 @@ android {
     }
 
     compileOptions {
+        // Keep emitted Android bytecode compatible with the API 26 floor while
+        // the Gradle and Kotlin toolchain runs on the project JDK 21 baseline.
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(21)
 }
 
 dependencies {

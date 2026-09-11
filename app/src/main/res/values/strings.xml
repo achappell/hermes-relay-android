@@ -3,4 +3,20 @@
     <string name="bootstrap_title">Android Client bootstrap</string>
     <string name="bootstrap_description">The native Android surface is alive, but Hermes session transport is not connected yet.</string>
     <string name="bootstrap_boundary">Conversation, response audio, Profiles, Local History, and Device administration arrive as independently verified slices.</string>
+    <string name="android_profile_label">Selected Hermes Profile</string>
+    <string name="android_profile_none">No Hermes Profile is selected.</string>
+    <string name="android_authorization_label">Authorization: %1$s</string>
+    <string name="android_authorization_not_configured">Not configured</string>
+    <string name="android_authorization_verifying">Verifying</string>
+    <string name="android_authorization_verified">Verified</string>
+    <string name="android_authorization_unavailable">Unavailable</string>
+    <string name="android_initiation_unavailable">Turn initiation is unavailable until a verified Hermes Profile is selected. No audio or turn is submitted.</string>
+    <string name="android_prompt_label">Typed prompt</string>
+    <string name="android_start_typed_turn">Start typed turn</string>
+    <string name="android_tap_to_speak">Tap to speak</string>
+    <string name="android_initiation_accepted">Turn accepted for %1$s. Waiting for normalized Session events.</string>
+    <string name="android_failure_profile_unavailable">Select a Hermes Profile before starting a turn.</string>
+    <string name="android_failure_authorization_required">The selected Hermes Profile is not verified. No audio or turn was submitted.</string>
+    <string name="android_failure_empty_prompt">Enter a prompt before starting a typed turn.</string>
+    <string name="android_failure_session_unavailable">The Hermes Session is unavailable. No fallback Profile was selected.</string>
 </resources>

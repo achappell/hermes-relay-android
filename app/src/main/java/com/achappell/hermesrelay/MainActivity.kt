@@ -12,15 +12,23 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
 
 class MainActivity : ComponentActivity() {
@@ -31,14 +39,22 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             HermesRelayTheme {
-                BootstrapScreen(clientPort.snapshot())
+                AndroidClientScreen(clientPort)
             }
         }
     }
 }
 
 @Composable
-private fun BootstrapScreen(snapshot: AndroidClientSnapshot) {
+internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
+    val snapshot = clientPort.snapshot()
+    val controller = remember(clientPort) { AndroidInitiationController(clientPort) }
+    var prompt by rememberSaveable { mutableStateOf("") }
+    var initiationState by remember { mutableStateOf<AndroidInitiationState>(AndroidInitiationState.Idle) }
+    val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
+        snapshot.selectedProfile != null
+    val hasAcceptedTurn = initiationState is AndroidInitiationState.Accepted
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -70,6 +86,97 @@ private fun BootstrapScreen(snapshot: AndroidClientSnapshot) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+
+            Text(
+                text = stringResource(R.string.android_profile_label),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = snapshot.selectedProfile?.displayName
+                    ?: stringResource(R.string.android_profile_none),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = stringResource(
+                    R.string.android_authorization_label,
+                    stringResource(snapshot.authorizationState.labelRes()),
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            if (!isAuthorized) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                ) {
+                    Text(
+                        modifier = Modifier.padding(20.dp),
+                        text = stringResource(R.string.android_initiation_unavailable),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                modifier = Modifier.testTag("android_typed_prompt"),
+                value = prompt,
+                onValueChange = { prompt = it },
+                enabled = isAuthorized,
+                label = { Text(stringResource(R.string.android_prompt_label)) },
+            )
+            Button(
+                onClick = {
+                    initiationState = controller.initiate(AndroidTurnInput.Typed(prompt))
+                },
+                enabled = isAuthorized && !hasAcceptedTurn && prompt.isNotBlank(),
+            ) {
+                Text(stringResource(R.string.android_start_typed_turn))
+            }
+            Button(
+                onClick = {
+                    initiationState = controller.initiate(AndroidTurnInput.TapToSpeak)
+                },
+                enabled = isAuthorized && !hasAcceptedTurn,
+            ) {
+                Text(stringResource(R.string.android_tap_to_speak))
+            }
+
+            when (val state = initiationState) {
+                AndroidInitiationState.Idle -> Unit
+                is AndroidInitiationState.Accepted -> {
+                    Text(
+                        text = stringResource(
+                            R.string.android_initiation_accepted,
+                            snapshot.selectedProfile?.displayName
+                                ?: state.binding.profileId,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+
+                is AndroidInitiationState.Rejected -> {
+                    Text(
+                        text = stringResource(state.reason.messageRes()),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
         }
     }
+}
+
+private fun AndroidAuthorizationState.labelRes(): Int = when (this) {
+    AndroidAuthorizationState.NotConfigured -> R.string.android_authorization_not_configured
+    AndroidAuthorizationState.Verifying -> R.string.android_authorization_verifying
+    AndroidAuthorizationState.Verified -> R.string.android_authorization_verified
+    AndroidAuthorizationState.Unavailable -> R.string.android_authorization_unavailable
+}
+
+private fun AndroidInitiationFailure.messageRes(): Int = when (this) {
+    AndroidInitiationFailure.ProfileUnavailable -> R.string.android_failure_profile_unavailable
+    AndroidInitiationFailure.AuthorizationRequired -> R.string.android_failure_authorization_required
+    AndroidInitiationFailure.EmptyTypedPrompt -> R.string.android_failure_empty_prompt
+    AndroidInitiationFailure.SessionUnavailable -> R.string.android_failure_session_unavailable
 }

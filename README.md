@@ -15,12 +15,15 @@ through `2-A-2`, `3-A-1` through `3-A-6`, and `5-A-1`.
 
 ## Toolchain
 
-- JDK 17
+- JDK 21 (Gradle/Kotlin runtime; Java 17-compatible Android bytecode)
 - Gradle Wrapper 9.3.1
 - Android Gradle Plugin 9.1.1
 - Kotlin 2.4.20 with the matching Compose compiler plugin
 - Compile/target SDK 37; minimum SDK 26
 - Compose BOM 2026.08.00
+
+Android 16 (API 36) and Android 17 (API 37) are both supported by the API 26
+minimum and API 37 compile/target configuration.
 
 The repository uses the Android Gradle Plugin and a Gradle wrapper so local
 builds and future CI jobs can share the same build version. Do not commit
@@ -29,7 +32,7 @@ signing material.
 
 ## Local setup
 
-Install a JDK 17 and Android SDK command-line tools, then install platform-tools,
+Install JDK 21 and Android SDK command-line tools, then install platform-tools,
 platform 37, and build-tools 36.0.0. Point `JAVA_HOME` and
 `ANDROID_SDK_ROOT` at those local installations. The exact SDK path belongs in
 the ignored `local.properties` file or the Android CLI environment, never in
