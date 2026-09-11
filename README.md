@@ -39,6 +39,7 @@ Run the verification commands from this directory:
 ```bash
 ./gradlew testDebugUnitTest
 ./gradlew assembleDebug
+scripts/check-missing-sdk.sh
 ```
 
 To install the debug shell on a connected device or emulator:
