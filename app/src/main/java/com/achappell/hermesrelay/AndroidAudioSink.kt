@@ -31,6 +31,16 @@ internal data class AndroidAudioFormat(
  * Audio bytes pass through here and are never retained: no chunk reaches UI
  * state, Local History, or a log.
  */
+/**
+ * Bytes in one 16-bit PCM frame.
+ *
+ * `AudioTrack.playbackHeadPosition` counts frames, not samples, so the drain
+ * guard compares against a frame count. Assuming two bytes per frame
+ * double-counted every stereo stream: the target could never be reached and
+ * the guard ran to its full timeout while the turn sat in Speaking.
+ */
+internal fun bytesPerFrame(channels: Int): Int = 2 * channels
+
 internal interface AndroidAudioSink {
     /** Begins playback. Returns false when the format cannot be played. */
     fun start(format: AndroidAudioFormat): Boolean
@@ -57,6 +67,7 @@ internal class AudioTrackAudioSink : AndroidAudioSink {
     private var track: AudioTrack? = null
     private var framesWritten = 0L
     private var sampleRate = 0
+    private var bytesPerFrame = bytesPerFrame(1)
     private val failed = AtomicBoolean(false)
 
     override fun start(format: AndroidAudioFormat): Boolean {
@@ -102,6 +113,7 @@ internal class AudioTrackAudioSink : AndroidAudioSink {
             created.play()
             track = created
             sampleRate = format.sampleRate
+            bytesPerFrame = bytesPerFrame(format.channels)
             framesWritten = 0
             failed.set(false)
             true
@@ -142,7 +154,7 @@ internal class AudioTrackAudioSink : AndroidAudioSink {
                         else -> {
                             stalled = 0
                             offset += written
-                            framesWritten += written / BYTES_PER_FRAME
+                            framesWritten += written / bytesPerFrame
                         }
                     }
                 }
@@ -202,7 +214,7 @@ internal class AudioTrackAudioSink : AndroidAudioSink {
 
     private companion object {
         const val BUFFER_FACTOR = 4
-        const val BYTES_PER_FRAME = 2
+        const val BYTES_PER_SAMPLE = 2
         const val DRAIN_POLL_MILLIS = 20L
         const val DRAIN_GUARD_ITERATIONS = 1_500
         const val WRITE_STALL_POLL_MILLIS = 5L

@@ -50,6 +50,32 @@ of scope.
   retained and `Speaking` never claimed; and `finish` without a `start`
   reporting failure rather than silent success.
 
+## Real-device finding — 2026-09-12
+
+Amanda ran a turn on a physical device. The audio finished, and the phase
+stayed in `Speaking` for roughly thirty seconds before clearing.
+
+The drain guard compares `AudioTrack.playbackHeadPosition`, which counts
+frames, against a `framesWritten` total that divided bytes by a fixed two. That
+is only correct for mono. The sink configures `CHANNEL_OUT_STEREO` whenever the
+format reports two channels, where a frame is four bytes, so `framesWritten`
+was double the true count and the guard's condition could never be satisfied.
+It ran its full `DRAIN_GUARD_ITERATIONS` (1,500 x 20 ms = 30 s) and then
+reported drained anyway, which is why the turn recovered rather than hanging.
+
+`channels` was validated as `1..2` and used to select the channel mask, but --
+unlike `sampleRate` -- was never stored, so the sink could not compute a
+correct frame size. No test covered a stereo stream; 88 unit tests and a
+passing live gate all missed it.
+
+Fixed by storing the channel count and deriving bytes-per-frame from it, with
+unit coverage for both channel counts. **The fix is not yet verified on
+hardware** -- the emulator cannot show this, for the same `-no-audio` reason
+recorded below.
+
+This is the first defect found by real-device use rather than by the gate, and
+it is exactly the class the limitation below predicted.
+
 ## Environment limitation
 
 The emulator runs with `-no-audio`, so there is **no audio device to hear**.
