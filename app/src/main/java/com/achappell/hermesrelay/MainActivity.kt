@@ -103,6 +103,7 @@ internal fun AndroidClientScreen(
     }
     var captureState by remember { mutableStateOf<AndroidCaptureState>(AndroidCaptureState.Idle) }
     var permissionRevision by remember { mutableStateOf(0) }
+    var handsFree by remember { mutableStateOf(false) }
     val promptFocus = remember { FocusRequester() }
     val recorder = remember(historyStore) { historyStore?.let { AndroidHistoryRecorder(it) } }
     var promptHistory by remember { mutableStateOf(AndroidPromptHistory()) }
@@ -178,6 +179,7 @@ internal fun AndroidClientScreen(
                 },
                 currentSessionId = { recoveryController.state.sessionId },
                 onStateChange = { changed -> captureState = changed },
+                onHandsFreeChange = { armed -> handsFree = armed },
                 onInitiation = { result ->
                     initiationState = result
                     if (result is AndroidInitiationState.Accepted) {
@@ -218,7 +220,11 @@ internal fun AndroidClientScreen(
                 recorder?.recordResponse(turnState.responseText)
                 historyRevision += 1
             }
-            runCatching { promptFocus.requestFocus() }
+            // FR5: a completed turn reopens the window; anything else ends it.
+            captureController?.onTurnSettled(turnState.phase)
+            if (!handsFree) {
+                runCatching { promptFocus.requestFocus() }
+            }
         }
     }
 
@@ -362,6 +368,15 @@ internal fun AndroidClientScreen(
                     Text(stringResource(R.string.android_tap_to_speak))
                 }
             } else if (captureController.isCapturing) {
+                if (handsFree) {
+                    Text(
+                        modifier = Modifier
+                            .testTag("android_hands_free_active")
+                            .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                        text = stringResource(R.string.android_hands_free_active),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 Text(
                     modifier = Modifier
                         .testTag("android_capture_state")
@@ -406,6 +421,44 @@ internal fun AndroidClientScreen(
                     permissionRevision,
                     captureState,
                 ) { captureController.blockingReason() }
+
+                if (block == null) {
+                    Button(
+                        modifier = Modifier
+                            .testTag("android_hands_free")
+                            .a11yOrder(A11yOrder.ACTION),
+                        onClick = {
+                            if (captureController.isHandsFree) {
+                                captureController.disarmHandsFree()
+                            } else {
+                                captureController.armHandsFree()
+                            }
+                        },
+                    ) {
+                        Text(
+                            stringResource(
+                                if (handsFree) {
+                                    R.string.android_hands_free_stop
+                                } else {
+                                    R.string.android_hands_free_start
+                                },
+                            ),
+                        )
+                    }
+                }
+
+                captureController.lastHandsFreeExit
+                    // A deliberate disarm needs no explanation; the user did it.
+                    ?.takeIf { !handsFree && it != AndroidHandsFreeExit.Disarmed }
+                    ?.let { exit ->
+                        Text(
+                            modifier = Modifier
+                                .testTag("android_hands_free_exit")
+                                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                            text = stringResource(exit.messageRes()),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
 
                 Button(
                     modifier = Modifier
@@ -784,6 +837,15 @@ private fun AndroidCaptureState.labelRes(): Int = when (this) {
     AndroidCaptureState.Listening -> R.string.android_capture_listening
     is AndroidCaptureState.Transcribing -> R.string.android_capture_transcribing
     else -> R.string.android_capture_listening
+}
+
+private fun AndroidHandsFreeExit.messageRes(): Int = when (this) {
+    AndroidHandsFreeExit.ExactStop -> R.string.android_hands_free_exit_stop
+    AndroidHandsFreeExit.Silence -> R.string.android_hands_free_exit_silence
+    AndroidHandsFreeExit.Failure -> R.string.android_hands_free_exit_failure
+    AndroidHandsFreeExit.SessionEnded -> R.string.android_hands_free_exit_session
+    // Never shown: a deliberate disarm is not narrated back to the user.
+    AndroidHandsFreeExit.Disarmed -> R.string.android_hands_free_exit_stop
 }
 
 private fun AndroidCaptureBlock.messageRes(): Int = when (this) {

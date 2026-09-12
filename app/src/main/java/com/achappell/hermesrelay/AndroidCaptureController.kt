@@ -30,6 +30,24 @@ internal enum class AndroidCaptureBlock {
     SessionReplaced,
 }
 
+/** Why a hands-free conversation ended. Recorded so the UI can be honest. */
+internal enum class AndroidHandsFreeExit {
+    /** The user said exactly "stop". FR5 requires this to close silently. */
+    ExactStop,
+
+    /** The window closed with nothing heard. */
+    Silence,
+
+    /** Capture or the recogniser failed. */
+    Failure,
+
+    /** The Session ended or was replaced. */
+    SessionEnded,
+
+    /** The user turned it off. */
+    Disarmed,
+}
+
 /**
  * Gates microphone capture and turns a finished transcript into a turn.
  *
@@ -38,6 +56,8 @@ internal enum class AndroidCaptureBlock {
  * available. Nothing is recorded speculatively, and a transcript is submitted
  * only when the recognizer reports it as final.
  */
+private const val EXACT_STOP = "stop"
+
 internal class AndroidCaptureController(
     private val speech: AndroidSpeechInput,
     private val initiation: AndroidInitiationController,
@@ -46,6 +66,7 @@ internal class AndroidCaptureController(
     private val currentSessionId: () -> String? = { null },
     private val onStateChange: (AndroidCaptureState) -> Unit = {},
     private val onInitiation: (AndroidInitiationState) -> Unit = {},
+    private val onHandsFreeChange: (Boolean) -> Unit = {},
 ) {
     /**
      * The Session capture began in.
@@ -55,6 +76,18 @@ internal class AndroidCaptureController(
      * transcript would attach it to a conversation the user was not having.
      */
     private var captureSessionId: String? = null
+
+    /**
+     * Hands-free continuation, per `FR5`.
+     *
+     * Each window is bounded by the recogniser's own silence endpointing; what
+     * continues is the reopening, not a single unbounded microphone.
+     */
+    var isHandsFree: Boolean = false
+        private set
+
+    var lastHandsFreeExit: AndroidHandsFreeExit? = null
+        private set
     var state: AndroidCaptureState = AndroidCaptureState.Idle
         private set(value) {
             val changed = field != value
@@ -78,12 +111,62 @@ internal class AndroidCaptureController(
         else -> null
     }
 
+    fun armHandsFree() {
+        if (isHandsFree) return
+        lastHandsFreeExit = null
+        isHandsFree = true
+        onHandsFreeChange(true)
+        beginCapture()
+    }
+
+    fun disarmHandsFree(reason: AndroidHandsFreeExit = AndroidHandsFreeExit.Disarmed) {
+        if (!isHandsFree) return
+        isHandsFree = false
+        lastHandsFreeExit = reason
+        onHandsFreeChange(false)
+        if (reason == AndroidHandsFreeExit.Disarmed) cancelCapture()
+    }
+
+    /**
+     * Continue the conversation after a turn settles.
+     *
+     * Only a *completed* turn reopens the window. A turn that failed, was
+     * interrupted, or lost transport must not, because reopening would present
+     * an unsuccessful turn as ready for conversation. Completion also means the
+     * response audio has finished draining, so capture never reopens while the
+     * device is still speaking.
+     */
+    fun onTurnSettled(phase: AndroidTurnPhase) {
+        if (!isHandsFree) return
+
+        when (phase) {
+            AndroidTurnPhase.Complete -> {
+                if (isConnected()) {
+                    beginCapture()
+                } else {
+                    disarmHandsFree(AndroidHandsFreeExit.SessionEnded)
+                }
+            }
+
+            AndroidTurnPhase.Disconnected -> disarmHandsFree(AndroidHandsFreeExit.SessionEnded)
+
+            else -> disarmHandsFree(AndroidHandsFreeExit.Failure)
+        }
+    }
+
     fun beginCapture() {
         if (isCapturing) return
 
         blockingReason()?.let { reason ->
             // Fail closed: the microphone is never opened to discover this.
             state = AndroidCaptureState.Unavailable(reason)
+            disarmHandsFree(
+                if (reason == AndroidCaptureBlock.NotConnected) {
+                    AndroidHandsFreeExit.SessionEnded
+                } else {
+                    AndroidHandsFreeExit.Failure
+                },
+            )
             return
         }
 
@@ -116,8 +199,16 @@ internal class AndroidCaptureController(
 
             is AndroidSpeechEvent.Final -> submit(event.text)
 
-            is AndroidSpeechEvent.Failed ->
+            is AndroidSpeechEvent.Failed -> {
                 state = AndroidCaptureState.Failed(event.reason)
+                disarmHandsFree(
+                    if (event.reason == AndroidSpeechFailure.NoSpeechHeard) {
+                        AndroidHandsFreeExit.Silence
+                    } else {
+                        AndroidHandsFreeExit.Failure
+                    },
+                )
+            }
 
             AndroidSpeechEvent.Cancelled -> state = AndroidCaptureState.Idle
         }
@@ -125,6 +216,15 @@ internal class AndroidCaptureController(
 
     private fun submit(transcript: String) {
         val text = transcript.trim()
+
+        // FR5: exactly "stop" closes the local window silently. It is a command
+        // to the doorway, not a turn for Hermes, so it is never submitted.
+        if (text.equals(EXACT_STOP, ignoreCase = true)) {
+            state = AndroidCaptureState.Idle
+            disarmHandsFree(AndroidHandsFreeExit.ExactStop)
+            return
+        }
+
         if (text.isEmpty()) {
             state = AndroidCaptureState.Failed(AndroidSpeechFailure.NoSpeechHeard)
             return
@@ -136,6 +236,7 @@ internal class AndroidCaptureController(
         if (!isConnected()) {
             captureSessionId = null
             state = AndroidCaptureState.Unavailable(AndroidCaptureBlock.NotConnected)
+            disarmHandsFree(AndroidHandsFreeExit.SessionEnded)
             return
         }
 
@@ -145,6 +246,7 @@ internal class AndroidCaptureController(
         if (startedIn != null && liveNow != null && startedIn != liveNow) {
             captureSessionId = null
             state = AndroidCaptureState.Unavailable(AndroidCaptureBlock.SessionReplaced)
+            disarmHandsFree(AndroidHandsFreeExit.SessionEnded)
             return
         }
 
