@@ -16,6 +16,9 @@ android {
         versionName = "0.1.0" // x-release-please-version
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Live-relay tests need the tailnet; keep them out of the default run.
+        testInstrumentationRunnerArguments["notAnnotation"] =
+            "com.achappell.hermesrelay.LiveRelay"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -46,6 +49,7 @@ kotlin {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.okhttp)
 
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
@@ -60,6 +64,9 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
+    // Android stubs org.json in local unit tests; supply a real implementation.
+    testImplementation(libs.org.json)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
