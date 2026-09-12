@@ -42,4 +42,19 @@
     <string name="android_resend_unconfirmed_turn">Resend this turn</string>
     <string name="android_discard_unconfirmed_turn">Discard this turn</string>
     <string name="android_resend_not_connected">Reconnect before resending an unconfirmed turn.</string>
+    <string name="android_relay_config_title">Hermes relay configuration</string>
+    <string name="android_relay_none">No Hermes relay is configured. Add one to connect.</string>
+    <string name="android_relay_identity">Identity: %1$s / %2$s</string>
+    <string name="android_relay_endpoint">Relay endpoint (wss://)</string>
+    <string name="android_relay_client_id">Client ID</string>
+    <string name="android_relay_device_id">Device ID</string>
+    <string name="android_relay_display_name">Display name</string>
+    <string name="android_relay_token">Relay token</string>
+    <string name="android_relay_save">Save relay profile</string>
+    <string name="android_relay_select">Select</string>
+    <string name="android_relay_delete">Delete</string>
+    <string name="android_relay_error_required">This field is required.</string>
+    <string name="android_relay_error_malformed">Enter a full endpoint, for example wss://host.example/voice-session.</string>
+    <string name="android_relay_error_not_secure">The endpoint must use wss://. A cleartext relay would send the token in the clear.</string>
+    <string name="android_relay_error_bare_address">Use the host name, not a bare IP address. An address cannot match the relay certificate.</string>
 </resources>

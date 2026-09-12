@@ -33,22 +33,38 @@ import androidx.compose.ui.unit.dp
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
 
 class MainActivity : ComponentActivity() {
-    private val clientPort: AndroidClientPort = BootstrapClientPort
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val credentials = KeystoreRelayCredentialStore(applicationContext)
+        val configuration = RelayConfigurationController(
+            profiles = FileRelayProfileStore(applicationContext),
+            credentials = credentials,
+        )
+        // One port serves both states: it reports NotConfigured until a profile
+        // with a stored credential exists, so the shell stays honest about an
+        // unconfigured relay without needing a separate bootstrap adapter.
+        val clientPort = OkHttpRelaySessionClient(
+            collection = { configuration.collection },
+            credentials = credentials,
+        )
+
         setContent {
             HermesRelayTheme {
-                AndroidClientScreen(clientPort)
+                AndroidClientScreen(clientPort, configuration)
             }
         }
     }
 }
 
 @Composable
-internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
-    val snapshot = clientPort.snapshot()
+internal fun AndroidClientScreen(
+    clientPort: AndroidClientPort,
+    configuration: RelayConfigurationController? = null,
+) {
+    var configurationRevision by remember { mutableStateOf(0) }
+    val snapshot = remember(clientPort, configurationRevision) { clientPort.snapshot() }
     val controller = remember(clientPort) { AndroidInitiationController(clientPort) }
     var prompt by rememberSaveable { mutableStateOf("") }
     var initiationState by remember { mutableStateOf<AndroidInitiationState>(AndroidInitiationState.Idle) }
@@ -155,6 +171,13 @@ internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
                 ),
                 style = MaterialTheme.typography.bodyMedium,
             )
+
+            configuration?.let { controller ->
+                RelayConfigurationScreen(
+                    controller = controller,
+                    onChanged = { configurationRevision += 1 },
+                )
+            }
 
             if (!isAuthorized) {
                 Card(
