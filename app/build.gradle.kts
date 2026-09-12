@@ -24,6 +24,31 @@ android {
         }
     }
 
+    // Release signing comes from an external keystore so the APK is installable.
+    // CI supplies these via secrets; local builds without them fall back to the
+    // debug key so `assembleRelease` keeps working offline.
+    val releaseKeystore = providers.environmentVariable("RELEASE_KEYSTORE_FILE").orNull
+        ?.let(::file)
+        ?.takeIf { it.exists() }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = providers.environmentVariable("RELEASE_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").get()
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
+        }
+    }
+
     buildFeatures {
         compose = true
     }
