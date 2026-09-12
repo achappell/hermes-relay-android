@@ -49,6 +49,7 @@ internal class InMemoryRelayProfileStore(
 internal class RelayConfigurationController(
     private val profiles: RelayProfileStore,
     private val credentials: RelayCredentialStore,
+    private val history: AndroidHistoryStore? = null,
     private val idFactory: () -> String = { java.util.UUID.randomUUID().toString() },
 ) {
     var collection: RelayProfileCollection = profiles.load()
@@ -85,6 +86,8 @@ internal class RelayConfigurationController(
 
     fun delete(id: String) {
         credentials.delete(id)
+        // A Profile's conversation must not outlive the Profile that held it.
+        history?.delete(id)
         update(collection.remove(id))
     }
 
