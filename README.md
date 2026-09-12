@@ -64,10 +64,11 @@ There is no live Hermes endpoint requirement for the bootstrap tests or build.
 
 ## GitHub actions and releases
 
-Pull requests and pushes to `main` run the JVM, build, lint, APK metadata, and
-instrumentation checks on Android 16 (API 36) and Android 17 (API 37). Release
-Please maintains the version and changelog; merging its release PR creates a
-`v*` tag and packages an unsigned release APK with a `SHA256SUMS.txt` file.
+Pull requests and pushes to `main` run the JVM, build, lint, and APK metadata
+checks. Instrumentation tests remain a local-device/emulator check for Android
+16 (API 36) and Android 17 (API 37). Release Please maintains the version and
+changelog; merging its release PR creates a `v*` tag and packages an unsigned
+release APK with a `SHA256SUMS.txt` file.
 Signing and Play distribution remain intentionally outside this repository.
 
 ## Story map
