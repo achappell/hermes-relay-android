@@ -59,4 +59,20 @@
     <string name="android_relay_error_bare_address">Use the host name, not a bare IP address. An address cannot match the relay certificate.</string>
     <string name="android_cached_response">Cached conversation. Saved locally; not live while Hermes is unavailable.</string>
     <string name="android_cached_draft">Draft saved locally. Connect before sending.</string>
+    <string name="android_capture_starting">Starting microphone…</string>
+    <string name="android_capture_listening">Listening…</string>
+    <string name="android_capture_transcribing">Transcribing…</string>
+    <string name="android_capture_stop">Stop and send</string>
+    <string name="android_capture_cancel">Cancel</string>
+    <string name="android_capture_grant">Allow microphone</string>
+    <string name="android_capture_block_permission">Tap-to-speak needs the microphone. Audio is transcribed on this device and never uploaded.</string>
+    <string name="android_capture_block_recognizer">This device has no speech recognizer available, so tap-to-speak is unavailable. Typed turns still work.</string>
+    <string name="android_capture_block_not_connected">Connect to Hermes before speaking.</string>
+    <string name="android_capture_block_profile">Select a verified Hermes Profile before speaking.</string>
+    <string name="android_capture_failed_permission">The microphone permission was refused, so nothing was captured.</string>
+    <string name="android_capture_failed_recognizer">The speech recognizer is unavailable. Nothing was captured.</string>
+    <string name="android_capture_failed_no_speech">No speech was heard, so no turn was sent.</string>
+    <string name="android_capture_failed_network">Speech recognition needs a network connection it could not reach.</string>
+    <string name="android_capture_failed_busy">The speech recognizer is busy. Try again in a moment.</string>
+    <string name="android_capture_failed_unknown">Speech capture failed, so no turn was sent.</string>
 </resources>
