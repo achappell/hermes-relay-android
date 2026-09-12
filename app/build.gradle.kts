@@ -9,7 +9,7 @@ plugins {
 // derived from it so it always moves too. Android decides whether an APK is an
 // upgrade by versionCode alone, so a frozen value blocks in-place upgrades even
 // when the version name changes.
-val appVersionName = "0.3.0" // x-release-please-version
+val appVersionName = "0.3.1" // x-release-please-version
 
 val appVersionCode = appVersionName.substringBefore('-').split('.').let { parts ->
     require(parts.size == 3) { "Expected a three-part version, found '$appVersionName'." }
