@@ -16,8 +16,8 @@ through `2-A-2`, `3-A-1` through `3-A-6`, and `5-A-1`.
 ## Toolchain
 
 - JDK 21 (Gradle/Kotlin runtime; Java 17-compatible Android bytecode)
-- Gradle Wrapper 9.3.1
-- Android Gradle Plugin 9.1.1
+- Gradle Wrapper 9.7.1
+- Android Gradle Plugin 9.4.0
 - Kotlin 2.4.20 with the matching Compose compiler plugin
 - Compile/target SDK 37; minimum SDK 26
 - Compose BOM 2026.08.00
@@ -61,6 +61,15 @@ To install the debug shell on a connected device or emulator:
 ```
 
 There is no live Hermes endpoint requirement for the bootstrap tests or build.
+
+## GitHub actions and releases
+
+Pull requests and pushes to `main` run the JVM, build, lint, and APK metadata
+checks. Instrumentation tests remain a local-device/emulator check for Android
+16 (API 36) and Android 17 (API 37). Release Please maintains the version and
+changelog; merging its release PR creates a `v*` tag and packages an unsigned
+release APK with a `SHA256SUMS.txt` file.
+Signing and Play distribution remain intentionally outside this repository.
 
 ## Story map
 

@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to package (for example, v0.1.0)"
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to package"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  ANDROID_BUILD_TOOLS: 36.0.0
+  # Android 17 is published as the API 37.0 preview platform package.
+  ANDROID_COMPILE_PLATFORM: "37.0"
+
+jobs:
+  package:
+    name: Build unsigned Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --channel=1 \
+            "platforms;android-${ANDROID_COMPILE_PLATFORM}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"
+
+      - name: Verify release version
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          version_name="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)"
+          test "$version" = "$version_name"
+
+      - name: Test and build release APK
+        run: ./gradlew testDebugUnitTest assembleRelease lintRelease --no-daemon
+
+      - name: Package and checksum release APK
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -f "$apk"
+          mkdir -p dist
+          cp "$apk" "dist/hermes-relay-android-${version}-unsigned.apk"
+          sha256sum dist/*.apk > dist/SHA256SUMS.txt
+
+      - name: Ensure the GitHub release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --title "$RELEASE_TAG" \
+              --generate-notes \
+              --notes "Unsigned Android APK for API 26+ (compiled and targeted with Android API 37). This build is not signed for Play distribution."
+
+      - name: Upload release APK and checksum
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" dist/*.apk dist/SHA256SUMS.txt --clobber

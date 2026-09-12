@@ -63,6 +63,21 @@ internal interface AndroidClientPort {
     fun snapshot(): AndroidClientSnapshot
 
     fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult
+
+    /**
+     * Observe normalized lifecycle events for one accepted turn.
+     *
+     * The adapter owns Hermes frame normalization, audio delivery, and
+     * transport lifetime. The Android UI receives typed events only.
+     */
+    fun observeTurn(
+        binding: AndroidTurnBinding,
+        onEvent: (AndroidNormalizedEvent) -> Unit,
+    ): AndroidTurnObservation = AndroidTurnObservation {}
+}
+
+fun interface AndroidTurnObservation {
+    fun cancel()
 }
 
 internal object BootstrapClientPort : AndroidClientPort {
