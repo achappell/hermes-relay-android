@@ -67,9 +67,39 @@ There is no live Hermes endpoint requirement for the bootstrap tests or build.
 Pull requests and pushes to `main` run the JVM, build, lint, and APK metadata
 checks. Instrumentation tests remain a local-device/emulator check for Android
 16 (API 36) and Android 17 (API 37). Release Please maintains the version and
-changelog; merging its release PR creates a `v*` tag and packages an unsigned
-release APK with a `SHA256SUMS.txt` file.
-Signing and Play distribution remain intentionally outside this repository.
+changelog; merging its release PR creates a `v*` tag and packages a release APK
+with a `SHA256SUMS.txt` file.
+
+The release APK is signed with a developer keystore so it can be sideloaded and
+upgraded in place. CI reads it from four repository secrets:
+
+| Secret | Contents |
+| --- | --- |
+| `RELEASE_KEYSTORE_BASE64` | The keystore file, base64-encoded |
+| `RELEASE_KEYSTORE_PASSWORD` | Keystore password |
+| `RELEASE_KEY_ALIAS` | Key alias inside the keystore |
+| `RELEASE_KEY_PASSWORD` | Password for that key |
+
+Create the keystore once and upload it, keeping the `.jks` and its passwords out
+of the repository:
+
+```bash
+keytool -genkeypair -v -keystore release.jks -storetype PKCS12 \
+  -alias hermes-relay -keyalg RSA -keysize 4096 -validity 10000
+base64 -i release.jks | gh secret set RELEASE_KEYSTORE_BASE64
+gh secret set RELEASE_KEYSTORE_PASSWORD
+gh secret set RELEASE_KEY_ALIAS
+gh secret set RELEASE_KEY_PASSWORD
+```
+
+Keep `release.jks` backed up somewhere safe: losing it means future releases are
+signed with a different key, and installed builds can no longer upgrade.
+
+Local `assembleRelease` runs without those values fall back to the Android debug
+key, so an offline build still works. To sign locally, set
+`RELEASE_KEYSTORE_FILE` plus the same three password/alias variables in the
+environment. Play Store distribution remains intentionally outside this
+repository.
 
 ## Story map
 
