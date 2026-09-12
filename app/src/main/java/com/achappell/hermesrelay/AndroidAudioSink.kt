@@ -176,13 +176,25 @@ internal class AudioTrackAudioSink : AndroidAudioSink {
                 // would claim a response finished speaking while it still is.
                 active.stop()
                 var guard = 0
+                var stalled = 0
+                var lastPosition = active.playbackHeadPosition
+                // The playhead does not always reach the written frame count.
+                // An underrun takes the track off AudioFlinger's active list and
+                // those frames are never rendered, so waiting for equality burns
+                // the whole guard on every underrunning stream. After stop() no
+                // further audio is queued, so a playhead that stops advancing has
+                // finished whatever it is going to play.
                 while (
                     active.playbackHeadPosition < framesWritten &&
+                    stalled < DRAIN_STALL_ITERATIONS &&
                     guard < DRAIN_GUARD_ITERATIONS &&
                     !failed.get()
                 ) {
                     Thread.sleep(DRAIN_POLL_MILLIS)
                     guard += 1
+                    val position = active.playbackHeadPosition
+                    stalled = if (position == lastPosition) stalled + 1 else 0
+                    lastPosition = position
                 }
                 active.playbackHeadPosition
             }
@@ -217,6 +229,10 @@ internal class AudioTrackAudioSink : AndroidAudioSink {
         const val BYTES_PER_SAMPLE = 2
         const val DRAIN_POLL_MILLIS = 20L
         const val DRAIN_GUARD_ITERATIONS = 1_500
+
+        // 500 ms of no playhead movement after stop(). Long enough not to cut
+        // off a track that is still draining, far short of the 30 s guard.
+        const val DRAIN_STALL_ITERATIONS = 25
         const val WRITE_STALL_POLL_MILLIS = 5L
         const val WRITE_STALL_ITERATIONS = 600
     }
