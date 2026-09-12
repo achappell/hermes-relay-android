@@ -17,7 +17,7 @@ concurrency:
 env:
   ANDROID_BUILD_TOOLS: 36.0.0
   # Android 17 is published as the API 37.0 preview platform package.
-  ANDROID_COMPILE_PLATFORM: 37.0
+  ANDROID_COMPILE_PLATFORM: "37.0"
 
 jobs:
   validate:
@@ -71,10 +71,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - api-level: 36
+          - api-level: "36"
             channel: stable
             label: Android 16 / API 36
-          - api-level: 37.0
+          - api-level: "37.0"
             channel: beta
             label: Android 17 / API 37
 
