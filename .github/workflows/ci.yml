@@ -105,7 +105,7 @@ jobs:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
           channel: ${{ matrix.channel }}
-          profile: Pixel_2
+          profile: pixel_7_pro
           target: google_apis
           script: ./gradlew connectedDebugAndroidTest --no-daemon
 
