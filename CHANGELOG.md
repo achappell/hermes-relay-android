@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 (2026-09-12)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Other Changes
+* feat: sign release APKs with a developer keystore by @achappell in https://github.com/achappell/hermes-relay-android/pull/19
+* fix: derive versionCode from the release version name by @achappell in https://github.com/achappell/hermes-relay-android/pull/21
+* fix: repair the release version check and assert APK metadata by @achappell in https://github.com/achappell/hermes-relay-android/pull/22
+
+
+**Full Changelog**: https://github.com/achappell/hermes-relay-android/compare/v0.2.0...v0.3.0
+
 ## 0.2.0 (2026-09-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->
