@@ -50,6 +50,45 @@ of scope.
   retained and `Speaking` never claimed; and `finish` without a `start`
   reporting failure rather than silent success.
 
+## Real-device finding — 2026-09-12
+
+Amanda ran a turn on a Pixel 6a. The audio finished and the phase stayed in
+`Speaking` for about thirty seconds before clearing.
+
+**Cause.** `AudioTrack` underran repeatedly during playback. `logcat` shows
+AudioFlinger reporting `BUFFER TIMEOUT: remove track from active list due to
+underrun` four times, each followed by `releaseBuffer() track disabled due to
+previous underrun, restarting`. Frames written to a track that has been dropped
+from the active list are never rendered, so `playbackHeadPosition` permanently
+lags `framesWritten`. The drain guard waited for those two to become equal --
+which could not happen -- and ran its full `DRAIN_GUARD_ITERATIONS`
+(1,500 x 20 ms = 30 s) before falling through and reporting drained. That is
+why the turn recovered rather than hanging outright.
+
+The underruns were **inaudible**: playback sounded correct. An underrun does
+not have to be perceptible to strand the equality check.
+
+**Fix.** The drain loop now also exits when the playhead stops advancing for
+500 ms after `stop()`. No further audio is queued at that point, so a stalled
+playhead has finished whatever it is going to play. The 30 s guard remains as a
+backstop. Verified on the device: the phase now leaves `Speaking` promptly when
+the audio ends.
+
+**A wrong first diagnosis, recorded deliberately.** The first attempt blamed
+frame arithmetic -- `framesWritten` divided bytes by a fixed two, correct only
+for mono, while the sink configures `CHANNEL_OUT_STEREO` for two-channel
+formats. That is a real defect and is fixed in the same change, but it was not
+this bug: the relay sends mono (`channels` defaults to `1` in
+`HermesEventNormalizer`), so the arithmetic was never wrong for this stream.
+The fix was shipped to the device and changed nothing, which is what pointed at
+the underruns. A theory that predicts no change and produces no change has been
+tested, not confirmed.
+
+**Also found.** `RELEASE_KEYSTORE_FILE` was resolved with the module's
+`file()`, so a relative path landed in `app/` rather than the repository root,
+and the build silently produced a debug-signed APK that could not install over
+a release build. CI was unaffected because it passes an absolute path.
+
 ## Environment limitation
 
 The emulator runs with `-no-audio`, so there is **no audio device to hear**.
