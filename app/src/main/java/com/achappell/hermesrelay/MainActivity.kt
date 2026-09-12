@@ -201,6 +201,13 @@ internal fun AndroidClientScreen(
                 enabled = isAuthorized,
                 label = { Text(stringResource(R.string.android_prompt_label)) },
             )
+            if (!isConnected && prompt.isNotBlank()) {
+                Text(
+                    modifier = Modifier.testTag("android_cached_draft"),
+                    text = stringResource(R.string.android_cached_draft),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Button(
                 onClick = {
                     initiate(AndroidTurnInput.Typed(prompt))
@@ -304,6 +311,15 @@ internal fun AndroidClientScreen(
                             text = stringResource(R.string.android_response_label),
                             style = MaterialTheme.typography.titleMedium,
                         )
+                        // Retained text stays visible during an outage, but it
+                        // must not read as a live conversation.
+                        if (!isConnected) {
+                            Text(
+                                modifier = Modifier.testTag("android_cached_response"),
+                                text = stringResource(R.string.android_cached_response),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                         Text(
                             modifier = Modifier.testTag("android_response_text"),
                             text = turnState.responseText,

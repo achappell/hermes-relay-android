@@ -356,6 +356,74 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun a_replacement_session_ignores_late_frames_from_the_superseded_socket() {
+        val sockets = java.util.Collections.synchronizedList(mutableListOf<WebSocket>())
+        val connected = CountDownLatch(2)
+
+        repeat(2) { index ->
+            server.enqueue(
+                MockResponse().withWebSocketUpgrade(
+                    object : WebSocketListener() {
+                        override fun onMessage(webSocket: WebSocket, text: String) {
+                            if (JSONObject(text).getString("type") != "hello") return
+                            sockets += webSocket
+                            webSocket.send(
+                                JSONObject()
+                                    .put("type", "hello_ack")
+                                    .put("protocol_version", 1)
+                                    .put("session_id", "relay-session-${index + 1}")
+                                    .toString(),
+                            )
+                            connected.countDown()
+                        }
+                    },
+                ),
+            )
+        }
+
+        val client = client()
+        assertEquals(
+            AndroidReconnectOutcome.Connected("relay-session-1"),
+            client.reconnect(),
+        )
+        // A fresh connect must negotiate a genuinely different Session.
+        assertEquals(
+            AndroidReconnectOutcome.Connected("relay-session-2"),
+            client.reconnect(),
+        )
+        assertTrue(connected.await(5, TimeUnit.SECONDS))
+
+        val result = client.beginTurn(
+            AndroidTurnRequest(
+                AndroidProfile("amanda-laptop", "Amanda"),
+                AndroidTurnInput.Typed("after recovery"),
+            ),
+        )
+        val binding = (result as AndroidInitiationResult.Accepted).binding
+        assertEquals("relay-session-2", binding.sessionId)
+
+        var state = AndroidTurnState.awaitingEvents(binding)
+        val observation = client.observeTurn(binding) { event ->
+            state = AndroidTurnStateReducer.reduce(state, event)
+        }
+
+        // The superseded socket speaks after it was replaced.
+        sockets.first().send(
+            JSONObject()
+                .put("type", "text_final")
+                .put("text", "answer from the dead session")
+                .put("session_id", "relay-session-1")
+                .put("turn_id", binding.turnId)
+                .toString(),
+        )
+        Thread.sleep(300)
+        observation.cancel()
+
+        assertEquals("", state.responseText)
+        assertEquals(AndroidTurnPhase.Idle, state.phase)
+    }
+
+    @Test
     fun a_turn_is_refused_before_a_session_exists() {
         val client = client()
 

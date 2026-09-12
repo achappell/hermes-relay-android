@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -174,6 +175,41 @@ class MainActivityTest {
             "This turn lost transport before Hermes confirmed it. It was not replayed. " +
                 "Resend it only if you want to ask again.",
         ).assertCountEquals(0)
+    }
+
+    @Test
+    fun retained_context_is_labelled_as_cached_while_disconnected() {
+        val port = RecoverableAuthorizedFakePort()
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(port)
+            }
+        }
+
+        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
+        composeRule.onNodeWithText("Start typed turn").performClick()
+        composeRule.waitForIdle()
+        val binding = port.lastBinding!!
+
+        port.emit(AndroidNormalizedEvent.Thinking(binding))
+        port.emit(AndroidNormalizedEvent.ResponseTextDelta(binding, "Rain later"))
+        composeRule.waitForIdle()
+
+        // While connected, retained text is live and carries no cached label.
+        composeRule.onAllNodesWithTag("android_cached_response").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("android_cached_draft").assertCountEquals(0)
+
+        port.emit(AndroidNormalizedEvent.Disconnected(binding.sessionId, "The socket closed."))
+        composeRule.waitForIdle()
+
+        // The answer stays visible, but must not read as a live conversation.
+        composeRule.onNodeWithTag("android_response_text").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("android_cached_response").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("android_cached_draft").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
     }
 
     private class AuthorizedFakePort : AndroidClientPort {
