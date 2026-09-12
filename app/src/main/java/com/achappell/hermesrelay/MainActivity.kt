@@ -4,11 +4,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import android.Manifest
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -22,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
@@ -101,6 +105,9 @@ internal fun AndroidClientScreen(
     var permissionRevision by remember { mutableStateOf(0) }
     val promptFocus = remember { FocusRequester() }
     val recorder = remember(historyStore) { historyStore?.let { AndroidHistoryRecorder(it) } }
+    var promptHistory by remember { mutableStateOf(AndroidPromptHistory()) }
+    val exporter = remember { TranscriptExporter() }
+    val context = LocalContext.current
     var historyRevision by remember { mutableStateOf(0) }
 
     // Local History follows the selected Profile: switching Profiles opens that
@@ -149,6 +156,10 @@ internal fun AndroidClientScreen(
             turnState = AndroidTurnState.awaitingEvents(state.binding)
             (input as? AndroidTurnInput.Typed)?.let { typed ->
                 recorder?.recordUserTurn(typed.text)
+                promptHistory = promptHistory.record(typed.text)
+                // The composer empties once the turn is accepted; a sent
+                // prompt lingering in the box reads as unsent.
+                prompt = ""
                 historyRevision += 1
             }
         }
@@ -304,6 +315,36 @@ internal fun AndroidClientScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+            if (!promptHistory.isEmpty) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        modifier = Modifier
+                            .testTag("android_prompt_previous")
+                            .a11yOrder(A11yOrder.ACTION),
+                        onClick = {
+                            val (next, recalled) = promptHistory.previous(prompt)
+                            promptHistory = next
+                            recalled?.let { prompt = it }
+                        },
+                    ) {
+                        Text(stringResource(R.string.android_prompt_previous))
+                    }
+                    TextButton(
+                        modifier = Modifier
+                            .testTag("android_prompt_next")
+                            .a11yOrder(A11yOrder.ACTION),
+                        enabled = promptHistory.isNavigating,
+                        onClick = {
+                            val (next, recalled) = promptHistory.next()
+                            promptHistory = next
+                            recalled?.let { prompt = it }
+                        },
+                    ) {
+                        Text(stringResource(R.string.android_prompt_next))
+                    }
+                }
+            }
+
             Button(
                 onClick = {
                     initiate(AndroidTurnInput.Typed(prompt))
@@ -626,6 +667,45 @@ internal fun AndroidClientScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
+                    // Resolved in composable scope so a configuration change
+                    // cannot leave the share sheet holding a stale string.
+                    val shareTitle = stringResource(R.string.android_history_share_title)
+
+                    fun share(format: AndroidExportFormat) {
+                        val body = exporter.export(
+                            history.history,
+                            format,
+                            snapshot.selectedProfile?.displayName,
+                        )
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, body)
+                            putExtra(Intent.EXTRA_SUBJECT, shareTitle)
+                        }
+                        runCatching {
+                            context.startActivity(Intent.createChooser(send, shareTitle))
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            modifier = Modifier
+                                .testTag("android_history_share_text")
+                                .a11yOrder(A11yOrder.ACTION),
+                            onClick = { share(AndroidExportFormat.PlainText) },
+                        ) {
+                            Text(stringResource(R.string.android_history_share_text))
+                        }
+                        TextButton(
+                            modifier = Modifier
+                                .testTag("android_history_share_markdown")
+                                .a11yOrder(A11yOrder.ACTION),
+                            onClick = { share(AndroidExportFormat.Markdown) },
+                        ) {
+                            Text(stringResource(R.string.android_history_share_markdown))
+                        }
+                    }
+
                     Button(
                         modifier = Modifier
                             .testTag("android_history_clear")

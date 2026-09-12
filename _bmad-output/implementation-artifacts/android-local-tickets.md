@@ -1,0 +1,104 @@
+---
+title: 'Android local tickets — design, brand, export, prompt history'
+type: 'tickets'
+created: '2026-09-12'
+status: 'done'
+baseline_commit: '091ae50'
+context:
+  - '_bmad-output/planning-artifacts/android-ios-parity-audit.md'
+  - '_bmad-output/implementation-artifacts/validation-5-a-2-accessibility.md'
+---
+
+The parity audit proposed four items as **local tickets** rather than upstream
+story identities, matching how iOS tracks `IOS-DESIGN-F1` and `IOS-BRAND-F1`.
+All four are delivered here.
+
+## `ANDROID-DESIGN-F1` — deliberate visual design pass
+
+**Status:** done.
+
+The app shipped on the stock Material baseline scheme. It now has a deliberate
+palette defined as ARGB values in `ui/theme/Palette.kt`, wired through
+`HermesRelayTheme` for light and dark.
+
+The colours live as plain numbers rather than Compose `Color` values for a
+reason: it makes the contrast obligation **measurable by an ordinary unit
+test**. `PaletteContrastTest` computes WCAG 2.2 relative luminance and asserts
+every text pair the surface renders — sixteen of them, light and dark — meets
+the 4.5:1 AA threshold for body text.
+
+**This closes the contrast gap `5-A-2` explicitly left open.** That validation
+record said "nothing here measured a contrast ratio". Now something does, and a
+palette change that breaks readability fails the build.
+
+Dynamic colour is deliberately not used: a wallpaper-derived scheme would
+replace verified values with unverified ones at runtime.
+
+The test suite includes a guard that a known-bad pair is actually caught, so
+the check cannot pass vacuously.
+
+## `ANDROID-BRAND-F1` — app icon
+
+**Status:** done.
+
+The app had no icon at all — not a placeholder, but nothing, so the launcher
+fell back to the system default.
+
+An adaptive icon now ships: three chevrons of decreasing weight reading as
+transmission, drawn inside the 66dp safe zone so no launcher mask clips them,
+on the palette's primary. A `monochrome` layer is included for themed icons.
+
+The mark is deliberately simple. A detailed emblem turns to mud at launcher
+size, and this one stays legible small.
+
+## `ANDROID-UX-F1` — transcript export
+
+**Status:** done.
+
+`TranscriptExporter` renders Local History as plain text or Markdown, shared
+through the standard Android share sheet.
+
+Export carries only what Local History holds — the text of an exchange. A test
+asserts no `token`, `wss://`, `session`, `bearer`, or `pcm` string can appear in
+either format, because a shared transcript travels further than the device it
+came from.
+
+## `ANDROID-UX-F2` — prompt history
+
+**Status:** done.
+
+`AndroidPromptHistory` gives the composer shell-style recall: bounded to 50
+entries, stepping back through submitted prompts, and stepping forward to
+restore the half-typed draft the user was writing before they started
+navigating. Blank and repeated prompts are not recorded.
+
+### A bug this surfaced
+
+Wiring recall exposed that **the composer was never cleared after sending**. A
+sent prompt lingered in the box, reading as unsent, and made recall useless
+because the field was never empty to recall into. The composer now empties when
+a turn is accepted.
+
+That changed a `2-A-2` test's premise: it asserted a cached-draft label after
+submitting, but there is no longer an unsent draft at that point. The test now
+types something new during the outage, which is the behaviour the label
+actually describes.
+
+## Verification
+
+- `./gradlew testDebugUnitTest assembleDebug lintDebug` — 117 unit tests, 0
+  failures (15 new); APK assembled; lint clean.
+- `./gradlew connectedDebugAndroidTest` — 25 instrumentation tests, 0 failures
+  (1 new), run three times after one unexplained partial run reported a single
+  empty failure. It passed alone and in two consecutive full suites afterwards.
+- A lint error was fixed rather than suppressed: `context.getString` inside the
+  share action is not configuration-aware, so the string is now resolved in
+  composable scope.
+
+## Still open from `UX-DR21`
+
+Contrast is now measured, but two obligations from the `5-A-2` record remain:
+
+- **No screen reader has been run.** TalkBack is still unexercised.
+- **Reduced motion** is still unaddressed, because the surface still has no
+  animation to suppress.

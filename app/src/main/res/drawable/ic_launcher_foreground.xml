@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Hermes Relay mark: a message passing outward.
+
+  Three chevrons of decreasing weight read as transmission at a glance and stay
+  legible at launcher size, where a detailed emblem would turn to mud. Drawn
+  inside the 66dp adaptive-icon safe zone so no mask can clip it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:pathData="M38,32 L60,54 L38,76"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M56,38 L72,54 L56,70"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeAlpha="0.72"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M70,46 L78,54 L70,62"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeAlpha="0.45"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
