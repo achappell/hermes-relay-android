@@ -208,8 +208,13 @@ class MainActivityTest {
         // The answer stays visible, but must not read as a live conversation.
         composeRule.onNodeWithTag("android_response_text").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("android_cached_response").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("android_cached_draft").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
+
+        // The composer emptied when the turn was sent, so a draft only exists
+        // once something new is typed during the outage.
+        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("written while offline")
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("android_cached_draft").performScrollTo().assertIsDisplayed()
     }
 
     private class AuthorizedFakePort : AndroidClientPort {

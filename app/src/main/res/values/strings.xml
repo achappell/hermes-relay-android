@@ -86,4 +86,9 @@
     <string name="android_history_hermes">Hermes</string>
     <string name="android_history_clear">Clear Local History</string>
     <string name="android_history_boundary">Kept on this device for this Profile only. Text is kept; audio never is.</string>
+    <string name="android_history_share_text">Share as text</string>
+    <string name="android_history_share_markdown">Share as Markdown</string>
+    <string name="android_history_share_title">Hermes conversation</string>
+    <string name="android_prompt_previous">Previous prompt</string>
+    <string name="android_prompt_next">Next prompt</string>
 </resources>

@@ -133,6 +133,42 @@ class LocalHistoryTest {
         assertTrue(store.load("profile-1").entries.isEmpty())
     }
 
+    @Test
+    fun a_submitted_prompt_can_be_recalled_without_losing_a_half_typed_one() {
+        val store = FileAndroidHistoryStore(directory)
+        val port = HistoryFakePort()
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(clientPort = port, historyStore = store)
+            }
+        }
+
+        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("check the weather")
+        composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
+        composeRule.waitForIdle()
+
+        val binding = port.lastBinding!!
+        composeRule.runOnIdle {
+            port.emit(AndroidNormalizedEvent.ResponseTextDelta(binding, "Rain later"))
+            port.emit(AndroidNormalizedEvent.TurnCompleted(binding))
+        }
+        composeRule.waitForIdle()
+
+        // Start typing something new, then recall the previous prompt.
+        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("half typed")
+        composeRule.onNodeWithTag("android_prompt_previous").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("check the weather").performScrollTo().assertIsDisplayed()
+
+        // Stepping forward restores what was being typed rather than discarding it.
+        composeRule.onNodeWithTag("android_prompt_next").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("half typed").performScrollTo().assertIsDisplayed()
+    }
+
     private class HistoryFakePort : AndroidClientPort {
         private val profile = AndroidProfile("amanda-laptop", "Amanda")
         var lastBinding: AndroidTurnBinding? = null
