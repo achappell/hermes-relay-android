@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
@@ -44,9 +46,21 @@ android {
     // Release signing comes from an external keystore so the APK is installable.
     // CI supplies these via secrets; local builds without them fall back to the
     // debug key so `assembleRelease` keeps working offline.
+    // Resolve against the repository root, not the module directory, so a
+    // relative path means what the caller expects. A path that was supplied but
+    // does not exist is an error: silently falling back to the debug key
+    // produces an APK that cannot upgrade a real install, and says nothing.
     val releaseKeystore = providers.environmentVariable("RELEASE_KEYSTORE_FILE").orNull
-        ?.let(::file)
-        ?.takeIf { it.exists() }
+        ?.let { path ->
+            val candidate = File(path).let { file ->
+                if (file.isAbsolute) file else rootProject.file(path)
+            }
+            require(candidate.exists()) {
+                "RELEASE_KEYSTORE_FILE is set to '$path', which resolves to " +
+                    "${candidate.absolutePath} and does not exist."
+            }
+            candidate
+        }
 
     signingConfigs {
         if (releaseKeystore != null) {
