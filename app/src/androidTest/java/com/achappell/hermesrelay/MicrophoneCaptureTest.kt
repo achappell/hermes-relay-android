@@ -176,9 +176,55 @@ class MicrophoneCaptureTest {
         assertEquals(0, port.requests.size)
     }
 
+    @Test
+    fun hands_free_continues_after_a_completed_turn_and_stop_ends_it() {
+        val speech = FakeSpeechInput()
+        val port = ConnectedFakePort()
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(clientPort = port, speechInput = speech)
+            }
+        }
+
+        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("android_hands_free").performScrollTo().performClick()
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle { speech.emit(AndroidSpeechEvent.Started) }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("android_hands_free_active").performScrollTo().assertIsDisplayed()
+
+        composeRule.runOnIdle { speech.emit(AndroidSpeechEvent.Final("check the weather")) }
+        composeRule.waitForIdle()
+        assertEquals(1, port.requests.size)
+
+        // Completing the turn reopens the window without another tap.
+        val binding = AndroidTurnBinding("amanda-laptop", "session-1", "turn-1")
+        composeRule.runOnIdle {
+            port.emit(AndroidNormalizedEvent.AudioStarted(binding))
+            port.emit(AndroidNormalizedEvent.AudioEnded(binding))
+            port.emit(AndroidNormalizedEvent.TurnCompleted(binding))
+        }
+        composeRule.waitForIdle()
+        assertEquals("the window did not reopen", 2, speech.startCount)
+
+        // Exactly "stop" ends it, and is never sent as a turn.
+        composeRule.runOnIdle {
+            speech.emit(AndroidSpeechEvent.Started)
+            speech.emit(AndroidSpeechEvent.Final("stop"))
+        }
+        composeRule.waitForIdle()
+
+        assertEquals("stop was submitted to Hermes", 1, port.requests.size)
+        composeRule.onNodeWithTag("android_hands_free_exit").performScrollTo().assertIsDisplayed()
+    }
+
     private class ConnectedFakePort : AndroidClientPort {
         private val profile = AndroidProfile("amanda-laptop", "Amanda")
         val requests = mutableListOf<AndroidTurnRequest>()
+        private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
 
         override fun snapshot() = AndroidClientSnapshot(
             titleRes = BootstrapState.titleRes,
@@ -195,6 +241,18 @@ class MicrophoneCaptureTest {
             )
         }
 
+        override fun observeTurn(
+            binding: AndroidTurnBinding,
+            onEvent: (AndroidNormalizedEvent) -> Unit,
+        ): AndroidTurnObservation {
+            listener = onEvent
+            return AndroidTurnObservation { listener = null }
+        }
+
         override fun reconnect() = AndroidReconnectOutcome.Connected("session-1")
+
+        fun emit(event: AndroidNormalizedEvent) {
+            listener?.invoke(event)
+        }
     }
 }

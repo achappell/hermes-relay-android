@@ -91,4 +91,11 @@
     <string name="android_history_share_title">Hermes conversation</string>
     <string name="android_prompt_previous">Previous prompt</string>
     <string name="android_prompt_next">Next prompt</string>
+    <string name="android_hands_free_start">Start hands-free</string>
+    <string name="android_hands_free_stop">End hands-free</string>
+    <string name="android_hands_free_active">Hands-free: the conversation continues after each answer. Say \"stop\" to end it.</string>
+    <string name="android_hands_free_exit_stop">Hands-free ended because you said \"stop\".</string>
+    <string name="android_hands_free_exit_silence">Hands-free ended after a silent window.</string>
+    <string name="android_hands_free_exit_failure">Hands-free ended because the turn did not complete.</string>
+    <string name="android_hands_free_exit_session">Hands-free ended because the Hermes Session ended.</string>
 </resources>
