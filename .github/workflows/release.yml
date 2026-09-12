@@ -62,7 +62,11 @@ jobs:
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
-          version_name="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)"
+          version_name="$(sed -n 's/.*appVersionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)"
+          if [[ -z "$version_name" ]]; then
+            printf '%s\n' "Could not read appVersionName from app/build.gradle.kts." >&2
+            exit 1
+          fi
           test "$version" = "$version_name"
 
       - name: Decode release keystore
@@ -89,12 +93,17 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/release.jks"
 
       - name: Package and checksum release APK
+        env:
+          # Optional: set the RELEASE_SIGNER_SHA256 repository variable to pin
+          # the expected signing certificate. Unset, the signature is still
+          # produced but not asserted against a known key.
+          EXPECTED_SIGNER_SHA256: ${{ vars.RELEASE_SIGNER_SHA256 }}
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
           apk="app/build/outputs/apk/release/app-release.apk"
           test -f "$apk"
-          "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/apksigner" verify --print-certs "$apk"
+          scripts/check-apk-metadata.sh "$apk"
           mkdir -p dist
           cp "$apk" "dist/hermes-relay-android-${version}.apk"
           sha256sum dist/*.apk > dist/SHA256SUMS.txt
