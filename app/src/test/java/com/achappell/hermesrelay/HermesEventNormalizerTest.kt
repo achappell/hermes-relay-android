@@ -131,8 +131,14 @@ class HermesEventNormalizerTest {
     fun audio_lifecycle_frames_map_without_retaining_bytes() {
         val normalizer = normalizer()
 
+        // A bare audio_start falls back to the relay's documented PCM format.
         assertEquals(
-            listOf(AndroidNormalizedEvent.AudioStarted(binding)),
+            listOf(
+                AndroidNormalizedEvent.AudioStarted(
+                    binding,
+                    AndroidAudioFormat(24_000, 1, 2, "pcm_s16le"),
+                ),
+            ),
             normalizer.normalize(frame("type" to "audio_start"), binding),
         )
         assertEquals(

@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
         val clientPort = OkHttpRelaySessionClient(
             collection = { configuration.collection },
             credentials = credentials,
+            audioSink = AudioTrackAudioSink(),
         )
 
         setContent {

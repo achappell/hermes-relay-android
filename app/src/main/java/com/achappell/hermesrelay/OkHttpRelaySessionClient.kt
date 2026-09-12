@@ -32,12 +32,14 @@ internal class OkHttpRelaySessionClient(
     private val credentials: RelayCredentialStore,
     private val httpClient: OkHttpClient = defaultClient(),
     private val helloTimeoutMillis: Long = DEFAULT_HELLO_TIMEOUT_MILLIS,
+    private val audioSink: AndroidAudioSink = RecordingAudioSink(),
 ) : AndroidClientPort {
 
     private val activeSocket = AtomicReference<WebSocket?>(null)
     private val sessionId = AtomicReference<String?>(null)
     private val observer = AtomicReference<TurnObserver?>(null)
     private val normalizer = AtomicReference<HermesEventNormalizer?>(null)
+    private val audioActive = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private class TurnObserver(
         val binding: AndroidTurnBinding,
@@ -86,6 +88,8 @@ internal class OkHttpRelaySessionClient(
 
         val turnId = UUID.randomUUID().toString()
         normalizer.get()?.beginTurn()
+        audioActive.set(false)
+        audioSink.cancel()
 
         val sent = socket.send(
             JSONObject()
@@ -124,7 +128,58 @@ internal class OkHttpRelaySessionClient(
     private fun dispatch(text: String) {
         val active = observer.get() ?: return
         val events = normalizer.get() ?: return
-        events.normalize(text, active.binding).forEach(active.onEvent)
+        events.normalize(text, active.binding).forEach { event ->
+            when (event) {
+                // Claim Speaking only once playback has actually begun.
+                is AndroidNormalizedEvent.AudioStarted -> {
+                    val format = event.format
+                    if (format != null && audioSink.start(format)) {
+                        audioActive.set(true)
+                        active.onEvent(event)
+                    } else {
+                        audioActive.set(false)
+                        active.onEvent(
+                            AndroidNormalizedEvent.AudioFailed(
+                                event.binding,
+                                "This device cannot play the response audio format " +
+                                    "(${format?.encoding ?: "unspecified"}).",
+                            ),
+                        )
+                    }
+                }
+
+                // Reaching Complete before the buffer drains would claim a
+                // response had finished speaking while it still was.
+                is AndroidNormalizedEvent.AudioEnded -> {
+                    if (!audioActive.getAndSet(false)) {
+                        active.onEvent(event)
+                    } else {
+                        audioSink.finish(
+                            onDrained = { active.onEvent(event) },
+                            onFailure = { reason ->
+                                active.onEvent(
+                                    AndroidNormalizedEvent.AudioFailed(event.binding, reason),
+                                )
+                            },
+                        )
+                    }
+                }
+
+                is AndroidNormalizedEvent.AudioFailed -> {
+                    audioActive.set(false)
+                    audioSink.cancel()
+                    active.onEvent(event)
+                }
+
+                is AndroidNormalizedEvent.TurnFailed -> {
+                    audioActive.set(false)
+                    audioSink.cancel()
+                    active.onEvent(event)
+                }
+
+                else -> active.onEvent(event)
+            }
+        }
     }
 
     private fun reportDisconnect(reason: String) {
@@ -177,6 +232,9 @@ internal class OkHttpRelaySessionClient(
                 override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
                     val active = observer.get() ?: return
                     val events = normalizer.get() ?: return
+                    if (audioActive.get()) {
+                        audioSink.write(bytes.toByteArray())
+                    }
                     active.onEvent(events.normalizeBinary(active.binding))
                 }
 
@@ -233,6 +291,8 @@ internal class OkHttpRelaySessionClient(
     fun disconnect() {
         activeSocket.getAndSet(null)?.close(NORMAL_CLOSURE, null)
         sessionId.set(null)
+        audioActive.set(false)
+        audioSink.cancel()
     }
 
     private fun helloFrame(profile: RelayProfile, sessionId: String): String =
