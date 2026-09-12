@@ -53,6 +53,12 @@ internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
     var prompt by rememberSaveable { mutableStateOf("") }
     var initiationState by remember { mutableStateOf<AndroidInitiationState>(AndroidInitiationState.Idle) }
     var turnState by remember { mutableStateOf(AndroidTurnState()) }
+    var recoveryState by remember { mutableStateOf(AndroidRecoveryState()) }
+    var lastRequest by remember { mutableStateOf<AndroidTurnRequest?>(null) }
+    var resendResult by remember { mutableStateOf<AndroidResendResult?>(null) }
+    val recoveryController = remember(clientPort) {
+        AndroidRecoveryController(clientPort) { changed -> recoveryState = changed }
+    }
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
     val acceptedBinding = (initiationState as? AndroidInitiationState.Accepted)?.binding
@@ -61,7 +67,19 @@ internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
     DisposableEffect(clientPort, acceptedBinding) {
         val observation = acceptedBinding?.let { binding ->
             clientPort.observeTurn(binding) { event ->
-                turnState = AndroidTurnStateReducer.reduce(turnState, event)
+                val previous = turnState
+                val next = AndroidTurnStateReducer.reduce(previous, event)
+                turnState = next
+                if (next.phase == AndroidTurnPhase.Disconnected &&
+                    previous.phase != AndroidTurnPhase.Disconnected
+                ) {
+                    recoveryController.transportLost(
+                        reason = next.unavailableReason.orEmpty(),
+                        inFlightTurn = lastRequest?.let { request ->
+                            AndroidUnconfirmedTurn(binding, request)
+                        },
+                    )
+                }
             }
         }
         onDispose {
@@ -70,10 +88,22 @@ internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
     }
 
     fun initiate(input: AndroidTurnInput) {
+        val profile = snapshot.selectedProfile
         val state = controller.initiate(input)
         initiationState = state
         if (state is AndroidInitiationState.Accepted) {
+            lastRequest = profile?.let { AndroidTurnRequest(it, input) }
+            resendResult = null
             turnState = AndroidTurnState.awaitingEvents(state.binding)
+        }
+    }
+
+    fun resendUnconfirmedTurn() {
+        val result = recoveryController.resendUnconfirmedTurn()
+        resendResult = result
+        if (result is AndroidResendResult.Sent) {
+            initiationState = AndroidInitiationState.Accepted(result.binding)
+            turnState = AndroidTurnState.awaitingEvents(result.binding)
         }
     }
 
@@ -164,6 +194,65 @@ internal fun AndroidClientScreen(clientPort: AndroidClientPort) {
                 Text(stringResource(R.string.android_tap_to_speak))
             }
 
+            if (recoveryState.connection != AndroidConnectionState.Connected ||
+                recoveryState.hasUnconfirmedTurn
+            ) {
+                Text(
+                    modifier = Modifier.testTag("android_connection_state"),
+                    text = stringResource(
+                        R.string.android_connection_label,
+                        recoveryState.connection.label(),
+                    ),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+
+            if (recoveryState.connection != AndroidConnectionState.Connected) {
+                Button(
+                    onClick = { recoveryController.recover() },
+                    enabled = !recoveryState.isRecovering,
+                ) {
+                    Text(stringResource(R.string.android_recover))
+                }
+            }
+
+            if (recoveryState.hasUnconfirmedTurn) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                ) {
+                    Text(
+                        modifier = Modifier
+                            .padding(20.dp)
+                            .testTag("android_unconfirmed_turn"),
+                        text = stringResource(R.string.android_unconfirmed_turn),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                Button(onClick = { resendUnconfirmedTurn() }) {
+                    Text(stringResource(R.string.android_resend_unconfirmed_turn))
+                }
+                Button(onClick = { recoveryController.discardUnconfirmedTurn() }) {
+                    Text(stringResource(R.string.android_discard_unconfirmed_turn))
+                }
+            }
+
+            when (val resend = resendResult) {
+                null, is AndroidResendResult.Sent, AndroidResendResult.NothingToResend -> Unit
+                AndroidResendResult.NotConnected -> Text(
+                    text = stringResource(R.string.android_resend_not_connected),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+
+                is AndroidResendResult.Rejected -> Text(
+                    text = stringResource(resend.reason.messageRes()),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
             when (val state = initiationState) {
                 AndroidInitiationState.Idle -> Unit
                 is AndroidInitiationState.Accepted -> {
@@ -242,6 +331,19 @@ private fun AndroidInitiationFailure.messageRes(): Int = when (this) {
     AndroidInitiationFailure.AuthorizationRequired -> R.string.android_failure_authorization_required
     AndroidInitiationFailure.EmptyTypedPrompt -> R.string.android_failure_empty_prompt
     AndroidInitiationFailure.SessionUnavailable -> R.string.android_failure_session_unavailable
+}
+
+@Composable
+private fun AndroidConnectionState.label(): String = when (this) {
+    AndroidConnectionState.Connected -> stringResource(R.string.android_connection_connected)
+    AndroidConnectionState.Disconnected -> stringResource(R.string.android_connection_disconnected)
+    is AndroidConnectionState.Reconnecting -> stringResource(
+        R.string.android_connection_reconnecting,
+        attempt,
+        of,
+    )
+
+    is AndroidConnectionState.Failed -> stringResource(R.string.android_connection_failed, reason)
 }
 
 private fun AndroidTurnPhase.labelRes(): Int = when (this) {

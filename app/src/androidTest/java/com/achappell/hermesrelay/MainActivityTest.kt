@@ -130,6 +130,44 @@ class MainActivityTest {
         composeRule.onAllNodesWithText("Turn phase: Speaking").assertCountEquals(0)
     }
 
+    @Test
+    fun a_lost_turn_is_marked_unconfirmed_and_resent_only_by_an_explicit_action() {
+        val port = RecoverableAuthorizedFakePort()
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(port)
+            }
+        }
+
+        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
+        composeRule.onNodeWithText("Start typed turn").performClick()
+        composeRule.waitForIdle()
+        val binding = AndroidTurnBinding("amanda", "session-1", "turn-1")
+
+        port.emit(AndroidNormalizedEvent.Thinking(binding))
+        port.emit(AndroidNormalizedEvent.Disconnected("session-1", "The socket closed."))
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("android_unconfirmed_turn").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Hermes Session: Disconnected").performScrollTo().assertIsDisplayed()
+        assertEquals(1, port.requests.size)
+
+        composeRule.onNodeWithText("Reconnect").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        assertEquals(1, port.requests.size)
+
+        composeRule.onNodeWithText("Resend this turn").performScrollTo().performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(2, port.requests.size)
+        assertEquals(port.requests[0], port.requests[1])
+        composeRule.onAllNodesWithText(
+            "This turn lost transport before Hermes confirmed it. It was not replayed. " +
+                "Resend it only if you want to ask again.",
+        ).assertCountEquals(0)
+    }
+
     private class AuthorizedFakePort : AndroidClientPort {
         private val profile = AndroidProfile("amanda", "Amanda")
         val requests = mutableListOf<AndroidTurnRequest>()
@@ -188,6 +226,53 @@ class MainActivityTest {
                     listener = null
                 }
             }
+        }
+
+        fun emit(event: AndroidNormalizedEvent) {
+            listener?.invoke(event)
+        }
+    }
+
+    private class RecoverableAuthorizedFakePort : AndroidClientPort {
+        private val profile = AndroidProfile("amanda", "Amanda")
+        val requests = mutableListOf<AndroidTurnRequest>()
+        private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        private var sessionId = "session-1"
+
+        override fun snapshot() = AndroidClientSnapshot(
+            titleRes = BootstrapState.titleRes,
+            descriptionRes = BootstrapState.descriptionRes,
+            boundaryRes = BootstrapState.boundaryRes,
+            selectedProfile = profile,
+            authorizationState = AndroidAuthorizationState.Verified,
+        )
+
+        override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult {
+            requests += request
+            return AndroidInitiationResult.Accepted(
+                AndroidTurnBinding(
+                    profileId = request.profile.id,
+                    sessionId = sessionId,
+                    turnId = "turn-${'$'}{requests.size}",
+                ),
+            )
+        }
+
+        override fun observeTurn(
+            binding: AndroidTurnBinding,
+            onEvent: (AndroidNormalizedEvent) -> Unit,
+        ): AndroidTurnObservation {
+            listener = onEvent
+            return AndroidTurnObservation {
+                if (listener === onEvent) {
+                    listener = null
+                }
+            }
+        }
+
+        override fun reconnect(): AndroidReconnectOutcome {
+            sessionId = "session-2"
+            return AndroidReconnectOutcome.Connected(sessionId)
         }
 
         fun emit(event: AndroidNormalizedEvent) {

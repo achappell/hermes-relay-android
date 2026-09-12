@@ -74,6 +74,16 @@ internal interface AndroidClientPort {
         binding: AndroidTurnBinding,
         onEvent: (AndroidNormalizedEvent) -> Unit,
     ): AndroidTurnObservation = AndroidTurnObservation {}
+
+    /**
+     * Attempt one reconnect and negotiate a fresh Session.
+     *
+     * The adapter owns backoff timing, credentials, and transport teardown. A
+     * successful reconnect never resumes the prior Session and never resends a
+     * turn on the Client's behalf.
+     */
+    fun reconnect(): AndroidReconnectOutcome =
+        AndroidReconnectOutcome.Unrecoverable("Hermes Session transport is not configured.")
 }
 
 fun interface AndroidTurnObservation {

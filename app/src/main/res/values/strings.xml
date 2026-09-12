@@ -32,4 +32,14 @@
     <string name="android_failure_authorization_required">The selected Hermes Profile is not verified. No audio or turn was submitted.</string>
     <string name="android_failure_empty_prompt">Enter a prompt before starting a typed turn.</string>
     <string name="android_failure_session_unavailable">The Hermes Session is unavailable. No fallback Profile was selected.</string>
+    <string name="android_connection_label">Hermes Session: %1$s</string>
+    <string name="android_connection_connected">Connected</string>
+    <string name="android_connection_disconnected">Disconnected</string>
+    <string name="android_connection_reconnecting">Reconnecting (attempt %1$d of %2$d)</string>
+    <string name="android_connection_failed">Reconnect failed: %1$s</string>
+    <string name="android_recover">Reconnect</string>
+    <string name="android_unconfirmed_turn">This turn lost transport before Hermes confirmed it. It was not replayed. Resend it only if you want to ask again.</string>
+    <string name="android_resend_unconfirmed_turn">Resend this turn</string>
+    <string name="android_discard_unconfirmed_turn">Discard this turn</string>
+    <string name="android_resend_not_connected">Reconnect before resending an unconfirmed turn.</string>
 </resources>
