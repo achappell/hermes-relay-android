@@ -124,6 +124,7 @@ jobs:
           channel: ${{ matrix.channel }}
           profile: pixel_7_pro
           target: google_apis
+          emulator-boot-timeout: 1200
           script: ./gradlew connectedDebugAndroidTest --no-daemon
 
       - name: Upload instrumentation results
