@@ -2,6 +2,7 @@ package com.achappell.hermesrelay
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -84,12 +85,14 @@ class LiveRelayHandshakeTest {
             deviceId = arguments.getString("relayDeviceId") ?: "android",
             displayName = "Android live gate",
         )
+        val sink = AudioTrackAudioSink()
         val client = OkHttpRelaySessionClient(
             collection = {
                 RelayProfileCollection(profiles = listOf(profile), selectedId = profile.id)
             },
             credentials = InMemoryRelayCredentialStore(mapOf(profile.id to token!!)),
             helloTimeoutMillis = 15_000,
+            audioSink = sink,
         )
 
         assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
@@ -119,8 +122,12 @@ class LiveRelayHandshakeTest {
 
         assertTrue("the turn never reached a terminal state", completed)
         assertTrue(
-            "Hermes returned no response text (phase=${'$'}{state.phase})",
+            "Hermes returned no response text (phase=" + state.phase + ")",
             state.responseText.isNotBlank(),
         )
+        // The relay advertises pcm_s16le and streams it, so a completed turn
+        // must mean the audio actually played through to the end.
+        assertEquals(AndroidTurnPhase.Complete, state.phase)
+        assertEquals(AndroidAudioDelivery.Delivered, state.audio)
     }
 }

@@ -67,7 +67,17 @@ internal class HermesEventNormalizer(
                 payload.optString("text").ifBlank { payload.optString("rendered") },
             )
 
-            "audio_start" -> listOf(AndroidNormalizedEvent.AudioStarted(binding))
+            "audio_start" -> listOf(
+                AndroidNormalizedEvent.AudioStarted(
+                    binding,
+                    AndroidAudioFormat(
+                        sampleRate = payload.optInt("sample_rate", 24_000),
+                        channels = payload.optInt("channels", 1),
+                        sampleWidth = payload.optInt("sample_width", 2),
+                        encoding = payload.optString("encoding").ifBlank { "pcm_s16le" },
+                    ),
+                ),
+            )
 
             "audio_file_start" -> {
                 audioFileActive = true

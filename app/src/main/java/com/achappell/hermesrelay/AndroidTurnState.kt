@@ -82,6 +82,7 @@ internal sealed interface AndroidNormalizedEvent {
 
     data class AudioStarted(
         override val binding: AndroidTurnBinding,
+        val format: AndroidAudioFormat? = null,
     ) : AndroidNormalizedEvent
 
     data class AudioChunkReceived(
