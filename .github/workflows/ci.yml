@@ -65,7 +65,7 @@ jobs:
 
   instrumentation:
     name: Instrumentation tests (${{ matrix.label }})
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -103,7 +103,7 @@ jobs:
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: ${{ matrix.api-level }}
-          arch: x86_64
+          arch: arm64-v8a
           channel: ${{ matrix.channel }}
           profile: pixel_7_pro
           target: google_apis
