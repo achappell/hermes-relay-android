@@ -1,9 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Required on Android 11+ to see an installed speech recognizer. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <!-- The Hermes relay is reached over the tailnet with wss://; no cleartext
          permission or network security configuration is required. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Tap-to-speak. Audio is transcribed on device and never uploaded: the
+         relay refuses binary ingress and accepts local-STT text only. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:allowBackup="false"

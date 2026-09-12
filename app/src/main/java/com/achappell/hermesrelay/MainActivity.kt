@@ -3,7 +3,10 @@ package com.achappell.hermesrelay
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -53,7 +56,11 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             HermesRelayTheme {
-                AndroidClientScreen(clientPort, configuration)
+                AndroidClientScreen(
+                    clientPort = clientPort,
+                    configuration = configuration,
+                    speechInput = PlatformSpeechInput(applicationContext),
+                )
             }
         }
     }
@@ -63,6 +70,7 @@ class MainActivity : ComponentActivity() {
 internal fun AndroidClientScreen(
     clientPort: AndroidClientPort,
     configuration: RelayConfigurationController? = null,
+    speechInput: AndroidSpeechInput? = null,
 ) {
     var configurationRevision by remember { mutableStateOf(0) }
     val snapshot = remember(clientPort, configurationRevision) { clientPort.snapshot() }
@@ -76,6 +84,8 @@ internal fun AndroidClientScreen(
     val recoveryController = remember(clientPort) {
         AndroidRecoveryController(clientPort) { changed -> recoveryState = changed }
     }
+    var captureState by remember { mutableStateOf<AndroidCaptureState>(AndroidCaptureState.Idle) }
+    var permissionRevision by remember { mutableStateOf(0) }
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
     val isConnected = recoveryState.connection == AndroidConnectionState.Connected
@@ -114,6 +124,35 @@ internal fun AndroidClientScreen(
             resendResult = null
             turnState = AndroidTurnState.awaitingEvents(state.binding)
         }
+    }
+
+    val captureController = remember(clientPort, speechInput) {
+        speechInput?.let { input ->
+            AndroidCaptureController(
+                speech = input,
+                initiation = controller,
+                isConnected = { recoveryState.connection == AndroidConnectionState.Connected },
+                isAuthorized = {
+                    val current = clientPort.snapshot()
+                    current.selectedProfile != null &&
+                        current.authorizationState == AndroidAuthorizationState.Verified
+                },
+                onStateChange = { changed -> captureState = changed },
+                onInitiation = { result ->
+                    initiationState = result
+                    if (result is AndroidInitiationState.Accepted) {
+                        turnState = AndroidTurnState.awaitingEvents(result.binding)
+                    }
+                },
+            )
+        }
+    }
+
+    val microphonePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        permissionRevision += 1
+        if (granted) captureController?.beginCapture()
     }
 
     fun resendUnconfirmedTurn() {
@@ -217,13 +256,77 @@ internal fun AndroidClientScreen(
             ) {
                 Text(stringResource(R.string.android_start_typed_turn))
             }
-            Button(
-                onClick = {
-                    initiate(AndroidTurnInput.TapToSpeak)
-                },
-                enabled = isAuthorized && isConnected && !hasAcceptedTurn,
-            ) {
-                Text(stringResource(R.string.android_tap_to_speak))
+            if (captureController == null) {
+                Button(
+                    onClick = { initiate(AndroidTurnInput.TapToSpeak) },
+                    enabled = isAuthorized && isConnected && !hasAcceptedTurn,
+                ) {
+                    Text(stringResource(R.string.android_tap_to_speak))
+                }
+            } else if (captureController.isCapturing) {
+                Text(
+                    modifier = Modifier.testTag("android_capture_state"),
+                    text = stringResource(captureState.labelRes()),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Button(
+                    modifier = Modifier.testTag("android_capture_stop"),
+                    onClick = { captureController.finishCapture() },
+                ) {
+                    Text(stringResource(R.string.android_capture_stop))
+                }
+                Button(onClick = { captureController.cancelCapture() }) {
+                    Text(stringResource(R.string.android_capture_cancel))
+                }
+            } else {
+                val block = remember(
+                    isAuthorized,
+                    isConnected,
+                    permissionRevision,
+                    captureState,
+                ) { captureController.blockingReason() }
+
+                Button(
+                    modifier = Modifier.testTag("android_tap_to_speak"),
+                    onClick = {
+                        if (block == AndroidCaptureBlock.PermissionRequired) {
+                            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            captureController.beginCapture()
+                        }
+                    },
+                    enabled = !hasAcceptedTurn &&
+                        block != AndroidCaptureBlock.ProfileUnavailable &&
+                        block != AndroidCaptureBlock.NotConnected &&
+                        block != AndroidCaptureBlock.RecognizerUnavailable,
+                ) {
+                    Text(
+                        stringResource(
+                            if (block == AndroidCaptureBlock.PermissionRequired) {
+                                R.string.android_capture_grant
+                            } else {
+                                R.string.android_tap_to_speak
+                            },
+                        ),
+                    )
+                }
+
+                block?.let { reason ->
+                    Text(
+                        modifier = Modifier.testTag("android_capture_block"),
+                        text = stringResource(reason.messageRes()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                (captureState as? AndroidCaptureState.Failed)?.let { failed ->
+                    Text(
+                        modifier = Modifier.testTag("android_capture_failed"),
+                        text = stringResource(failed.reason.messageRes()),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
 
             if (!isConnected || recoveryState.hasUnconfirmedTurn) {
@@ -384,6 +487,29 @@ private fun AndroidConnectionState.label(): String = when (this) {
     )
 
     is AndroidConnectionState.Failed -> stringResource(R.string.android_connection_failed, reason)
+}
+
+private fun AndroidCaptureState.labelRes(): Int = when (this) {
+    AndroidCaptureState.Starting -> R.string.android_capture_starting
+    AndroidCaptureState.Listening -> R.string.android_capture_listening
+    is AndroidCaptureState.Transcribing -> R.string.android_capture_transcribing
+    else -> R.string.android_capture_listening
+}
+
+private fun AndroidCaptureBlock.messageRes(): Int = when (this) {
+    AndroidCaptureBlock.PermissionRequired -> R.string.android_capture_block_permission
+    AndroidCaptureBlock.RecognizerUnavailable -> R.string.android_capture_block_recognizer
+    AndroidCaptureBlock.NotConnected -> R.string.android_capture_block_not_connected
+    AndroidCaptureBlock.ProfileUnavailable -> R.string.android_capture_block_profile
+}
+
+private fun AndroidSpeechFailure.messageRes(): Int = when (this) {
+    AndroidSpeechFailure.PermissionRequired -> R.string.android_capture_failed_permission
+    AndroidSpeechFailure.RecognizerUnavailable -> R.string.android_capture_failed_recognizer
+    AndroidSpeechFailure.NoSpeechHeard -> R.string.android_capture_failed_no_speech
+    AndroidSpeechFailure.NetworkUnavailable -> R.string.android_capture_failed_network
+    AndroidSpeechFailure.RecognizerBusy -> R.string.android_capture_failed_busy
+    AndroidSpeechFailure.Unknown -> R.string.android_capture_failed_unknown
 }
 
 private fun AndroidTurnPhase.labelRes(): Int = when (this) {

@@ -113,15 +113,39 @@ internal class AudioTrackAudioSink : AndroidAudioSink {
         worker.execute {
             runCatching {
                 var offset = 0
+                var stalled = 0
+                // A blocking write would wait forever on a device that stops
+                // consuming, stranding the turn in Speaking because finish()
+                // is queued behind it. Bound the wait and fail instead.
                 while (offset < bytes.size) {
-                    val written = active.write(bytes, offset, bytes.size - offset)
-                    if (written <= 0) {
-                        failed.set(true)
-                        return@runCatching
+                    val written = active.write(
+                        bytes,
+                        offset,
+                        bytes.size - offset,
+                        AudioTrack.WRITE_NON_BLOCKING,
+                    )
+                    when {
+                        written < 0 -> {
+                            failed.set(true)
+                            return@runCatching
+                        }
+
+                        written == 0 -> {
+                            stalled += 1
+                            if (stalled > WRITE_STALL_ITERATIONS) {
+                                failed.set(true)
+                                return@runCatching
+                            }
+                            Thread.sleep(WRITE_STALL_POLL_MILLIS)
+                        }
+
+                        else -> {
+                            stalled = 0
+                            offset += written
+                            framesWritten += written / BYTES_PER_FRAME
+                        }
                     }
-                    offset += written
                 }
-                framesWritten += bytes.size / BYTES_PER_FRAME
             }.onFailure { failed.set(true) }
         }
     }
@@ -181,6 +205,8 @@ internal class AudioTrackAudioSink : AndroidAudioSink {
         const val BYTES_PER_FRAME = 2
         const val DRAIN_POLL_MILLIS = 20L
         const val DRAIN_GUARD_ITERATIONS = 1_500
+        const val WRITE_STALL_POLL_MILLIS = 5L
+        const val WRITE_STALL_ITERATIONS = 600
     }
 }
 
