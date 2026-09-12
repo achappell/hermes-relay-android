@@ -134,3 +134,53 @@ and 443 by name. No hardware required.
   Authentication still rejects unauthenticated requests with `401`, but the
   posture change is deliberate and recorded here. Tightening to `127.0.0.1`
   later would require moving iOS to the `wss://` endpoint too.
+
+---
+
+## Superseded 2026-09-12: the relay is fronted by Caddy, not `tailscale serve`
+
+The `tailscale serve` arrangement above worked, but it was solving a problem
+already solved one machine over, and it did not generalize to three profiles.
+
+**What was actually true.** Caddy runs on `ops`, not on `media-server`, serving
+`*.chappell-home.dev` with a Porkbun DNS-01 wildcard certificate. The
+`~/Caddyfile` on `media-server` is an abandoned copy whose own comments are
+stale, and that host's Caddy binary lacks the Porkbun module entirely. The
+three Hermes profiles each run their own gateway process on their own port —
+amanda 8792, jensen 8793, spark 8794 — which is process isolation rather than
+waste, but exposing three external ports for it was unnecessary.
+
+**Current arrangement.** One host per profile in the real Caddyfile on `ops`,
+each proxying to that profile's gateway across the tailnet:
+
+| Profile | Endpoint |
+|---|---|
+| amanda | `wss://voice-amanda.chappell-home.dev/voice-session` |
+| jensen | `wss://voice-jensen.chappell-home.dev/voice-session` |
+| spark | `wss://voice-spark.chappell-home.dev/voice-session` |
+
+Hostname routing needs no path rewriting, so the relay keeps seeing
+`/voice-session`, and Caddy upgrades WebSockets natively with no extra
+configuration. The `voice-*` prefix avoids the existing `hermes-*` names, which
+are dashboard shortcuts for a different service on port 9119.
+
+**Consequences, all verified.**
+
+- The `tailscale serve --https=443` mapping on `media-server` is retired; the
+  unrelated `:8443` mapping was left untouched.
+- `voice_session.extra.host` for the amanda profile is back to
+  `100.90.186.57`, matching jensen and spark. The `0.0.0.0` bind this design
+  originally called for is gone, and with it the household-LAN exposure it
+  introduced — `192.168.0.2:8792` now refuses connections. Caddy reaches the
+  gateways across the tailnet, so loopback binding is not an option.
+- The wildcard record resolves `voice-*.chappell-home.dev` to `100.106.8.34`,
+  ops's *tailnet* address, so the named endpoints work anywhere on the tailnet
+  rather than only on the household LAN.
+- The endpoint still refuses anything but `wss://` with a host name, so no
+  Android change was required.
+
+Verified end to end: all three hosts return `401` to an unauthenticated probe,
+a WebSocket upgrade reaches aiohttp through Caddy rather than hanging, the
+wildcard Let's Encrypt certificate verifies, and the Android live gate
+completed both a handshake and a full typed turn against
+`wss://voice-amanda.chappell-home.dev/voice-session`.
