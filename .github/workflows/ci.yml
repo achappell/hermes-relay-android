@@ -104,7 +104,7 @@ jobs:
             rm -rf "$tools_root/latest"
             mv "$tools_root/latest-2" "$tools_root/latest"
           fi
-          tools_version="$($tools_root/latest/bin/sdkmanager --version | grep -E '^[0-9][0-9.]*$' | head -n 1)"
+          tools_version="$($tools_root/latest/bin/sdkmanager --version 2>&1 | grep -Eo '[0-9]+([.][0-9]+)+' | tail -n 1)"
           echo "Using Android command-line tools $tools_version"
           tools_major="${tools_version%%.*}"
           test "$tools_major" -ge 20
