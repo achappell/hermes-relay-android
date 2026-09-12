@@ -16,6 +16,8 @@ concurrency:
 
 env:
   ANDROID_BUILD_TOOLS: 36.0.0
+  # Android 17 is published as the API 37.0 preview platform package.
+  ANDROID_COMPILE_PLATFORM: 37.0
 
 jobs:
   validate:
@@ -40,7 +42,9 @@ jobs:
       - name: Install Android SDK components
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-37" "build-tools;${ANDROID_BUILD_TOOLS}"
+          sdkmanager --channel=1 \
+            "platforms;android-${ANDROID_COMPILE_PLATFORM}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"
 
       - name: Run JVM tests, assemble, and lint
         run: ./gradlew testDebugUnitTest assembleDebug lintDebug --no-daemon
@@ -60,13 +64,19 @@ jobs:
           retention-days: 14
 
   instrumentation:
-    name: Instrumentation tests (Android ${{ matrix.api-level }})
+    name: Instrumentation tests (${{ matrix.label }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        api-level: [36, 37]
+        include:
+          - api-level: 36
+            channel: stable
+            label: Android 16 / API 36
+          - api-level: 37.0
+            channel: beta
+            label: Android 17 / API 37
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,13 +95,16 @@ jobs:
       - name: Install Android SDK components
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-37" "build-tools;${ANDROID_BUILD_TOOLS}"
+          sdkmanager --channel=1 \
+            "platforms;android-${ANDROID_COMPILE_PLATFORM}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"
 
       - name: Run connected Android tests
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
+          channel: ${{ matrix.channel }}
           profile: Pixel_2
           target: google_apis
           script: ./gradlew connectedDebugAndroidTest --no-daemon
