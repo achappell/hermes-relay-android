@@ -20,9 +20,12 @@ import javax.net.ssl.SSLException
 /**
  * Live Hermes relay transport for the Android Client.
  *
- * A-4 implements the configuration and handshake half of [AndroidClientPort]:
- * [snapshot] and [reconnect] are real. Turn submission and normalized event
- * delivery stay on the bootstrap behavior until their own story.
+ * A-4 made [snapshot] and [reconnect] real; A-7 completes the port with typed
+ * turn submission and normalized event delivery.
+ *
+ * Tap-to-speak is still refused: microphone capture and transcription are not
+ * implemented here and are not faked. Response audio arrives as lifecycle
+ * evidence only — no PCM is retained.
  */
 internal class OkHttpRelaySessionClient(
     private val collection: () -> RelayProfileCollection,
@@ -32,6 +35,14 @@ internal class OkHttpRelaySessionClient(
 ) : AndroidClientPort {
 
     private val activeSocket = AtomicReference<WebSocket?>(null)
+    private val sessionId = AtomicReference<String?>(null)
+    private val observer = AtomicReference<TurnObserver?>(null)
+    private val normalizer = AtomicReference<HermesEventNormalizer?>(null)
+
+    private class TurnObserver(
+        val binding: AndroidTurnBinding,
+        val onEvent: (AndroidNormalizedEvent) -> Unit,
+    )
 
     override fun snapshot(): AndroidClientSnapshot {
         val profile = collection().selected
@@ -50,8 +61,78 @@ internal class OkHttpRelaySessionClient(
         )
     }
 
-    override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult =
-        AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable)
+    override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult {
+        val socket = activeSocket.get()
+            ?: return AndroidInitiationResult.Rejected(
+                AndroidInitiationFailure.SessionUnavailable,
+            )
+        val session = sessionId.get()
+            ?: return AndroidInitiationResult.Rejected(
+                AndroidInitiationFailure.SessionUnavailable,
+            )
+
+        // A-7 submits typed turns only. Tap-to-speak needs microphone capture
+        // and on-device transcription, which this slice does not implement and
+        // will not fake.
+        val text = when (val input = request.input) {
+            is AndroidTurnInput.Typed -> input.text
+            AndroidTurnInput.TapToSpeak -> return AndroidInitiationResult.Rejected(
+                AndroidInitiationFailure.SessionUnavailable,
+            )
+        }
+        if (text.isBlank()) {
+            return AndroidInitiationResult.Rejected(AndroidInitiationFailure.EmptyTypedPrompt)
+        }
+
+        val turnId = UUID.randomUUID().toString()
+        normalizer.get()?.beginTurn()
+
+        val sent = socket.send(
+            JSONObject()
+                .put("type", "turn")
+                .put("protocol_version", PROTOCOL_VERSION)
+                .put("turn_id", turnId)
+                .put("session_id", session)
+                .put("text", text)
+                .put("stt_source", "local")
+                .toString(),
+        )
+        if (!sent) {
+            return AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable)
+        }
+
+        return AndroidInitiationResult.Accepted(
+            AndroidTurnBinding(
+                profileId = request.profile.id,
+                sessionId = session,
+                turnId = turnId,
+            ),
+        )
+    }
+
+    override fun observeTurn(
+        binding: AndroidTurnBinding,
+        onEvent: (AndroidNormalizedEvent) -> Unit,
+    ): AndroidTurnObservation {
+        val registered = TurnObserver(binding, onEvent)
+        observer.set(registered)
+        return AndroidTurnObservation {
+            observer.compareAndSet(registered, null)
+        }
+    }
+
+    private fun dispatch(text: String) {
+        val active = observer.get() ?: return
+        val events = normalizer.get() ?: return
+        events.normalize(text, active.binding).forEach(active.onEvent)
+    }
+
+    private fun reportDisconnect(reason: String) {
+        val active = observer.get() ?: return
+        val session = sessionId.get() ?: return
+        activeSocket.set(null)
+        active.onEvent(AndroidNormalizedEvent.Disconnected(session, reason))
+    }
 
     override fun reconnect(): AndroidReconnectOutcome {
         val profile = collection().selected
@@ -68,7 +149,7 @@ internal class OkHttpRelaySessionClient(
         // Session this call is superseding.
         activeSocket.getAndSet(null)?.cancel()
 
-        val sessionId = UUID.randomUUID().toString()
+        val handshakeSessionId = UUID.randomUUID().toString()
         val outcome = AtomicReference<AndroidReconnectOutcome?>(null)
         val settled = CountDownLatch(1)
 
@@ -81,13 +162,22 @@ internal class OkHttpRelaySessionClient(
             request,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    webSocket.send(helloFrame(profile, sessionId))
+                    webSocket.send(helloFrame(profile, handshakeSessionId))
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
-                    if (outcome.get() != null) return
-                    outcome.set(readHelloAck(text, sessionId))
-                    if (outcome.get() != null) settled.countDown()
+                    if (outcome.get() == null) {
+                        outcome.set(readHelloAck(text, handshakeSessionId))
+                        if (outcome.get() != null) settled.countDown()
+                        return
+                    }
+                    dispatch(text)
+                }
+
+                override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+                    val active = observer.get() ?: return
+                    val events = normalizer.get() ?: return
+                    active.onEvent(events.normalizeBinary(active.binding))
                 }
 
                 override fun onFailure(
@@ -97,7 +187,9 @@ internal class OkHttpRelaySessionClient(
                 ) {
                     if (outcome.compareAndSet(null, classify(t, response))) {
                         settled.countDown()
+                        return
                     }
+                    reportDisconnect(t.message ?: "The Hermes relay connection failed.")
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -109,7 +201,9 @@ internal class OkHttpRelaySessionClient(
                         )
                     ) {
                         settled.countDown()
+                        return
                     }
+                    reportDisconnect(reason.ifBlank { "The Hermes relay closed the connection." })
                 }
             },
         )
@@ -127,6 +221,8 @@ internal class OkHttpRelaySessionClient(
 
         if (result is AndroidReconnectOutcome.Connected) {
             activeSocket.set(socket)
+            sessionId.set(result.sessionId)
+            normalizer.set(HermesEventNormalizer(profile.clientId))
         } else {
             socket.cancel()
         }
@@ -136,6 +232,7 @@ internal class OkHttpRelaySessionClient(
     /** Abandon the active socket without reporting a transport failure. */
     fun disconnect() {
         activeSocket.getAndSet(null)?.close(NORMAL_CLOSURE, null)
+        sessionId.set(null)
     }
 
     private fun helloFrame(profile: RelayProfile, sessionId: String): String =

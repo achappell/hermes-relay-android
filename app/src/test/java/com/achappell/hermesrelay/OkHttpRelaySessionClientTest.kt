@@ -260,6 +260,118 @@ class OkHttpRelaySessionClientTest {
         assertEquals("amanda-laptop", snapshot.selectedProfile?.id)
     }
 
+    @Test
+    fun a_typed_turn_is_submitted_and_its_response_is_projected_end_to_end() {
+        val turnFrame = java.util.concurrent.atomic.AtomicReference<String?>(null)
+        val relay = java.util.concurrent.atomic.AtomicReference<WebSocket?>(null)
+        val turnReceived = CountDownLatch(1)
+
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        val frame = JSONObject(text)
+                        when (frame.getString("type")) {
+                            "hello" -> {
+                                relay.set(webSocket)
+                                webSocket.send(
+                                    JSONObject()
+                                        .put("type", "hello_ack")
+                                        .put("protocol_version", 1)
+                                        .put("session_id", "relay-session-1")
+                                        .toString(),
+                                )
+                            }
+
+                            "turn" -> {
+                                turnFrame.set(text)
+                                turnReceived.countDown()
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+
+        val client = client()
+        assertEquals(
+            AndroidReconnectOutcome.Connected("relay-session-1"),
+            client.reconnect(),
+        )
+
+        val result = client.beginTurn(
+            AndroidTurnRequest(
+                AndroidProfile("amanda-laptop", "Amanda"),
+                AndroidTurnInput.Typed("What is the weather?"),
+            ),
+        )
+        assertTrue(result is AndroidInitiationResult.Accepted)
+        val binding = (result as AndroidInitiationResult.Accepted).binding
+        assertEquals("relay-session-1", binding.sessionId)
+
+        assertTrue(turnReceived.await(5, TimeUnit.SECONDS))
+        val sent = JSONObject(turnFrame.get()!!)
+        assertEquals("turn", sent.getString("type"))
+        assertEquals("What is the weather?", sent.getString("text"))
+        assertEquals("relay-session-1", sent.getString("session_id"))
+        assertEquals(binding.turnId, sent.getString("turn_id"))
+
+        val events = java.util.Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+        val completed = CountDownLatch(1)
+        val observation = client.observeTurn(binding) { event ->
+            events += event
+            if (event is AndroidNormalizedEvent.TurnCompleted) completed.countDown()
+        }
+
+        val socket = relay.get()!!
+        fun relaySend(vararg pairs: Pair<String, Any>) {
+            socket.send(
+                JSONObject(
+                    mapOf(
+                        "session_id" to binding.sessionId,
+                        "turn_id" to binding.turnId,
+                    ) + pairs,
+                ).toString(),
+            )
+        }
+
+        relaySend("type" to "status", "status" to "thinking")
+        relaySend("type" to "text_delta", "text" to "Rain ")
+        relaySend("type" to "text_delta", "text" to "later")
+        relaySend("type" to "audio_start")
+        relaySend("type" to "audio_end")
+        relaySend("type" to "text_final", "text" to "Rain later")
+        relaySend("type" to "turn_end")
+
+        assertTrue("turn never completed", completed.await(5, TimeUnit.SECONDS))
+        observation.cancel()
+
+        // Project the stream through the A-2 reducer exactly as the UI does.
+        var state = AndroidTurnState.awaitingEvents(binding)
+        events.forEach { state = AndroidTurnStateReducer.reduce(state, it) }
+
+        assertEquals("Rain later", state.responseText)
+        assertEquals(AndroidTurnPhase.Complete, state.phase)
+        assertEquals(AndroidAudioDelivery.Delivered, state.audio)
+    }
+
+    @Test
+    fun a_turn_is_refused_before_a_session_exists() {
+        val client = client()
+
+        val result = client.beginTurn(
+            AndroidTurnRequest(
+                AndroidProfile("amanda-laptop", "Amanda"),
+                AndroidTurnInput.Typed("too early"),
+            ),
+        )
+
+        assertEquals(
+            AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable),
+            result,
+        )
+    }
+
     private fun client(helloTimeoutMillis: Long = 5_000): OkHttpRelaySessionClient =
         OkHttpRelaySessionClient(
             collection = { collectionFor(server.url("/voice-session").toString()) },

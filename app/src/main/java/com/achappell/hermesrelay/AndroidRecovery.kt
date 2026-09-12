@@ -24,7 +24,9 @@ internal data class AndroidUnconfirmedTurn(
 )
 
 internal data class AndroidRecoveryState(
-    val connection: AndroidConnectionState = AndroidConnectionState.Connected,
+    // Disconnected until a handshake actually succeeds. Defaulting to Connected
+    // would claim a Session before one exists.
+    val connection: AndroidConnectionState = AndroidConnectionState.Disconnected,
     val sessionId: String? = null,
     val unconfirmedTurn: AndroidUnconfirmedTurn? = null,
     val isRecovering: Boolean = false,
