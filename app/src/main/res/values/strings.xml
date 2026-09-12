@@ -75,4 +75,6 @@
     <string name="android_capture_failed_network">Speech recognition needs a network connection it could not reach.</string>
     <string name="android_capture_failed_busy">The speech recognizer is busy. Try again in a moment.</string>
     <string name="android_capture_failed_unknown">Speech capture failed, so no turn was sent.</string>
+    <string name="android_capture_block_session_replaced">The Hermes Session was replaced while you were speaking, so nothing was sent. Speak again to use the new Session.</string>
+    <string name="android_capture_participant">You (transcribing)</string>
 </resources>
