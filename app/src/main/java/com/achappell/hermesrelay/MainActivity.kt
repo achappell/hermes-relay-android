@@ -30,7 +30,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
@@ -86,6 +95,7 @@ internal fun AndroidClientScreen(
     }
     var captureState by remember { mutableStateOf<AndroidCaptureState>(AndroidCaptureState.Idle) }
     var permissionRevision by remember { mutableStateOf(0) }
+    val promptFocus = remember { FocusRequester() }
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
     val isConnected = recoveryState.connection == AndroidConnectionState.Connected
@@ -165,12 +175,21 @@ internal fun AndroidClientScreen(
         }
     }
 
+    // Focus restoration: when a turn settles, return focus to the composer so
+    // the next action is reachable without traversing the whole screen again.
+    LaunchedEffect(turnState.isTerminal, initiationState) {
+        if (turnState.isTerminal && initiationState is AndroidInitiationState.Accepted) {
+            runCatching { promptFocus.requestFocus() }
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
         Column(
             modifier = Modifier
+                .semantics { isTraversalGroup = true }
                 .widthIn(max = 720.dp)
                 .safeDrawingPadding()
                 .padding(24.dp)
@@ -178,10 +197,12 @@ internal fun AndroidClientScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
+                modifier = Modifier.a11yHeading(A11yOrder.HEADER),
                 text = stringResource(snapshot.titleRes),
                 style = MaterialTheme.typography.headlineLarge,
             )
             Text(
+                modifier = Modifier.a11yOrder(A11yOrder.HEADER),
                 text = stringResource(snapshot.descriptionRes),
                 style = MaterialTheme.typography.bodyLarge,
             )
@@ -198,15 +219,18 @@ internal fun AndroidClientScreen(
             }
 
             Text(
+                modifier = Modifier.a11yHeading(A11yOrder.PROFILE),
                 text = stringResource(R.string.android_profile_label),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
+                modifier = Modifier.a11yOrder(A11yOrder.PROFILE),
                 text = snapshot.selectedProfile?.displayName
                     ?: stringResource(R.string.android_profile_none),
                 style = MaterialTheme.typography.bodyLarge,
             )
             Text(
+                modifier = Modifier.a11yOrder(A11yOrder.PROFILE, LiveRegionMode.Polite),
                 text = stringResource(
                     R.string.android_authorization_label,
                     stringResource(snapshot.authorizationState.labelRes()),
@@ -236,7 +260,10 @@ internal fun AndroidClientScreen(
             }
 
             OutlinedTextField(
-                modifier = Modifier.testTag("android_typed_prompt"),
+                modifier = Modifier
+                    .testTag("android_typed_prompt")
+                    .focusRequester(promptFocus)
+                    .a11yOrder(A11yOrder.ACTION),
                 value = prompt,
                 onValueChange = { prompt = it },
                 enabled = isAuthorized,
@@ -253,6 +280,7 @@ internal fun AndroidClientScreen(
                 onClick = {
                     initiate(AndroidTurnInput.Typed(prompt))
                 },
+                modifier = Modifier.a11yOrder(A11yOrder.ACTION),
                 enabled = isAuthorized && isConnected && !hasAcceptedTurn && prompt.isNotBlank(),
             ) {
                 Text(stringResource(R.string.android_start_typed_turn))
@@ -266,7 +294,9 @@ internal fun AndroidClientScreen(
                 }
             } else if (captureController.isCapturing) {
                 Text(
-                    modifier = Modifier.testTag("android_capture_state"),
+                    modifier = Modifier
+                        .testTag("android_capture_state")
+                        .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
                     text = stringResource(captureState.labelRes()),
                     style = MaterialTheme.typography.titleMedium,
                 )
@@ -282,13 +312,17 @@ internal fun AndroidClientScreen(
                             style = MaterialTheme.typography.labelMedium,
                         )
                         Text(
-                            modifier = Modifier.testTag("android_capture_partial"),
+                            modifier = Modifier
+                                .testTag("android_capture_partial")
+                                .a11yOrder(A11yOrder.RESPONSE, LiveRegionMode.Polite),
                             text = partial,
                             style = MaterialTheme.typography.bodyLarge,
                         )
                     }
                 Button(
-                    modifier = Modifier.testTag("android_capture_stop"),
+                    modifier = Modifier
+                        .testTag("android_capture_stop")
+                        .a11yOrder(A11yOrder.ACTION),
                     onClick = { captureController.finishCapture() },
                 ) {
                     Text(stringResource(R.string.android_capture_stop))
@@ -305,7 +339,9 @@ internal fun AndroidClientScreen(
                 ) { captureController.blockingReason() }
 
                 Button(
-                    modifier = Modifier.testTag("android_tap_to_speak"),
+                    modifier = Modifier
+                        .testTag("android_tap_to_speak")
+                        .a11yOrder(A11yOrder.ACTION),
                     onClick = {
                         if (block == AndroidCaptureBlock.PermissionRequired) {
                             microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -331,7 +367,9 @@ internal fun AndroidClientScreen(
 
                 block?.let { reason ->
                     Text(
-                        modifier = Modifier.testTag("android_capture_block"),
+                        modifier = Modifier
+                            .testTag("android_capture_block")
+                            .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
                         text = stringResource(reason.messageRes()),
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -339,7 +377,9 @@ internal fun AndroidClientScreen(
 
                 (captureState as? AndroidCaptureState.Failed)?.let { failed ->
                     Text(
-                        modifier = Modifier.testTag("android_capture_failed"),
+                        modifier = Modifier
+                            .testTag("android_capture_failed")
+                            .a11yOrder(A11yOrder.STATE, LiveRegionMode.Assertive),
                         text = stringResource(failed.reason.messageRes()),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
@@ -349,7 +389,9 @@ internal fun AndroidClientScreen(
 
             if (!isConnected || recoveryState.hasUnconfirmedTurn) {
                 Text(
-                    modifier = Modifier.testTag("android_connection_state"),
+                    modifier = Modifier
+                        .testTag("android_connection_state")
+                        .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
                     text = stringResource(
                         R.string.android_connection_label,
                         recoveryState.connection.label(),
@@ -360,7 +402,9 @@ internal fun AndroidClientScreen(
 
             if (!isConnected && isAuthorized) {
                 Button(
-                    modifier = Modifier.testTag("android_connect"),
+                    modifier = Modifier
+                        .testTag("android_connect")
+                        .a11yOrder(A11yOrder.ACTION),
                     onClick = { recoveryController.recover() },
                     enabled = !recoveryState.isRecovering,
                 ) {
@@ -423,13 +467,16 @@ internal fun AndroidClientScreen(
                                 R.string.android_turn_phase_label,
                                 stringResource(turnState.phase.labelRes()),
                             ),
-                            modifier = Modifier.testTag("android_turn_phase"),
+                            modifier = Modifier
+                                .testTag("android_turn_phase")
+                                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
                             style = MaterialTheme.typography.titleMedium,
                         )
                     }
 
                     if (turnState.responseText.isNotEmpty()) {
                         Text(
+                            modifier = Modifier.a11yHeading(A11yOrder.RESPONSE),
                             text = stringResource(R.string.android_response_label),
                             style = MaterialTheme.typography.titleMedium,
                         )
@@ -437,13 +484,17 @@ internal fun AndroidClientScreen(
                         // must not read as a live conversation.
                         if (!isConnected) {
                             Text(
-                                modifier = Modifier.testTag("android_cached_response"),
+                                modifier = Modifier
+                                .testTag("android_cached_response")
+                                .a11yOrder(A11yOrder.RESPONSE),
                                 text = stringResource(R.string.android_cached_response),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
                         Text(
-                            modifier = Modifier.testTag("android_response_text"),
+                            modifier = Modifier
+                                .testTag("android_response_text")
+                                .a11yOrder(A11yOrder.RESPONSE, LiveRegionMode.Polite),
                             text = turnState.responseText,
                             style = MaterialTheme.typography.bodyLarge,
                         )
@@ -451,7 +502,9 @@ internal fun AndroidClientScreen(
 
                     if (turnState.audio == AndroidAudioDelivery.Unavailable) {
                         Text(
-                            modifier = Modifier.testTag("android_audio_unavailable"),
+                            modifier = Modifier
+                                .testTag("android_audio_unavailable")
+                                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Assertive),
                             text = stringResource(R.string.android_audio_unavailable),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodyMedium,
@@ -460,7 +513,9 @@ internal fun AndroidClientScreen(
 
                     if (turnState.phase == AndroidTurnPhase.Disconnected) {
                         Text(
-                            modifier = Modifier.testTag("android_disconnected"),
+                            modifier = Modifier
+                                .testTag("android_disconnected")
+                                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Assertive),
                             text = stringResource(R.string.android_turn_disconnected),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodyMedium,
@@ -506,6 +561,35 @@ private fun AndroidConnectionState.label(): String = when (this) {
 
     is AndroidConnectionState.Failed -> stringResource(R.string.android_connection_failed, reason)
 }
+
+/**
+ * `UX-DR21` fixes the accessibility reading order as
+ * Profile -> state -> response/Transcription -> action, which is not the same
+ * as the visual order. Every element carries its band explicitly so assistive
+ * technology traverses the doorway in the order the requirement names.
+ */
+private object A11yOrder {
+    const val HEADER = -1f
+    const val PROFILE = 0f
+    const val STATE = 1f
+    const val RESPONSE = 2f
+    const val ACTION = 3f
+}
+
+private fun Modifier.a11yOrder(index: Float): Modifier =
+    semantics { traversalIndex = index }
+
+private fun Modifier.a11yOrder(index: Float, announce: LiveRegionMode): Modifier =
+    semantics {
+        traversalIndex = index
+        liveRegion = announce
+    }
+
+private fun Modifier.a11yHeading(index: Float): Modifier =
+    semantics {
+        traversalIndex = index
+        heading()
+    }
 
 private fun AndroidCaptureState.labelRes(): Int = when (this) {
     AndroidCaptureState.Starting -> R.string.android_capture_starting
