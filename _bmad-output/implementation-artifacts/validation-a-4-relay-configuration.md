@@ -25,7 +25,9 @@ scope and remain unimplemented.
   `hermes-relay-api36` (Android 16 / API 36). 11 instrumentation tests, 0
   failures, 0 skipped.
 - Live gate — passed. `LiveRelayHandshakeTest` connected from the emulator to
-  `wss://media-server.<magicdns>/voice-session`, sent `hello` as
+  the relay (originally `wss://media-server.<magicdns>/voice-session`; now
+  `wss://voice-amanda.chappell-home.dev/voice-session` — see the design note on
+  the Caddy arrangement that superseded `tailscale serve`), sent `hello` as
   `client_id: amanda-laptop` / `device_id: android`, and received a `hello_ack`
   carrying a Session identity: 1 test, 0 failures. The token was supplied as an
   instrumentation argument read directly from the server and was never written
@@ -77,6 +79,8 @@ the live gate:
 - `tailscale serve --bg --https=443 http://127.0.0.1:8792` added, tailnet-only,
   alongside the pre-existing `:8443` mapping which was left untouched.
 
-The binding change widens exposure from the tailnet to the household LAN as
-well. Unauthenticated requests are still rejected with 401. Tightening back to
-loopback would require moving the iOS client to the `wss://` endpoint too.
+The binding change widened exposure from the tailnet to the household LAN as
+well. **Superseded the same day:** the relay is now fronted by Caddy on `ops`,
+the amanda profile is bound back to `100.90.186.57`, and the `tailscale serve`
+mapping is retired, so that exposure is closed. Loopback binding is not an
+option, because Caddy reaches the gateways from another machine.
