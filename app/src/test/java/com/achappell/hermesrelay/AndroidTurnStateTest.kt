@@ -6,6 +6,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AndroidTurnStateTest {
+    @Test
+    fun an_interrupted_turn_is_terminal_and_keeps_the_partial_response() {
+        val binding = AndroidTurnBinding("amanda", "session-1", "turn-1")
+        var state = AndroidTurnState.awaitingEvents(binding)
+
+        listOf(
+            AndroidNormalizedEvent.ResponseTextDelta(binding, "Half an ans"),
+            AndroidNormalizedEvent.AudioStarted(binding),
+            AndroidNormalizedEvent.TurnInterrupted(binding, "user interrupted"),
+        ).forEach { state = AndroidTurnStateReducer.reduce(state, it) }
+
+        assertEquals(AndroidTurnPhase.Interrupted, state.phase)
+        assertEquals("Half an ans", state.responseText)
+        assertEquals(AndroidAudioDelivery.Unavailable, state.audio)
+        assertTrue(state.isTerminal)
+    }
+
+    @Test
+    fun a_late_event_cannot_revive_an_interrupted_turn() {
+        val binding = AndroidTurnBinding("amanda", "session-1", "turn-1")
+        var state = AndroidTurnState.awaitingEvents(binding)
+        state = AndroidTurnStateReducer.reduce(
+            state,
+            AndroidNormalizedEvent.TurnInterrupted(binding, "user interrupted"),
+        )
+
+        val after = AndroidTurnStateReducer.reduce(
+            state,
+            AndroidNormalizedEvent.ResponseTextDelta(binding, " and more"),
+        )
+
+        assertEquals(state, after)
+    }
+
     private val binding = AndroidTurnBinding(
         profileId = "amanda",
         sessionId = "session-1",

@@ -461,6 +461,27 @@ internal fun AndroidClientScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
 
+                    if (hasAcceptedTurn && clientPort.supportsInterrupt()) {
+                        Button(
+                            modifier = Modifier
+                                .testTag("android_interrupt")
+                                .a11yOrder(A11yOrder.ACTION),
+                            onClick = { clientPort.interruptTurn(state.binding) },
+                        ) {
+                            Text(stringResource(R.string.android_interrupt))
+                        }
+                    }
+
+                    if (turnState.phase == AndroidTurnPhase.Interrupted) {
+                        Text(
+                            modifier = Modifier
+                                .testTag("android_interrupted")
+                                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                            text = stringResource(R.string.android_turn_interrupted),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+
                     if (turnState.binding == state.binding && turnState.phase != AndroidTurnPhase.Idle) {
                         Text(
                             text = stringResource(
@@ -625,4 +646,5 @@ private fun AndroidTurnPhase.labelRes(): Int = when (this) {
     AndroidTurnPhase.Complete -> R.string.android_turn_phase_complete
     AndroidTurnPhase.Unavailable -> R.string.android_turn_phase_unavailable
     AndroidTurnPhase.Disconnected -> R.string.android_turn_phase_disconnected
+    AndroidTurnPhase.Interrupted -> R.string.android_turn_phase_interrupted
 }

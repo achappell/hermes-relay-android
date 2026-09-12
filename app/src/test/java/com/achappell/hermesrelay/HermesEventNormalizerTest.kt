@@ -187,11 +187,12 @@ class HermesEventNormalizerTest {
     }
 
     @Test
-    fun an_interrupted_turn_and_an_error_both_fail_the_turn() {
+    fun an_interrupt_is_distinct_from_a_failure() {
         val normalizer = normalizer()
 
+        // The user stopping a turn is not the turn going wrong.
         assertEquals(
-            AndroidNormalizedEvent.TurnFailed(binding, "user interrupted"),
+            AndroidNormalizedEvent.TurnInterrupted(binding, "user interrupted"),
             normalizer.normalize(
                 frame("type" to "turn_interrupted", "reason" to "user interrupted"),
                 binding,

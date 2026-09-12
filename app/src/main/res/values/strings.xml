@@ -77,4 +77,7 @@
     <string name="android_capture_failed_unknown">Speech capture failed, so no turn was sent.</string>
     <string name="android_capture_block_session_replaced">The Hermes Session was replaced while you were speaking, so nothing was sent. Speak again to use the new Session.</string>
     <string name="android_capture_participant">You (transcribing)</string>
+    <string name="android_turn_phase_interrupted">Interrupted</string>
+    <string name="android_turn_interrupted">You stopped this turn. The partial response is kept.</string>
+    <string name="android_interrupt">Stop responding</string>
 </resources>

@@ -84,6 +84,17 @@ internal interface AndroidClientPort {
      */
     fun reconnect(): AndroidReconnectOutcome =
         AndroidReconnectOutcome.Unrecoverable("Hermes Session transport is not configured.")
+
+    /**
+     * Whether the connected relay advertised the `interrupt` capability.
+     *
+     * The affordance is offered only when the relay says it supports it,
+     * rather than presenting a control that might silently do nothing.
+     */
+    fun supportsInterrupt(): Boolean = false
+
+    /** Asks the relay to stop the named turn. Returns false if not sent. */
+    fun interruptTurn(binding: AndroidTurnBinding): Boolean = false
 }
 
 fun interface AndroidTurnObservation {
