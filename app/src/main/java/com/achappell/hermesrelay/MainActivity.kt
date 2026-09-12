@@ -137,6 +137,7 @@ internal fun AndroidClientScreen(
                     current.selectedProfile != null &&
                         current.authorizationState == AndroidAuthorizationState.Verified
                 },
+                currentSessionId = { recoveryController.state.sessionId },
                 onStateChange = { changed -> captureState = changed },
                 onInitiation = { result ->
                     initiationState = result
@@ -269,6 +270,23 @@ internal fun AndroidClientScreen(
                     text = stringResource(captureState.labelRes()),
                     style = MaterialTheme.typography.titleMedium,
                 )
+
+                // The participant's own words, live, before any turn exists.
+                // Provisional until the recognizer finalizes them.
+                (captureState as? AndroidCaptureState.Transcribing)
+                    ?.partial
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { partial ->
+                        Text(
+                            text = stringResource(R.string.android_capture_participant),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        Text(
+                            modifier = Modifier.testTag("android_capture_partial"),
+                            text = partial,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
                 Button(
                     modifier = Modifier.testTag("android_capture_stop"),
                     onClick = { captureController.finishCapture() },
@@ -501,6 +519,7 @@ private fun AndroidCaptureBlock.messageRes(): Int = when (this) {
     AndroidCaptureBlock.RecognizerUnavailable -> R.string.android_capture_block_recognizer
     AndroidCaptureBlock.NotConnected -> R.string.android_capture_block_not_connected
     AndroidCaptureBlock.ProfileUnavailable -> R.string.android_capture_block_profile
+    AndroidCaptureBlock.SessionReplaced -> R.string.android_capture_block_session_replaced
 }
 
 private fun AndroidSpeechFailure.messageRes(): Int = when (this) {

@@ -218,6 +218,81 @@ class AndroidCaptureControllerTest {
         assertNull((controller.state as? AndroidCaptureState.Failed)?.reason)
     }
 
+    @Test
+    fun a_session_replaced_mid_capture_refuses_to_attach_the_utterance_to_it() {
+        val speech = FakeSpeechInput()
+        val port = FakePort()
+        var session = "session-1"
+        val controller = AndroidCaptureController(
+            speech = speech,
+            initiation = AndroidInitiationController(port),
+            isConnected = { true },
+            isAuthorized = { true },
+            currentSessionId = { session },
+        )
+
+        controller.beginCapture()
+        speech.emit(AndroidSpeechEvent.Started)
+        speech.emit(AndroidSpeechEvent.Partial("check the"))
+        // Recovery negotiates a fresh Session while the user is still speaking.
+        session = "session-2"
+        speech.emit(AndroidSpeechEvent.Final("check the weather"))
+
+        assertEquals(
+            AndroidCaptureState.Unavailable(AndroidCaptureBlock.SessionReplaced),
+            controller.state,
+        )
+        assertEquals("the utterance joined a conversation it was not part of", 0, port.requests.size)
+    }
+
+    @Test
+    fun an_unchanged_session_submits_normally() {
+        val speech = FakeSpeechInput()
+        val port = FakePort()
+        val controller = AndroidCaptureController(
+            speech = speech,
+            initiation = AndroidInitiationController(port),
+            isConnected = { true },
+            isAuthorized = { true },
+            currentSessionId = { "session-1" },
+        )
+
+        controller.beginCapture()
+        speech.emit(AndroidSpeechEvent.Started)
+        speech.emit(AndroidSpeechEvent.Final("check the weather"))
+
+        assertEquals(AndroidCaptureState.Submitted("check the weather"), controller.state)
+        assertEquals(1, port.requests.size)
+    }
+
+    @Test
+    fun the_live_partial_transcript_is_the_participants_provisional_text() {
+        val speech = FakeSpeechInput()
+        val controller = controller(speech, FakePort())
+
+        controller.beginCapture()
+        speech.emit(AndroidSpeechEvent.Started)
+        speech.emit(AndroidSpeechEvent.Partial("check"))
+        assertEquals(AndroidCaptureState.Transcribing("check"), controller.state)
+
+        speech.emit(AndroidSpeechEvent.Partial("check the weather"))
+        assertEquals(AndroidCaptureState.Transcribing("check the weather"), controller.state)
+    }
+
+    @Test
+    fun cancelling_clears_the_provisional_transcript() {
+        val speech = FakeSpeechInput()
+        val controller = controller(speech, FakePort())
+
+        controller.beginCapture()
+        speech.emit(AndroidSpeechEvent.Started)
+        speech.emit(AndroidSpeechEvent.Partial("check the weather"))
+        controller.cancelCapture()
+
+        // Idle carries no partial text, so a cancelled utterance leaves nothing.
+        assertEquals(AndroidCaptureState.Idle, controller.state)
+    }
+
     private fun controller(
         speech: AndroidSpeechInput,
         port: FakePort,

@@ -2,6 +2,8 @@ package com.achappell.hermesrelay
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -134,6 +136,44 @@ class MicrophoneCaptureTest {
 
         assertEquals(AndroidTurnInput.Typed("typed instead"), port.requests.single().input)
         assertEquals(0, speech.startCount)
+    }
+
+    @Test
+    fun the_live_transcript_is_shown_while_speaking_and_cleared_on_cancel() {
+        val speech = FakeSpeechInput()
+        val port = ConnectedFakePort()
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(clientPort = port, speechInput = speech)
+            }
+        }
+
+        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("android_tap_to_speak").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.runOnIdle { speech.emit(AndroidSpeechEvent.Started) }
+        composeRule.waitForIdle()
+
+        // Nothing provisional until the recognizer produces words.
+        composeRule.onAllNodesWithTag("android_capture_partial").assertCountEquals(0)
+
+        composeRule.runOnIdle { speech.emit(AndroidSpeechEvent.Partial("check the")) }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("check the").performScrollTo().assertIsDisplayed()
+
+        composeRule.runOnIdle { speech.emit(AndroidSpeechEvent.Partial("check the weather")) }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("check the weather").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("You (transcribing)").performScrollTo().assertIsDisplayed()
+
+        composeRule.onNodeWithText("Cancel").performScrollTo().performClick()
+        composeRule.waitForIdle()
+
+        // A cancelled utterance leaves nothing behind and sends nothing.
+        composeRule.onAllNodesWithTag("android_capture_partial").assertCountEquals(0)
+        assertEquals(0, port.requests.size)
     }
 
     private class ConnectedFakePort : AndroidClientPort {

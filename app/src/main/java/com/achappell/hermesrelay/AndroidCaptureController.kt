@@ -25,6 +25,9 @@ internal enum class AndroidCaptureBlock {
     RecognizerUnavailable,
     NotConnected,
     ProfileUnavailable,
+
+    /** Recovery negotiated a fresh Session while the user was speaking. */
+    SessionReplaced,
 }
 
 /**
@@ -40,9 +43,18 @@ internal class AndroidCaptureController(
     private val initiation: AndroidInitiationController,
     private val isConnected: () -> Boolean,
     private val isAuthorized: () -> Boolean,
+    private val currentSessionId: () -> String? = { null },
     private val onStateChange: (AndroidCaptureState) -> Unit = {},
     private val onInitiation: (AndroidInitiationState) -> Unit = {},
 ) {
+    /**
+     * The Session capture began in.
+     *
+     * A transcript belongs to the Session that was live when the user started
+     * speaking. If recovery replaces that Session mid-capture, submitting the
+     * transcript would attach it to a conversation the user was not having.
+     */
+    private var captureSessionId: String? = null
     var state: AndroidCaptureState = AndroidCaptureState.Idle
         private set(value) {
             val changed = field != value
@@ -75,6 +87,7 @@ internal class AndroidCaptureController(
             return
         }
 
+        captureSessionId = currentSessionId()
         state = AndroidCaptureState.Starting
         speech.start { event -> handle(event) }
     }
@@ -88,6 +101,9 @@ internal class AndroidCaptureController(
     fun cancelCapture() {
         if (!isCapturing) return
         speech.cancel()
+        captureSessionId = null
+        // Returning to Idle drops the provisional transcript with it; a
+        // cancelled utterance must leave nothing on screen.
         state = AndroidCaptureState.Idle
     }
 
@@ -118,10 +134,21 @@ internal class AndroidCaptureController(
         // into a dead Session would be a turn the user cannot see the result
         // of, so report it rather than sending it.
         if (!isConnected()) {
+            captureSessionId = null
             state = AndroidCaptureState.Unavailable(AndroidCaptureBlock.NotConnected)
             return
         }
 
+        // The Session that heard this utterance must still be the live one.
+        val startedIn = captureSessionId
+        val liveNow = currentSessionId()
+        if (startedIn != null && liveNow != null && startedIn != liveNow) {
+            captureSessionId = null
+            state = AndroidCaptureState.Unavailable(AndroidCaptureBlock.SessionReplaced)
+            return
+        }
+
+        captureSessionId = null
         state = AndroidCaptureState.Submitted(text)
         onInitiation(initiation.initiate(AndroidTurnInput.Typed(text)))
     }
