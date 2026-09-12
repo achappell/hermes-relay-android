@@ -3,6 +3,23 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+// release-please rewrites the literal below on each release; versionCode is
+// derived from it so it always moves too. Android decides whether an APK is an
+// upgrade by versionCode alone, so a frozen value blocks in-place upgrades even
+// when the version name changes.
+val appVersionName = "0.2.0" // x-release-please-version
+
+val appVersionCode = appVersionName.substringBefore('-').split('.').let { parts ->
+    require(parts.size == 3) { "Expected a three-part version, found '$appVersionName'." }
+    val (major, minor, patch) = parts.map { part ->
+        val number = part.toIntOrNull()
+        requireNotNull(number) { "Version part '$part' in '$appVersionName' is not a number." }
+        require(number in 0..99) { "Version part '$part' in '$appVersionName' must be 0-99." }
+        number
+    }
+    major * 10_000 + minor * 100 + patch
+}
+
 android {
     namespace = "com.achappell.hermesrelay"
     compileSdk = 37
@@ -12,8 +29,8 @@ android {
         applicationId = "com.achappell.hermesrelay"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.2.0" // x-release-please-version
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Live-relay tests need the tailnet; keep them out of the default run.
