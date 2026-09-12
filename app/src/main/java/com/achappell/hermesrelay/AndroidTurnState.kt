@@ -11,6 +11,9 @@ internal enum class AndroidTurnPhase {
     Complete,
     Unavailable,
     Disconnected,
+
+    /** The user stopped this turn deliberately. Not a failure. */
+    Interrupted,
 }
 
 internal enum class AndroidAudioDelivery {
@@ -34,6 +37,7 @@ internal data class AndroidTurnState(
             AndroidTurnPhase.Complete,
             AndroidTurnPhase.Unavailable,
             AndroidTurnPhase.Disconnected,
+            AndroidTurnPhase.Interrupted,
         )
 
     val isInFlight: Boolean
@@ -104,6 +108,18 @@ internal sealed interface AndroidNormalizedEvent {
     ) : AndroidNormalizedEvent
 
     data class TurnFailed(
+        override val binding: AndroidTurnBinding,
+        val reason: String,
+    ) : AndroidNormalizedEvent
+
+    /**
+     * The relay confirmed the user's interrupt.
+     *
+     * Deliberately distinct from [TurnFailed]: nothing went wrong, and telling
+     * the user their turn is "unavailable" when they stopped it themselves
+     * would misdescribe their own action.
+     */
+    data class TurnInterrupted(
         override val binding: AndroidTurnBinding,
         val reason: String,
     ) : AndroidNormalizedEvent
@@ -201,6 +217,13 @@ internal object AndroidTurnStateReducer {
                 ),
             )
 
+            is AndroidNormalizedEvent.TurnInterrupted -> state.copy(
+                phase = AndroidTurnPhase.Interrupted,
+                audio = AndroidAudioDelivery.Unavailable,
+                unavailableReason = event.reason,
+                turnCompleteObserved = true,
+            )
+
             is AndroidNormalizedEvent.TurnFailed -> state.copy(
                 phase = AndroidTurnPhase.Unavailable,
                 audio = AndroidAudioDelivery.Unavailable,
@@ -266,6 +289,7 @@ internal object AndroidTurnStateReducer {
             AndroidTurnPhase.Speaking -> 5
             AndroidTurnPhase.Complete,
             AndroidTurnPhase.Unavailable,
-            AndroidTurnPhase.Disconnected -> Int.MAX_VALUE
+            AndroidTurnPhase.Disconnected,
+            AndroidTurnPhase.Interrupted -> Int.MAX_VALUE
         }
 }

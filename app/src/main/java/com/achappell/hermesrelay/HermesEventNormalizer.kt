@@ -100,7 +100,7 @@ internal class HermesEventNormalizer(
             )
 
             "turn_interrupted" -> listOf(
-                AndroidNormalizedEvent.TurnFailed(
+                AndroidNormalizedEvent.TurnInterrupted(
                     binding,
                     firstNonBlank(payload, "reason", "error", "message")
                         ?: "The turn was interrupted.",

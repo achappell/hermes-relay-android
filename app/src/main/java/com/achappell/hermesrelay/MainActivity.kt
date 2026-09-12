@@ -50,9 +50,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val credentials = KeystoreRelayCredentialStore(applicationContext)
+        val historyStore = FileAndroidHistoryStore(applicationContext)
         val configuration = RelayConfigurationController(
             profiles = FileRelayProfileStore(applicationContext),
             credentials = credentials,
+            history = historyStore,
         )
         // One port serves both states: it reports NotConfigured until a profile
         // with a stored credential exists, so the shell stays honest about an
@@ -69,6 +71,7 @@ class MainActivity : ComponentActivity() {
                     clientPort = clientPort,
                     configuration = configuration,
                     speechInput = PlatformSpeechInput(applicationContext),
+                    historyStore = historyStore,
                 )
             }
         }
@@ -80,6 +83,7 @@ internal fun AndroidClientScreen(
     clientPort: AndroidClientPort,
     configuration: RelayConfigurationController? = null,
     speechInput: AndroidSpeechInput? = null,
+    historyStore: AndroidHistoryStore? = null,
 ) {
     var configurationRevision by remember { mutableStateOf(0) }
     val snapshot = remember(clientPort, configurationRevision) { clientPort.snapshot() }
@@ -96,6 +100,16 @@ internal fun AndroidClientScreen(
     var captureState by remember { mutableStateOf<AndroidCaptureState>(AndroidCaptureState.Idle) }
     var permissionRevision by remember { mutableStateOf(0) }
     val promptFocus = remember { FocusRequester() }
+    val recorder = remember(historyStore) { historyStore?.let { AndroidHistoryRecorder(it) } }
+    var historyRevision by remember { mutableStateOf(0) }
+
+    // Local History follows the selected Profile: switching Profiles opens that
+    // Profile's conversation and never shows another's.
+    val selectedProfileId = configuration?.collection?.selectedId
+    LaunchedEffect(recorder, selectedProfileId, configurationRevision) {
+        recorder?.open(selectedProfileId)
+        historyRevision += 1
+    }
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
     val isConnected = recoveryState.connection == AndroidConnectionState.Connected
@@ -133,6 +147,10 @@ internal fun AndroidClientScreen(
             lastRequest = profile?.let { AndroidTurnRequest(it, input) }
             resendResult = null
             turnState = AndroidTurnState.awaitingEvents(state.binding)
+            (input as? AndroidTurnInput.Typed)?.let { typed ->
+                recorder?.recordUserTurn(typed.text)
+                historyRevision += 1
+            }
         }
     }
 
@@ -153,6 +171,10 @@ internal fun AndroidClientScreen(
                     initiationState = result
                     if (result is AndroidInitiationState.Accepted) {
                         turnState = AndroidTurnState.awaitingEvents(result.binding)
+                        (captureState as? AndroidCaptureState.Submitted)?.let { submitted ->
+                            recorder?.recordUserTurn(submitted.transcript)
+                            historyRevision += 1
+                        }
                     }
                 },
             )
@@ -179,6 +201,12 @@ internal fun AndroidClientScreen(
     // the next action is reachable without traversing the whole screen again.
     LaunchedEffect(turnState.isTerminal, initiationState) {
         if (turnState.isTerminal && initiationState is AndroidInitiationState.Accepted) {
+            // Whatever was said is kept, including a partial answer from an
+            // interrupted turn.
+            if (turnState.responseText.isNotBlank()) {
+                recorder?.recordResponse(turnState.responseText)
+                historyRevision += 1
+            }
             runCatching { promptFocus.requestFocus() }
         }
     }
@@ -461,6 +489,27 @@ internal fun AndroidClientScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
 
+                    if (hasAcceptedTurn && clientPort.supportsInterrupt()) {
+                        Button(
+                            modifier = Modifier
+                                .testTag("android_interrupt")
+                                .a11yOrder(A11yOrder.ACTION),
+                            onClick = { clientPort.interruptTurn(state.binding) },
+                        ) {
+                            Text(stringResource(R.string.android_interrupt))
+                        }
+                    }
+
+                    if (turnState.phase == AndroidTurnPhase.Interrupted) {
+                        Text(
+                            modifier = Modifier
+                                .testTag("android_interrupted")
+                                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                            text = stringResource(R.string.android_turn_interrupted),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+
                     if (turnState.binding == state.binding && turnState.phase != AndroidTurnPhase.Idle) {
                         Text(
                             text = stringResource(
@@ -529,6 +578,65 @@ internal fun AndroidClientScreen(
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                }
+            }
+
+            recorder?.let { history ->
+                @Suppress("UNUSED_EXPRESSION")
+                historyRevision // re-read the recorder when it changes
+
+                Text(
+                    modifier = Modifier.a11yHeading(A11yOrder.RESPONSE),
+                    text = stringResource(R.string.android_history_label),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    modifier = Modifier.a11yOrder(A11yOrder.RESPONSE),
+                    text = stringResource(R.string.android_history_boundary),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                val entries = history.history.entries
+                if (entries.isEmpty()) {
+                    Text(
+                        modifier = Modifier
+                            .testTag("android_history_empty")
+                            .a11yOrder(A11yOrder.RESPONSE),
+                        text = stringResource(R.string.android_history_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    entries.takeLast(20).forEach { entry ->
+                        Text(
+                            modifier = Modifier.a11yOrder(A11yOrder.RESPONSE),
+                            text = stringResource(
+                                if (entry.role == AndroidTranscriptRole.User) {
+                                    R.string.android_history_you
+                                } else {
+                                    R.string.android_history_hermes
+                                },
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        Text(
+                            modifier = Modifier
+                                .testTag("android_history_entry")
+                                .a11yOrder(A11yOrder.RESPONSE),
+                            text = entry.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Button(
+                        modifier = Modifier
+                            .testTag("android_history_clear")
+                            .a11yOrder(A11yOrder.ACTION),
+                        onClick = {
+                            history.clear()
+                            historyRevision += 1
+                        },
+                    ) {
+                        Text(stringResource(R.string.android_history_clear))
+                    }
                 }
             }
         }
@@ -625,4 +733,5 @@ private fun AndroidTurnPhase.labelRes(): Int = when (this) {
     AndroidTurnPhase.Complete -> R.string.android_turn_phase_complete
     AndroidTurnPhase.Unavailable -> R.string.android_turn_phase_unavailable
     AndroidTurnPhase.Disconnected -> R.string.android_turn_phase_disconnected
+    AndroidTurnPhase.Interrupted -> R.string.android_turn_phase_interrupted
 }

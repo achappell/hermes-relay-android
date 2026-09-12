@@ -130,4 +130,72 @@ class LiveRelayHandshakeTest {
         assertEquals(AndroidTurnPhase.Complete, state.phase)
         assertEquals(AndroidAudioDelivery.Delivered, state.audio)
     }
+
+    @Test
+    fun an_interrupt_stops_a_real_turn_and_keeps_what_was_already_said() {
+        val arguments = InstrumentationRegistry.getArguments()
+        val endpoint = arguments.getString("relayEndpoint")
+        val token = arguments.getString("relayToken")
+        require(!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
+            "relayEndpoint and relayToken instrumentation arguments are required"
+        }
+
+        val profile = RelayProfile(
+            id = "live-gate",
+            endpoint = endpoint!!,
+            clientId = arguments.getString("relayClientId") ?: "amanda-laptop",
+            deviceId = arguments.getString("relayDeviceId") ?: "android",
+            displayName = "Android live gate",
+        )
+        val client = OkHttpRelaySessionClient(
+            collection = {
+                RelayProfileCollection(profiles = listOf(profile), selectedId = profile.id)
+            },
+            credentials = InMemoryRelayCredentialStore(mapOf(profile.id to token!!)),
+            helloTimeoutMillis = 15_000,
+            audioSink = AudioTrackAudioSink(),
+        )
+
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertTrue("the relay did not advertise interrupt", client.supportsInterrupt())
+
+        val binding = (
+            client.beginTurn(
+                AndroidTurnRequest(
+                    AndroidProfile(profile.clientId, profile.displayName),
+                    AndroidTurnInput.Typed(
+                        "Please count slowly from one to forty, one number per sentence.",
+                    ),
+                ),
+            ) as AndroidInitiationResult.Accepted
+            ).binding
+
+        var state = AndroidTurnState.awaitingEvents(binding)
+        val speaking = java.util.concurrent.CountDownLatch(1)
+        val settled = java.util.concurrent.CountDownLatch(1)
+        val observation = client.observeTurn(binding) { event ->
+            state = AndroidTurnStateReducer.reduce(state, event)
+            if (state.responseText.isNotBlank()) speaking.countDown()
+            if (state.isTerminal) settled.countDown()
+        }
+
+        // Interrupt once Hermes has actually started answering.
+        assertTrue(
+            "the relay never began responding",
+            speaking.await(90, java.util.concurrent.TimeUnit.SECONDS),
+        )
+        val partialAtInterrupt = state.responseText
+        assertTrue(client.interruptTurn(binding))
+
+        val stopped = settled.await(60, java.util.concurrent.TimeUnit.SECONDS)
+        observation.cancel()
+        client.disconnect()
+
+        assertTrue("the interrupted turn never settled", stopped)
+        assertEquals(AndroidTurnPhase.Interrupted, state.phase)
+        assertTrue(
+            "the partial response was discarded",
+            state.responseText.startsWith(partialAtInterrupt),
+        )
+    }
 }

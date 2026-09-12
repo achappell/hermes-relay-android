@@ -77,4 +77,13 @@
     <string name="android_capture_failed_unknown">Speech capture failed, so no turn was sent.</string>
     <string name="android_capture_block_session_replaced">The Hermes Session was replaced while you were speaking, so nothing was sent. Speak again to use the new Session.</string>
     <string name="android_capture_participant">You (transcribing)</string>
+    <string name="android_turn_phase_interrupted">Interrupted</string>
+    <string name="android_turn_interrupted">You stopped this turn. The partial response is kept.</string>
+    <string name="android_interrupt">Stop responding</string>
+    <string name="android_history_label">Local History</string>
+    <string name="android_history_empty">No conversation is kept on this device yet.</string>
+    <string name="android_history_you">You</string>
+    <string name="android_history_hermes">Hermes</string>
+    <string name="android_history_clear">Clear Local History</string>
+    <string name="android_history_boundary">Kept on this device for this Profile only. Text is kept; audio never is.</string>
 </resources>

@@ -424,6 +424,92 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun an_interrupt_is_sent_only_when_the_relay_advertises_the_capability() {
+        val frames = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val interruptSeen = CountDownLatch(1)
+
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        frames += text
+                        when (JSONObject(text).getString("type")) {
+                            "hello" -> webSocket.send(
+                                JSONObject()
+                                    .put("type", "hello_ack")
+                                    .put("protocol_version", 1)
+                                    .put("session_id", "relay-session-1")
+                                    .put(
+                                        "capabilities",
+                                        org.json.JSONArray(listOf("text_stream", "interrupt")),
+                                    )
+                                    .toString(),
+                            )
+
+                            "interrupt" -> interruptSeen.countDown()
+                        }
+                    }
+                },
+            ),
+        )
+
+        val client = client()
+        assertEquals(
+            AndroidReconnectOutcome.Connected("relay-session-1"),
+            client.reconnect(),
+        )
+        assertTrue("capability was not read from hello_ack", client.supportsInterrupt())
+
+        val binding = (
+            client.beginTurn(
+                AndroidTurnRequest(
+                    AndroidProfile("amanda-laptop", "Amanda"),
+                    AndroidTurnInput.Typed("a long answer please"),
+                ),
+            ) as AndroidInitiationResult.Accepted
+            ).binding
+
+        assertTrue(client.interruptTurn(binding))
+        assertTrue(interruptSeen.await(5, TimeUnit.SECONDS))
+
+        val sent = JSONObject(frames.last())
+        assertEquals("interrupt", sent.getString("type"))
+        assertEquals(binding.turnId, sent.getString("turn_id"))
+        assertEquals("relay-session-1", sent.getString("session_id"))
+    }
+
+    @Test
+    fun an_interrupt_is_refused_when_the_relay_never_advertised_it() {
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        if (JSONObject(text).getString("type") != "hello") return
+                        webSocket.send(
+                            JSONObject()
+                                .put("type", "hello_ack")
+                                .put("protocol_version", 1)
+                                .put("session_id", "relay-session-1")
+                                .put("capabilities", org.json.JSONArray(listOf("text_stream")))
+                                .toString(),
+                        )
+                    }
+                },
+            ),
+        )
+
+        val client = client()
+        client.reconnect()
+
+        assertTrue("interrupt was offered without support", !client.supportsInterrupt())
+        assertTrue(
+            !client.interruptTurn(
+                AndroidTurnBinding("amanda-laptop", "relay-session-1", "turn-1"),
+            ),
+        )
+    }
+
+    @Test
     fun a_turn_is_refused_before_a_session_exists() {
         val client = client()
 

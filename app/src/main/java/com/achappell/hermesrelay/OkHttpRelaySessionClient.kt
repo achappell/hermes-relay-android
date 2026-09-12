@@ -40,6 +40,8 @@ internal class OkHttpRelaySessionClient(
     private val observer = AtomicReference<TurnObserver?>(null)
     private val normalizer = AtomicReference<HermesEventNormalizer?>(null)
     private val audioActive = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val capabilities = AtomicReference<Set<String>>(emptySet())
+    private val interruptRequested = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private class TurnObserver(
         val binding: AndroidTurnBinding,
@@ -90,6 +92,7 @@ internal class OkHttpRelaySessionClient(
         normalizer.get()?.beginTurn()
         audioActive.set(false)
         audioSink.cancel()
+        interruptRequested.set(false)
 
         val sent = socket.send(
             JSONObject()
@@ -168,12 +171,22 @@ internal class OkHttpRelaySessionClient(
                 is AndroidNormalizedEvent.AudioFailed -> {
                     audioActive.set(false)
                     audioSink.cancel()
-                    active.onEvent(event)
+                    // The relay aborts its TTS stream when it honours an
+                    // interrupt. That abort is the consequence of the user's
+                    // own action, not an audio failure, and reporting it would
+                    // settle the turn as Unavailable before the interrupt is
+                    // confirmed.
+                    if (!interruptRequested.get()) {
+                        active.onEvent(event)
+                    }
                 }
 
-                is AndroidNormalizedEvent.TurnFailed -> {
+                is AndroidNormalizedEvent.TurnFailed,
+                is AndroidNormalizedEvent.TurnInterrupted,
+                -> {
                     audioActive.set(false)
                     audioSink.cancel()
+                    interruptRequested.set(false)
                     active.onEvent(event)
                 }
 
@@ -287,10 +300,36 @@ internal class OkHttpRelaySessionClient(
         return result
     }
 
+    override fun supportsInterrupt(): Boolean = capabilities.get().contains("interrupt")
+
+    override fun interruptTurn(binding: AndroidTurnBinding): Boolean {
+        val socket = activeSocket.get() ?: return false
+        val session = sessionId.get() ?: return false
+        if (!supportsInterrupt()) return false
+
+        // Stop speaking immediately rather than waiting for the relay to
+        // confirm. The user asked for silence now; the confirmation only
+        // settles the turn's terminal state.
+        audioActive.set(false)
+        audioSink.cancel()
+        interruptRequested.set(true)
+
+        return socket.send(
+            JSONObject()
+                .put("type", "interrupt")
+                .put("protocol_version", PROTOCOL_VERSION)
+                .put("turn_id", binding.turnId)
+                .put("session_id", session)
+                .toString(),
+        )
+    }
+
     /** Abandon the active socket without reporting a transport failure. */
     fun disconnect() {
         activeSocket.getAndSet(null)?.close(NORMAL_CLOSURE, null)
         sessionId.set(null)
+        capabilities.set(emptySet())
+        interruptRequested.set(false)
         audioActive.set(false)
         audioSink.cancel()
     }
@@ -320,6 +359,16 @@ internal class OkHttpRelaySessionClient(
                             "this Client speaks $PROTOCOL_VERSION.",
                     )
                 } else {
+                    val advertised = frame.optJSONArray("capabilities")
+                    capabilities.set(
+                        buildSet {
+                            for (index in 0 until (advertised?.length() ?: 0)) {
+                                advertised?.optString(index)
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?.let { add(it.lowercase()) }
+                            }
+                        },
+                    )
                     AndroidReconnectOutcome.Connected(
                         frame.optString("session_id").takeIf { it.isNotBlank() } ?: sessionId,
                     )
