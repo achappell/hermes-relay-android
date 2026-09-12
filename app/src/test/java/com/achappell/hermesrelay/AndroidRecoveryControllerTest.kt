@@ -29,9 +29,10 @@ class AndroidRecoveryControllerTest {
         assertEquals(AndroidConnectionState.Connected, state.connection)
         assertEquals("session-2", state.sessionId)
         assertEquals(2, port.reconnectAttempts)
+        // The controller starts Disconnected, so the loss itself changes
+        // nothing; visible progress begins with the first attempt.
         assertEquals(
             listOf(
-                AndroidConnectionState.Disconnected,
                 AndroidConnectionState.Reconnecting(1, 3),
                 AndroidConnectionState.Reconnecting(2, 3),
                 AndroidConnectionState.Connected,

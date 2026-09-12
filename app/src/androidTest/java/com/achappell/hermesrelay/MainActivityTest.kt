@@ -49,6 +49,8 @@ class MainActivityTest {
             }
         }
 
+        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
         composeRule.onNodeWithText("Start typed turn").performClick()
         composeRule.waitForIdle()
@@ -72,6 +74,8 @@ class MainActivityTest {
             }
         }
 
+        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
         composeRule.onNodeWithText("Start typed turn").performClick()
         composeRule.waitForIdle()
@@ -114,6 +118,8 @@ class MainActivityTest {
             }
         }
 
+        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Tell me a story")
         composeRule.onNodeWithText("Start typed turn").performClick()
         composeRule.waitForIdle()
@@ -140,10 +146,12 @@ class MainActivityTest {
             }
         }
 
+        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
         composeRule.onNodeWithText("Start typed turn").performClick()
         composeRule.waitForIdle()
-        val binding = AndroidTurnBinding("amanda", "session-1", "turn-1")
+        val binding = port.lastBinding!!
 
         port.emit(AndroidNormalizedEvent.Thinking(binding))
         port.emit(AndroidNormalizedEvent.Disconnected("session-1", "The socket closed."))
@@ -190,6 +198,8 @@ class MainActivityTest {
                 ),
             )
         }
+
+        override fun reconnect() = AndroidReconnectOutcome.Connected("session-1")
     }
 
     private class ObservableAuthorizedFakePort : AndroidClientPort {
@@ -216,6 +226,8 @@ class MainActivityTest {
             )
         }
 
+        override fun reconnect() = AndroidReconnectOutcome.Connected("session-1")
+
         override fun observeTurn(
             binding: AndroidTurnBinding,
             onEvent: (AndroidNormalizedEvent) -> Unit,
@@ -238,6 +250,9 @@ class MainActivityTest {
         val requests = mutableListOf<AndroidTurnRequest>()
         private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
         private var sessionId = "session-1"
+        private var connections = 0
+        var lastBinding: AndroidTurnBinding? = null
+            private set
 
         override fun snapshot() = AndroidClientSnapshot(
             titleRes = BootstrapState.titleRes,
@@ -249,13 +264,13 @@ class MainActivityTest {
 
         override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult {
             requests += request
-            return AndroidInitiationResult.Accepted(
-                AndroidTurnBinding(
-                    profileId = request.profile.id,
-                    sessionId = sessionId,
-                    turnId = "turn-${'$'}{requests.size}",
-                ),
+            val binding = AndroidTurnBinding(
+                profileId = request.profile.id,
+                sessionId = sessionId,
+                turnId = "turn-${requests.size}",
             )
+            lastBinding = binding
+            return AndroidInitiationResult.Accepted(binding)
         }
 
         override fun observeTurn(
@@ -271,7 +286,10 @@ class MainActivityTest {
         }
 
         override fun reconnect(): AndroidReconnectOutcome {
-            sessionId = "session-2"
+            // The first connect establishes session-1; a later recovery
+            // negotiates a genuinely fresh session, as the relay does.
+            connections += 1
+            sessionId = "session-$connections"
             return AndroidReconnectOutcome.Connected(sessionId)
         }
 

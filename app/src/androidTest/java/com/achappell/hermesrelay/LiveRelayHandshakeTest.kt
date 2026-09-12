@@ -67,4 +67,60 @@ class LiveRelayHandshakeTest {
             (outcome as AndroidReconnectOutcome.Connected).sessionId.isNotBlank(),
         )
     }
+
+    @Test
+    fun a_typed_turn_reaches_hermes_and_returns_a_projected_response() {
+        val arguments = InstrumentationRegistry.getArguments()
+        val endpoint = arguments.getString("relayEndpoint")
+        val token = arguments.getString("relayToken")
+        require(!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
+            "relayEndpoint and relayToken instrumentation arguments are required"
+        }
+
+        val profile = RelayProfile(
+            id = "live-gate",
+            endpoint = endpoint!!,
+            clientId = arguments.getString("relayClientId") ?: "amanda-laptop",
+            deviceId = arguments.getString("relayDeviceId") ?: "android",
+            displayName = "Android live gate",
+        )
+        val client = OkHttpRelaySessionClient(
+            collection = {
+                RelayProfileCollection(profiles = listOf(profile), selectedId = profile.id)
+            },
+            credentials = InMemoryRelayCredentialStore(mapOf(profile.id to token!!)),
+            helloTimeoutMillis = 15_000,
+        )
+
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+
+        val result = client.beginTurn(
+            AndroidTurnRequest(
+                AndroidProfile(profile.clientId, profile.displayName),
+                AndroidTurnInput.Typed(
+                    arguments.getString("relayPrompt")
+                        ?: "Reply with exactly the word: acknowledged",
+                ),
+            ),
+        )
+        assertTrue("turn was not accepted: $result", result is AndroidInitiationResult.Accepted)
+        val binding = (result as AndroidInitiationResult.Accepted).binding
+
+        var state = AndroidTurnState.awaitingEvents(binding)
+        val finished = java.util.concurrent.CountDownLatch(1)
+        val observation = client.observeTurn(binding) { event ->
+            state = AndroidTurnStateReducer.reduce(state, event)
+            if (state.isTerminal) finished.countDown()
+        }
+
+        val completed = finished.await(120, java.util.concurrent.TimeUnit.SECONDS)
+        observation.cancel()
+        client.disconnect()
+
+        assertTrue("the turn never reached a terminal state", completed)
+        assertTrue(
+            "Hermes returned no response text (phase=${'$'}{state.phase})",
+            state.responseText.isNotBlank(),
+        )
+    }
 }

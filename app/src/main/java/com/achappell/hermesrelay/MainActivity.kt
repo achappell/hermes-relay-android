@@ -77,6 +77,7 @@ internal fun AndroidClientScreen(
     }
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
+    val isConnected = recoveryState.connection == AndroidConnectionState.Connected
     val acceptedBinding = (initiationState as? AndroidInitiationState.Accepted)?.binding
     val hasAcceptedTurn = acceptedBinding != null && !turnState.isTerminal
 
@@ -204,7 +205,7 @@ internal fun AndroidClientScreen(
                 onClick = {
                     initiate(AndroidTurnInput.Typed(prompt))
                 },
-                enabled = isAuthorized && !hasAcceptedTurn && prompt.isNotBlank(),
+                enabled = isAuthorized && isConnected && !hasAcceptedTurn && prompt.isNotBlank(),
             ) {
                 Text(stringResource(R.string.android_start_typed_turn))
             }
@@ -212,14 +213,12 @@ internal fun AndroidClientScreen(
                 onClick = {
                     initiate(AndroidTurnInput.TapToSpeak)
                 },
-                enabled = isAuthorized && !hasAcceptedTurn,
+                enabled = isAuthorized && isConnected && !hasAcceptedTurn,
             ) {
                 Text(stringResource(R.string.android_tap_to_speak))
             }
 
-            if (recoveryState.connection != AndroidConnectionState.Connected ||
-                recoveryState.hasUnconfirmedTurn
-            ) {
+            if (!isConnected || recoveryState.hasUnconfirmedTurn) {
                 Text(
                     modifier = Modifier.testTag("android_connection_state"),
                     text = stringResource(
@@ -230,8 +229,9 @@ internal fun AndroidClientScreen(
                 )
             }
 
-            if (recoveryState.connection != AndroidConnectionState.Connected) {
+            if (!isConnected && isAuthorized) {
                 Button(
+                    modifier = Modifier.testTag("android_connect"),
                     onClick = { recoveryController.recover() },
                     enabled = !recoveryState.isRecovering,
                 ) {
