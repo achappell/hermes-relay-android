@@ -1,0 +1,117 @@
+schema_version: 1
+repository: hermes-relay-android
+surface: A
+stories:
+  - id: 1-A-1
+    product_epic: 1
+    title: Start an authorized typed or tap-to-speak Hermes turn
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-1-authorized-initiation.md
+    validation: _bmad-output/implementation-artifacts/validation-a-1-authorized-initiation.md
+  - id: 1-A-2
+    product_epic: 1
+    title: Render honest phases with response text and audio delivery
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-2-honest-phases.md
+    validation: _bmad-output/implementation-artifacts/validation-a-2-honest-phases.md
+  - id: 1-A-3
+    product_epic: 1
+    title: Recover without replaying an uncertain turn
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-3-fresh-recovery.md
+    validation: _bmad-output/implementation-artifacts/validation-a-3-fresh-recovery.md
+  - id: 1-A-4
+    product_epic: 1
+    title: Configure the relay with Keystore credentials and live transport
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-4-relay-configuration.md
+    validation: _bmad-output/implementation-artifacts/validation-a-4-relay-configuration.md
+  - id: 1-A-5
+    product_epic: 1
+    title: Interrupt an active Android turn
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-5-interrupt.md
+    validation: _bmad-output/implementation-artifacts/validation-a-5-interrupt.md
+  - id: 1-A-6
+    product_epic: 1
+    title: Continue hands-free capture with echo-safe barge-in
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-6-hands-free.md
+    validation: _bmad-output/implementation-artifacts/validation-a-6-hands-free.md
+  - id: 1-A-7
+    product_epic: 1
+    title: Deliver typed turns through normalized events
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-7-live-turns.md
+    validation: _bmad-output/implementation-artifacts/validation-a-7-live-turns.md
+  - id: 1-A-8
+    product_epic: 1
+    title: Play streamed response audio
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-8-response-audio-playback.md
+    validation: _bmad-output/implementation-artifacts/validation-a-8-response-audio-playback.md
+  - id: 1-A-9
+    product_epic: 1
+    title: Capture microphone input and transcribe on device
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-9-microphone-capture.md
+    validation: _bmad-output/implementation-artifacts/validation-a-9-microphone-capture.md
+  - id: 2-A-1
+    product_epic: 2
+    title: Show Android capture acknowledgement and live transcription
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-2-a-1-live-transcription.md
+    validation: _bmad-output/implementation-artifacts/validation-2-a-1-live-transcription.md
+  - id: 2-A-2
+    product_epic: 2
+    title: Show honest Android disconnected or unavailable state
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-2-a-2-disconnected-state.md
+    validation: _bmad-output/implementation-artifacts/validation-2-a-2-disconnected-state.md
+  - id: 3-A-1
+    product_epic: 3
+    title: Discover and connect an unconfigured Device
+    kind: surface
+    spec: null
+  - id: 3-A-2
+    product_epic: 3
+    title: Approve and configure a Device
+    kind: surface
+    spec: null
+  - id: 3-A-3
+    product_epic: 3
+    title: Validate unique Wake Mappings and Profile-specific publish state
+    kind: surface
+    spec: null
+  - id: 3-A-4
+    product_epic: 3
+    title: Configure and expose deterministic single-Device wake arbitration
+    kind: surface
+    spec: null
+  - id: 3-A-5
+    product_epic: 3
+    title: Fail closed for unavailable or revoked Device identities
+    kind: surface
+    spec: null
+  - id: 3-A-6
+    product_epic: 3
+    title: Revoke access and require verified re-enrollment
+    kind: surface
+    spec: null
+  - id: 5-A-1
+    product_epic: 5
+    title: Use Android as an independent conversation doorway
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-5-a-1-independent-doorway.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-1-independent-doorway.md
+  - id: 5-A-2
+    product_epic: 5
+    title: Preserve accessibility order and focus restoration
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-5-a-2-accessibility.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-2-accessibility.md
+  - id: 5-A-3
+    product_epic: 5
+    title: Apply the Night Console visual language as a Material 3 adaptation
+    kind: surface
+    spec: null

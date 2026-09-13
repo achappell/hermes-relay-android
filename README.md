@@ -101,17 +101,18 @@ key, so an offline build still works. To sign locally, set
 environment. Play Store distribution remains intentionally outside this
 repository.
 
-## Story map
+## Story map and status
 
-The authoritative cross-surface coverage index and Android story specifications
-remain in the sibling TUI repository while this delivery repository is being
-bootstrapped:
+This repository owns the Android surface story map in
+`_bmad-output/implementation-artifacts/story-index.yaml` and formal delivery
+status in `sprint-status.yaml`. Story specifications and validation records
+remain beside the Android implementation.
 
-- `../hermes-relay-tui/_bmad-output/implementation-artifacts/surface-coverage-matrix.md`
-- `../hermes-relay-tui/_bmad-output/planning-artifacts/epics.md`
-
-This README records the bootstrap boundary; story closure belongs to the
-Android repository's own specifications and validation records.
+The sibling TUI coverage index and epic snapshot are read-only context for
+cross-repository applicability and dependencies. An Android status transition
+does not require an edit to the TUI repository or the product hub. Update the
+product hub only when implementation changes durable shared intent or a
+cross-surface decision.
 
 ## Boundary rules
 
