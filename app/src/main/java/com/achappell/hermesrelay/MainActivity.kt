@@ -178,7 +178,21 @@ internal fun AndroidClientScreen(
                         current.authorizationState == AndroidAuthorizationState.Verified
                 },
                 currentSessionId = { recoveryController.state.sessionId },
-                onStateChange = { changed -> captureState = changed },
+                onStateChange = { changed ->
+                    captureState = changed
+                    // Hands-free reopens the microphone after a turn settles.
+                    // Leaving the settled turn's phase on screen would claim the
+                    // conversation had ended while the microphone was live, so
+                    // the reopened window becomes the next turn's Listening
+                    // phase. Only a settled turn is replaced; an active one is
+                    // never overwritten.
+                    val capturing = changed == AndroidCaptureState.Starting ||
+                        changed == AndroidCaptureState.Listening ||
+                        changed is AndroidCaptureState.Transcribing
+                    if (handsFree && capturing && turnState.isTerminal) {
+                        turnState = AndroidTurnState(phase = AndroidTurnPhase.Listening)
+                    }
+                },
                 onHandsFreeChange = { armed -> handsFree = armed },
                 onInitiation = { result ->
                     initiationState = result
