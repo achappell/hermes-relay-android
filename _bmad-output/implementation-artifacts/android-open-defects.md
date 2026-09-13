@@ -3,7 +3,7 @@ title: 'Android open defects and unverified behavior'
 type: 'tickets'
 created: '2026-09-12'
 status: 'open'
-baseline_commit: 'bb14eb1'
+baseline_commit: 'edd4c41'
 context:
   - '_bmad-output/implementation-artifacts/validation-a-4-relay-configuration.md'
   - '_bmad-output/implementation-artifacts/validation-a-6-hands-free.md'
@@ -62,6 +62,18 @@ exists, so the phase can be non-terminal with a null `binding`. Nothing reads
 recovery and interruption while hands-free is armed should be checked here
 first.
 
+## `ANDROID-BUG-F4` — the header contradicts the screen below it
+
+The doorway header reads `Android Client bootstrap` and "The native Android
+surface is alive, but Hermes session transport is not connected yet", while the
+same screen shows `Authorization: Verified` and a configured, selected Profile
+against a live relay. The copy appears to predate working transport.
+
+Seen on a Pixel 6a on 2026-09-12 during the `5-A-3` device pass. It is the first
+thing a person reads, and it contradicts a line three rows below it. A content
+defect rather than a visual one, so `5-A-3` did not fix it; the snapshot's
+`titleRes` and `descriptionRes` are what need revisiting.
+
 ## Unverified on hardware
 
 - **Echo and barge-in** (`A-6`). Playback was audible through the device
@@ -70,8 +82,12 @@ first.
   environment limitation.
 - **TalkBack navigation** (`5-A-2`). No screen reader pass has ever been run.
   Announcement wording, verbosity, and gesture navigation are unproven.
-- **Contrast measurement** (`5-A-2`, `UX-DR21`). No contrast ratio has been
-  measured against the WCAG 2.2 AA target.
+- **Contrast measurement** (`5-A-2`, `UX-DR21`). ~~No contrast ratio has been
+  measured against the WCAG 2.2 AA target.~~ Closed by `ANDROID-DESIGN-F1` and
+  widened by `5-A-3` to 56 pairs across both appearances. What remains unproven
+  is how the measured palette *renders* — and the `5-A-3` device pass found a
+  defect that measurement structurally could not catch, so the two are not
+  substitutes.
 
 ## Release engineering
 

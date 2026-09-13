@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1 (2026-09-12)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Other Changes
+* fix: pass secrets to the reusable release workflow by @achappell in https://github.com/achappell/hermes-relay-android/pull/23
+* fix: clear the Speaking phase when response audio ends by @achappell in https://github.com/achappell/hermes-relay-android/pull/25
+
+
+**Full Changelog**: https://github.com/achappell/hermes-relay-android/compare/v0.3.0...v0.3.1
+
 ## 0.3.0 (2026-09-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->
