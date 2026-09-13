@@ -1,84 +1,143 @@
 package com.achappell.hermesrelay.ui.theme
 
 /**
- * The Hermes Relay palette, as ARGB values.
+ * The Hermes Night Console palette for Android, as ARGB values.
  *
- * Colours live here as plain numbers rather than Compose `Color` values so the
+ * Night Console is the shared Hermes visual identity. The TUI, iOS, and Android
+ * each adapt it rather than copy one another; what travels between surfaces is
+ * the set of **semantic roles**, not the geometry. `5-A-3` adopts those roles
+ * here.
+ *
+ * Colours live as plain numbers rather than Compose `Color` values so the
  * contrast obligation in `UX-DR21` can be *measured* by an ordinary unit test
- * instead of eyeballed. Every foreground/background pair used for text is
+ * instead of eyeballed. Every foreground/background pair the surface renders is
  * asserted against WCAG 2.2 AA in `PaletteContrastTest`.
  *
  * Change a value here and the contrast test will tell you whether the change is
  * still readable.
  */
 internal object Palette {
-    object Light {
-        val PRIMARY = 0xFF54468Bu.toInt()
-        val ON_PRIMARY = 0xFFFFFFFFu.toInt()
-        val PRIMARY_CONTAINER = 0xFFE4DEFFu.toInt()
-        val ON_PRIMARY_CONTAINER = 0xFF105043u.toInt()
-
-        val SECONDARY_CONTAINER = 0xFFE3E0F9u.toInt()
-        val ON_SECONDARY_CONTAINER = 0xFF1B1A2Cu.toInt()
-
-        val BACKGROUND = 0xFFFCF8FFu.toInt()
-        val ON_BACKGROUND = 0xFF1B1B21u.toInt()
-        val SURFACE = 0xFFFCF8FFu.toInt()
-        val ON_SURFACE = 0xFF1B1B21u.toInt()
-        val SURFACE_VARIANT = 0xFFE4E1EFu.toInt()
-        val ON_SURFACE_VARIANT = 0xFF464659u.toInt()
-
-        val ERROR = 0xFFBA1A1Au.toInt()
-        val ON_ERROR = 0xFFFFFFFFu.toInt()
-        val ERROR_CONTAINER = 0xFFFFDAD6u.toInt()
-        val ON_ERROR_CONTAINER = 0xFF93000Au.toInt()
-
-        val OUTLINE = 0xFF777687u.toInt()
-    }
-
+    /**
+     * The four state roles. These are what make the doorway able to say what it
+     * means: a healthy live signal, pending work, Profile identity, and outright
+     * failure are different colours because they are different facts. Material's
+     * `ColorScheme` has no slot for any of them, so they are carried separately
+     * and published through `LocalHermesStateColors`.
+     */
     object Dark {
-        val PRIMARY = 0xFFC0C1FFu.toInt()
-        val ON_PRIMARY = 0xFF251659u.toInt()
-        val PRIMARY_CONTAINER = 0xFF3C2F72u.toInt()
-        val ON_PRIMARY_CONTAINER = 0xFFE4DEFFu.toInt()
+        // Night Console canonical values, shared with iOS.
+        val BASE = 0xFF0B101Bu.toInt()
+        val CONSOLE_SURFACE = 0xFF101725u.toInt()
+        val PANEL = 0xFF0D1320u.toInt()
+        val RAISED_PANEL = 0xFF182338u.toInt()
 
-        val SECONDARY_CONTAINER = 0xFF454357u.toInt()
-        val ON_SECONDARY_CONTAINER = 0xFFE3E0F9u.toInt()
+        val PRIMARY_INK = 0xFFEAF7FFu.toInt()
+        val SECONDARY_INK = 0xFFB3C0D2u.toInt()
 
-        val BACKGROUND = 0xFF131318u.toInt()
-        val ON_BACKGROUND = 0xFFE4E1E9u.toInt()
-        val SURFACE = 0xFF131318u.toInt()
-        val ON_SURFACE = 0xFFE4E1E9u.toInt()
-        val SURFACE_VARIANT = 0xFF464659u.toInt()
-        val ON_SURFACE_VARIANT = 0xFFC7C5D5u.toInt()
+        val LIVE = 0xFF62E6C7u.toInt()
+        val ATTENTION = 0xFFFFCF5Cu.toInt()
+        val IDENTITY = 0xFF7C8CFFu.toInt()
+        val UNAVAILABLE = 0xFFFF7D9Cu.toInt()
 
-        val ERROR = 0xFFFFB4ABu.toInt()
-        val ON_ERROR = 0xFF690005u.toInt()
-        val ERROR_CONTAINER = 0xFF93000Au.toInt()
-        val ON_ERROR_CONTAINER = 0xFFFFDAD6u.toInt()
+        // Ink placed on top of a filled state colour, not on a dark surface.
+        val ON_IDENTITY = BASE
+        val ON_UNAVAILABLE = BASE
 
-        val OUTLINE = 0xFF918FA0u.toInt()
+        val OUTLINE = 0xFF3A4759u.toInt()
     }
 
-    /** Every text pair the surface actually renders, for the contrast test. */
-    val textPairs: List<Triple<String, Int, Int>> = listOf(
-        Triple("light onBackground/background", Light.ON_BACKGROUND, Light.BACKGROUND),
-        Triple("light onSurface/surface", Light.ON_SURFACE, Light.SURFACE),
-        Triple("light onSurfaceVariant/surfaceVariant", Light.ON_SURFACE_VARIANT, Light.SURFACE_VARIANT),
-        Triple("light onPrimary/primary", Light.ON_PRIMARY, Light.PRIMARY),
-        Triple("light onSecondaryContainer/secondaryContainer", Light.ON_SECONDARY_CONTAINER, Light.SECONDARY_CONTAINER),
-        Triple("light onErrorContainer/errorContainer", Light.ON_ERROR_CONTAINER, Light.ERROR_CONTAINER),
-        Triple("light onError/error", Light.ON_ERROR, Light.ERROR),
-        Triple("light error/background", Light.ERROR, Light.BACKGROUND),
-        Triple("dark onBackground/background", Dark.ON_BACKGROUND, Dark.BACKGROUND),
-        Triple("dark onSurface/surface", Dark.ON_SURFACE, Dark.SURFACE),
-        Triple("dark onSurfaceVariant/surfaceVariant", Dark.ON_SURFACE_VARIANT, Dark.SURFACE_VARIANT),
-        Triple("dark onPrimary/primary", Dark.ON_PRIMARY, Dark.PRIMARY),
-        Triple("dark onSecondaryContainer/secondaryContainer", Dark.ON_SECONDARY_CONTAINER, Dark.SECONDARY_CONTAINER),
-        Triple("dark onErrorContainer/errorContainer", Dark.ON_ERROR_CONTAINER, Dark.ERROR_CONTAINER),
-        Triple("dark onError/error", Dark.ON_ERROR, Dark.ERROR),
-        Triple("dark error/background", Dark.ERROR, Dark.BACKGROUND),
-    )
+    /**
+     * The light adaptation.
+     *
+     * The surfaces invert, but the roles keep their meaning and their hue. The
+     * four state colours are *not* reused directly: `#62E6C7` live and
+     * `#FFCF5C` attention are bright by design and cannot reach 4.5:1 as text on
+     * a light surface. Each has a darkened same-hue variant instead, derived to
+     * clear the AA threshold with headroom on the lightest surface in this set.
+     * Lowering the target was never an option; the colour moved instead.
+     */
+    object Light {
+        val BASE = 0xFFF7F9FCu.toInt()
+        val CONSOLE_SURFACE = 0xFFECF1F8u.toInt()
+        val PANEL = 0xFFFFFFFFu.toInt()
+        val RAISED_PANEL = 0xFFE3EAF5u.toInt()
+
+        val PRIMARY_INK = 0xFF0B101Bu.toInt()
+        val SECONDARY_INK = 0xFF44506Au.toInt()
+
+        val LIVE = 0xFF2D6A5Cu.toInt()
+        val ATTENTION = 0xFF735D29u.toInt()
+        val IDENTITY = 0xFF4F5AA3u.toInt()
+        val UNAVAILABLE = 0xFF94485Au.toInt()
+
+        val ON_IDENTITY = 0xFFFFFFFFu.toInt()
+        val ON_UNAVAILABLE = 0xFFFFFFFFu.toInt()
+
+        val OUTLINE = 0xFF7B879Bu.toInt()
+    }
+
+    /**
+     * Every text pair the surface actually renders, for the contrast test.
+     *
+     * Both appearances, every ink on every surface it can land on. The state
+     * roles are included because they are rendered *as text* — a phase label, a
+     * failure explanation — and not only as decoration.
+     */
+    val textPairs: List<Triple<String, Int, Int>> = buildList {
+        fun appearance(
+            name: String,
+            surfaces: List<Pair<String, Int>>,
+            inks: List<Pair<String, Int>>,
+        ) {
+            for ((surfaceName, surface) in surfaces) {
+                for ((inkName, ink) in inks) {
+                    add(Triple("$name $inkName/$surfaceName", ink, surface))
+                }
+            }
+        }
+
+        appearance(
+            name = "dark",
+            surfaces = listOf(
+                "base" to Dark.BASE,
+                "consoleSurface" to Dark.CONSOLE_SURFACE,
+                "panel" to Dark.PANEL,
+                "raisedPanel" to Dark.RAISED_PANEL,
+            ),
+            inks = listOf(
+                "primaryInk" to Dark.PRIMARY_INK,
+                "secondaryInk" to Dark.SECONDARY_INK,
+                "live" to Dark.LIVE,
+                "attention" to Dark.ATTENTION,
+                "identity" to Dark.IDENTITY,
+                "unavailable" to Dark.UNAVAILABLE,
+            ),
+        )
+
+        appearance(
+            name = "light",
+            surfaces = listOf(
+                "base" to Light.BASE,
+                "consoleSurface" to Light.CONSOLE_SURFACE,
+                "panel" to Light.PANEL,
+                "raisedPanel" to Light.RAISED_PANEL,
+            ),
+            inks = listOf(
+                "primaryInk" to Light.PRIMARY_INK,
+                "secondaryInk" to Light.SECONDARY_INK,
+                "live" to Light.LIVE,
+                "attention" to Light.ATTENTION,
+                "identity" to Light.IDENTITY,
+                "unavailable" to Light.UNAVAILABLE,
+            ),
+        )
+
+        // Ink on a filled state colour: a button or chip, rather than a surface.
+        add(Triple("dark onIdentity/identity", Dark.ON_IDENTITY, Dark.IDENTITY))
+        add(Triple("dark onUnavailable/unavailable", Dark.ON_UNAVAILABLE, Dark.UNAVAILABLE))
+        add(Triple("light onIdentity/identity", Light.ON_IDENTITY, Light.IDENTITY))
+        add(Triple("light onUnavailable/unavailable", Light.ON_UNAVAILABLE, Light.UNAVAILABLE))
+    }
 }
 
 /** WCAG 2.2 relative luminance and contrast ratio. */
