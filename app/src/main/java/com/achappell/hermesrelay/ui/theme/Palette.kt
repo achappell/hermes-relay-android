@@ -43,6 +43,17 @@ internal object Palette {
         val ON_IDENTITY = BASE
         val ON_UNAVAILABLE = BASE
 
+        /**
+         * A rose-tinted panel, distinct from [PANEL].
+         *
+         * Material resolves a container's content colour by matching the
+         * container against each scheme slot, so two slots holding the *same*
+         * value are indistinguishable to it. When `errorContainer` reused
+         * `PANEL`, every ordinary card resolved to `onErrorContainer` and drew
+         * plain informational text in the unavailable colour.
+         */
+        val ERROR_PANEL = 0xFF1E1119u.toInt()
+
         val OUTLINE = 0xFF3A4759u.toInt()
     }
 
@@ -72,6 +83,8 @@ internal object Palette {
 
         val ON_IDENTITY = 0xFFFFFFFFu.toInt()
         val ON_UNAVAILABLE = 0xFFFFFFFFu.toInt()
+
+        val ERROR_PANEL = 0xFFFDEFF2u.toInt()
 
         val OUTLINE = 0xFF7B879Bu.toInt()
     }
@@ -133,6 +146,10 @@ internal object Palette {
         )
 
         // Ink on a filled state colour: a button or chip, rather than a surface.
+        add(Triple("dark unavailable/errorPanel", Dark.UNAVAILABLE, Dark.ERROR_PANEL))
+        add(Triple("dark primaryInk/errorPanel", Dark.PRIMARY_INK, Dark.ERROR_PANEL))
+        add(Triple("light unavailable/errorPanel", Light.UNAVAILABLE, Light.ERROR_PANEL))
+        add(Triple("light primaryInk/errorPanel", Light.PRIMARY_INK, Light.ERROR_PANEL))
         add(Triple("dark onIdentity/identity", Dark.ON_IDENTITY, Dark.IDENTITY))
         add(Triple("dark onUnavailable/unavailable", Dark.ON_UNAVAILABLE, Dark.UNAVAILABLE))
         add(Triple("light onIdentity/identity", Light.ON_IDENTITY, Light.IDENTITY))

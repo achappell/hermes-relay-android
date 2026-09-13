@@ -33,7 +33,7 @@ private val DarkColors = darkColorScheme(
     onSurfaceVariant = Color(Palette.Dark.SECONDARY_INK),
     error = Color(Palette.Dark.UNAVAILABLE),
     onError = Color(Palette.Dark.ON_UNAVAILABLE),
-    errorContainer = Color(Palette.Dark.PANEL),
+    errorContainer = Color(Palette.Dark.ERROR_PANEL),
     onErrorContainer = Color(Palette.Dark.UNAVAILABLE),
     outline = Color(Palette.Dark.OUTLINE),
 )
@@ -53,7 +53,7 @@ private val LightColors = lightColorScheme(
     onSurfaceVariant = Color(Palette.Light.SECONDARY_INK),
     error = Color(Palette.Light.UNAVAILABLE),
     onError = Color(Palette.Light.ON_UNAVAILABLE),
-    errorContainer = Color(Palette.Light.PANEL),
+    errorContainer = Color(Palette.Light.ERROR_PANEL),
     onErrorContainer = Color(Palette.Light.UNAVAILABLE),
     outline = Color(Palette.Light.OUTLINE),
 )
