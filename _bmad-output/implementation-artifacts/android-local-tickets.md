@@ -13,9 +13,19 @@ The parity audit proposed four items as **local tickets** rather than upstream
 story identities, matching how iOS tracks `IOS-DESIGN-F1` and `IOS-BRAND-F1`.
 All four are delivered here.
 
+`ANDROID-DESIGN-F1` was delivered at a narrower scope than its name implies.
+The visual design work that remains is the upstream story `5-A-3`, not this
+ticket.
+
 ## `ANDROID-DESIGN-F1` — deliberate visual design pass
 
-**Status:** done.
+**Status:** done, and narrower than the parity obligation. Superseded for the
+remaining work by the upstream story `5-A-3`.
+
+This ticket delivered a palette, a contrast test, and dark/light wiring. It did
+not touch layout, component structure, or the shared Night Console state
+language, so closing it did not achieve design parity with iOS — a fact the
+ticket's own title oversells. See the note at the end of this section.
 
 The app shipped on the stock Material baseline scheme. It now has a deliberate
 palette defined as ARGB values in `ui/theme/Palette.kt`, wired through
@@ -36,6 +46,23 @@ replace verified values with unverified ones at runtime.
 
 The test suite includes a guard that a known-bad pair is actually caught, so
 the check cannot pass vacuously.
+
+### What this ticket did not do — now `5-A-3`
+
+The palette is a light-first Material scheme. iOS ships **Night Console**: a
+dark-first system whose four semantic roles — live, attention, identity,
+unavailable — carry Hermes' state language across every surface. Android has
+none of those roles, so Android state is expressed through generic Material
+roles that cannot distinguish a healthy live signal from pending work from a
+failed identity.
+
+The whole Android UI is also a single 893-line `AndroidClientScreen` composable
+with no component structure, so there is no spacing scale, type ramp, or
+reusable state surface for good colour tokens to land in.
+
+Both are cross-surface parity obligations rather than local polish, which is
+why the remainder was promoted to the upstream identity `5-A-3` on 2026-09-12
+rather than reopening this ticket.
 
 ## `ANDROID-BRAND-F1` — app icon
 
