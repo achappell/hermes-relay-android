@@ -7,11 +7,11 @@ deliberate per-profile Local History.
 
 ## Current state
 
-This repository is the Android bootstrap only. The launchable Compose shell is
+This repository is the Android bootstrap. The launchable Compose shell is
 honest about the missing Hermes connection. It does not invent protocol frames,
-responses, credentials, audio, Device operations, or Local History. The first
-delivery slices are the Android surface stories `A-1` through `A-3`, `2-A-1`
-through `2-A-2`, `3-A-1` through `3-A-6`, and `5-A-1`.
+responses, credentials, audio, Device operations, or Local History. Delivered
+and planned Android surface stories are recorded in the local story index and
+tracker below; the sibling TUI planning snapshot is historical context only.
 
 ## Toolchain
 
@@ -101,17 +101,18 @@ key, so an offline build still works. To sign locally, set
 environment. Play Store distribution remains intentionally outside this
 repository.
 
-## Story map
+## Story map and status
 
-The authoritative cross-surface coverage index and Android story specifications
-remain in the sibling TUI repository while this delivery repository is being
-bootstrapped:
+This repository owns the Android surface story map in
+`_bmad-output/implementation-artifacts/story-index.yaml` and formal delivery
+status in `sprint-status.yaml`. Story specifications and validation records
+remain beside the Android implementation.
 
-- `../hermes-relay-tui/_bmad-output/implementation-artifacts/surface-coverage-matrix.md`
-- `../hermes-relay-tui/_bmad-output/planning-artifacts/epics.md`
-
-This README records the bootstrap boundary; story closure belongs to the
-Android repository's own specifications and validation records.
+The sibling TUI coverage index and epic snapshot are read-only context for
+cross-repository applicability and dependencies. An Android status transition
+does not require an edit to the TUI repository or the product hub. Update the
+product hub only when implementation changes durable shared intent or a
+cross-surface decision.
 
 ## Boundary rules
 

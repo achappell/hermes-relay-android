@@ -27,6 +27,11 @@ This artifact records the delta and proposes story identities to close it. It
 does not change any existing story, and it is not authoritative over the
 sibling `surface-coverage-matrix.md`.
 
+> **Authority note:** This is a proposal-time audit and its status cells are
+> historical context. Current Android story identity, status, and closure live
+> in this repository's local story index, specifications, validation records,
+> and tracker.
+
 ## Method
 
 - Enumerated the iOS implementation surface: 34 Swift files, roughly 11,700
@@ -181,12 +186,14 @@ surface records them first should record them for both.
 2. **Which endpoint does `A-4` target?** Whether the Android device reaches
    Hermes directly or through the media-server host determines the transport
    and the trust boundary `A-4` has to describe.
-3. **Should `surface-coverage-matrix.md` be amended?** The matrix is the
-   authoritative cross-surface index and lives in the TUI repository. This
-   audit deliberately does not edit it.
+3. **Should `surface-coverage-matrix.md` be amended?** The matrix is a
+   read-only cross-surface context index in the TUI repository. Amend it only
+   for applicability, ownership, evidence, or shared dependencies; this audit
+   does not make it an Android status authority.
 
 ## Boundary
 
-This artifact is a proposal. No story identity here is real until it is
-accepted into `epics.md` and the coverage matrix. Nothing in it closes,
-reopens, or reinterprets an existing story on any surface.
+This artifact is a proposal. An Android story identity becomes actionable when
+it is recorded in the local story index and tracker; shared applicability may
+also be reflected in the coverage index. Nothing in this audit closes, reopens,
+or reinterprets an existing story on any surface.

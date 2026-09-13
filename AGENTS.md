@@ -3,29 +3,28 @@
 Native Android client for the Hermes voice-session channel. This repository
 owns the `A-*` surface stories; it does not own product planning.
 
-## Planning lives in the TUI repository
+## Planning and delivery ownership
 
-`hermes-relay-tui` holds the cross-surface planning record. Android work is not
-finished until that record matches it. In the same pass as the code:
+This repository owns Android story identity and delivery status. In the same
+pass as the code, update the local records:
 
-- **Story identity** — `_bmad-output/planning-artifacts/epics.md`. A story is
-  not real until it is written there. Delivering ahead of that gate leaves the
-  record self-contradictory; on 2026-09-12, `A-4`–`A-9` and `5-A-2` had shipped
-  and validated here while appearing nowhere in `epics.md`.
-- **Board status** —
+- **Story identity and scope** —
+  `_bmad-output/implementation-artifacts/story-index.yaml`.
+- **Delivery status** —
   `_bmad-output/implementation-artifacts/sprint-status.yaml`.
-- **Cross-surface claims** —
-  `_bmad-output/implementation-artifacts/surface-coverage-matrix.md`, which goes
-  stale the same way.
-- **Deferred work** —
-  `_bmad-output/implementation-artifacts/deferred-work.md`. Every finding that
-  is real but outside the current slice goes here, under a `## Deferred from:`
-  heading in the existing `source_spec` / `summary` / `evidence` shape.
-  `source_spec` may name a specification in this repository. This is the single
-  cross-surface record; a finding logged only here is invisible to planning.
+- **Specifications and validation** — the local `spec-*` and `validation-*`
+  artifacts under `_bmad-output/implementation-artifacts/`.
 
-`_bmad-output/implementation-artifacts/android-open-defects.md` in this
-repository is a convenience index, never a substitute for the entry above.
+The sibling TUI `epics.md` and coverage matrix are imported context for
+applicability, evidence, and dependencies. An Android status transition does
+not require an edit to those files, another repository's tracker, or the
+product hub. Update the private product hub only when implementation changes
+durable shared intent or a cross-surface decision; update the coverage matrix
+only when applicability, ownership, evidence, or a shared dependency changes.
+
+`_bmad-output/implementation-artifacts/android-open-defects.md` is a local
+convenience index. Keep Android-only findings here and in the local validation
+record; do not copy them into a sibling repository's status tracker.
 
 ## Delivery record in this repository
 
