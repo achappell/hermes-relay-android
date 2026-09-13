@@ -13,6 +13,11 @@ context:
 Found during the first real-device session on a Pixel 6a against the live
 relay, 2026-09-12. Everything here is outside the four fixes in PR #25.
 
+**This file is a convenience index, not the record.** Every item below is also
+logged in `hermes-relay-tui/_bmad-output/implementation-artifacts/deferred-work.md`
+under `## Deferred from: first Android device session against the live relay
+(2026-09-12)`, which is the single cross-surface record planning reads.
+
 ## `ANDROID-BUG-F1` — off-tailnet state is unreachable for the live endpoint
 
 `A-4` requires an honest off-tailnet unavailable state. Detection depends on
