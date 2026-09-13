@@ -56,3 +56,18 @@ echo is picked up in practice, has not been tested.
   — is not implemented. `A-5` provides interruption by control. Speaking over a
   response would require capture during playback, which is exactly what this
   story avoids for echo safety, and would need acoustic echo cancellation.
+
+## Real-device observations — 2026-09-12
+
+First hands-free run on physical hardware (Pixel 6a), against the environment
+limitation recorded below.
+
+- **Continuation works.** The microphone reopens after a turn settles and the
+  next utterance is captured without intervention.
+- **Reopen latency reads as a natural beat**, not a stall -- the question this
+  story could not answer against the deterministic speech fake.
+- **The reopened window reported the settled turn's phase.** Fixed under `A-2`:
+  the phase now becomes `Listening` when hands-free reopens capture.
+- **Echo/barge-in is still unverified.** Playback was audible through the
+  device speaker, but no deliberate barge-in attempt was made, so whether the
+  speaker leaks into the next window remains open.
