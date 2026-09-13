@@ -71,6 +71,46 @@ class PaletteContrastTest {
     }
 
     @Test
+    fun container_slots_with_different_ink_do_not_share_a_value() {
+        // Material resolves a container's content colour by matching the
+        // container against each scheme slot, so two slots holding the same
+        // value are indistinguishable to it. errorContainer once reused the
+        // plain panel value, and every ordinary Card therefore resolved to
+        // onErrorContainer and drew informational text in the unavailable
+        // colour. Only a device pass caught it; this catches it next time.
+        //
+        // Slots may share a value when their ink agrees -- background/surface
+        // legitimately do. The defect is a shared value with differing ink.
+        for ((appearance, slots) in mapOf(
+            "dark" to listOf(
+                Triple("surfaceVariant", Palette.Dark.PANEL, Palette.Dark.SECONDARY_INK),
+                Triple("errorContainer", Palette.Dark.ERROR_PANEL, Palette.Dark.UNAVAILABLE),
+                Triple("primaryContainer", Palette.Dark.RAISED_PANEL, Palette.Dark.PRIMARY_INK),
+                Triple("background", Palette.Dark.BASE, Palette.Dark.PRIMARY_INK),
+            ),
+            "light" to listOf(
+                Triple("surfaceVariant", Palette.Light.CONSOLE_SURFACE, Palette.Light.SECONDARY_INK),
+                Triple("errorContainer", Palette.Light.ERROR_PANEL, Palette.Light.UNAVAILABLE),
+                Triple("primaryContainer", Palette.Light.RAISED_PANEL, Palette.Light.PRIMARY_INK),
+                Triple("background", Palette.Light.BASE, Palette.Light.PRIMARY_INK),
+            ),
+        )) {
+            for (a in slots) {
+                for (b in slots) {
+                    if (a.first >= b.first) continue
+                    assertTrue(
+                        "$appearance ${a.first} and ${b.first} share the container " +
+                            "value #%06X but want different ink, so Material cannot ".format(
+                                a.second and 0xFFFFFF,
+                            ) + "tell them apart",
+                        a.second != b.second || a.third == b.third,
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
     fun the_light_state_roles_are_darkened_rather_than_exempted() {
         // Night Console's live and attention are bright by design and cannot
         // reach 4.5:1 as text on a light surface. The honest fix is a darker
