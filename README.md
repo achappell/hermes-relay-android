@@ -7,11 +7,11 @@ deliberate per-profile Local History.
 
 ## Current state
 
-This repository is the Android bootstrap only. The launchable Compose shell is
+This repository is the Android bootstrap. The launchable Compose shell is
 honest about the missing Hermes connection. It does not invent protocol frames,
-responses, credentials, audio, Device operations, or Local History. The first
-delivery slices are the Android surface stories `A-1` through `A-3`, `2-A-1`
-through `2-A-2`, `3-A-1` through `3-A-6`, and `5-A-1`.
+responses, credentials, audio, Device operations, or Local History. Delivered
+and planned Android surface stories are recorded in the local story index and
+tracker below; the sibling TUI planning snapshot is historical context only.
 
 ## Toolchain
 
