@@ -115,3 +115,10 @@ stories:
     title: Apply the Night Console visual language as a Material 3 adaptation
     kind: surface
     spec: null
+  - id: 5-A-4
+    product_epic: 5
+    source_story: 5
+    title: Migrate Android from the fork route to the Home bridge
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-5-android-migration.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-4-home-bridge-migration.md
