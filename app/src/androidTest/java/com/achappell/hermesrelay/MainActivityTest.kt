@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
 import org.junit.Assert.assertEquals
@@ -31,13 +32,137 @@ class MainActivityTest {
             }
         }
 
-        composeRule.onNodeWithText("Android Client bootstrap").assertIsDisplayed()
+        composeRule.onNodeWithText("Hermes conversation").assertIsDisplayed()
         composeRule
-            .onNodeWithText("The native Android surface is alive, but Hermes session transport is not connected yet.")
+            .onNodeWithText("Use this doorway for typed and spoken Hermes turns.")
             .assertIsDisplayed()
         composeRule
-            .onNodeWithText("Conversation, response audio, Profiles, Local History, and Device administration arrive as independently verified slices.")
+            .onNodeWithText("Current turn and recovery state stay visible here. Local History is kept on this device.")
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun conversation_shell_exposes_a_fixed_header_and_action_surface() {
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(BootstrapClientPort)
+            }
+        }
+
+        composeRule.onNodeWithTag("android_doorway_header").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_action_surface").assertIsDisplayed()
+    }
+
+    @Test
+    fun no_profile_exposes_configuration_as_the_primary_path() {
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(
+                    clientPort = BootstrapClientPort,
+                    configuration = emptyConfiguration(),
+                )
+            }
+        }
+
+        composeRule.scrollToConversationTag("android_doorway_state")
+        composeRule.onNodeWithTag("android_doorway_state").assertIsDisplayed()
+        composeRule.onAllNodesWithText("No Profile selected").assertCountEquals(2)
+        composeRule.onNodeWithText("Configure a relay to begin.").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_configure_relay").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Ready").assertCountEquals(0)
+    }
+
+    @Test
+    fun disconnected_profile_exposes_retry_and_edit_relay() {
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(
+                    clientPort = AuthorizedFakePort(),
+                    configuration = configuredConfiguration(),
+                )
+            }
+        }
+
+        composeRule.scrollToConversationTag("android_doorway_state")
+        composeRule.onNodeWithText("Unavailable").assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithText("Retry").assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_edit_relay")
+        composeRule.onNodeWithTag("android_edit_relay").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_edit_relay").performClick()
+        composeRule.scrollToConversationTag("android_relay_configuration")
+        composeRule.onNodeWithText("Hermes relay configuration").assertIsDisplayed()
+    }
+
+    @Test
+    fun connected_idle_profile_is_explicitly_ready() {
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(AuthorizedFakePort())
+            }
+        }
+
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.scrollToConversationTag("android_doorway_state")
+        composeRule.onNodeWithTag("android_doorway_state").assertIsDisplayed()
+        composeRule.onNodeWithText("Ready").assertIsDisplayed()
+        composeRule.onNodeWithText("Tap to speak").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Unavailable").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("android_voice_activity").assertCountEquals(0)
+    }
+
+    @Test
+    fun disconnected_composer_keeps_a_draft_and_explains_why_send_is_disabled() {
+        val store = InMemoryAndroidHistoryStore()
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(
+                    clientPort = AuthorizedFakePort(),
+                    configuration = configuredConfiguration(),
+                    historyStore = store,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("check the weather")
+
+        composeRule
+            .onNodeWithTag("android_cached_draft")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Saved locally — connect before sending.")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
+        assertEquals("check the weather", store.load("amanda").draft)
+    }
+
+    @Test
+    fun prompt_history_is_grouped_under_a_recent_prompts_label() {
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(AuthorizedFakePort())
+            }
+        }
+
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("check the weather")
+        composeRule.onNodeWithText("Start typed turn").performClick()
+        closeSoftKeyboard()
+        composeRule.waitForIdle()
+
+        composeRule
+            .onNodeWithTag("android_prompt_history_label")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Recent prompts").assertIsDisplayed()
     }
 
     @Test
@@ -50,15 +175,17 @@ class MainActivityTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
         composeRule.onNodeWithText("Start typed turn").performClick()
+        closeSoftKeyboard()
         composeRule.waitForIdle()
 
+        composeRule.scrollToConversationTag("android_turn_status")
         composeRule
             .onNodeWithText("Turn accepted for Amanda. Waiting for normalized Session events.")
-            .performScrollTo()
             .assertIsDisplayed()
         composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
         assertEquals(1, port.requests.size)
@@ -75,10 +202,12 @@ class MainActivityTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
         composeRule.onNodeWithText("Start typed turn").performClick()
+        closeSoftKeyboard()
         composeRule.waitForIdle()
         val binding = port.requests.single().let { request ->
             AndroidTurnBinding(request.profile.id, "session-1", "turn-1")
@@ -86,7 +215,8 @@ class MainActivityTest {
 
         port.emit(AndroidNormalizedEvent.CaptureStarted(binding))
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Turn phase: Listening").performScrollTo().assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_turn_phase")
+        composeRule.onNodeWithText("Turn phase: Listening").assertIsDisplayed()
 
         port.emit(AndroidNormalizedEvent.TranscriptionStarted(binding))
         port.emit(AndroidNormalizedEvent.Thinking(binding))
@@ -94,8 +224,12 @@ class MainActivityTest {
         port.emit(AndroidNormalizedEvent.ResponseTextDelta(binding, "later"))
         port.emit(AndroidNormalizedEvent.AudioBuffering(binding))
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Turn phase: Buffering").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("android_response_text").performScrollTo().assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_turn_phase")
+        composeRule.onNodeWithText("Turn phase: Buffering").assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_voice_activity")
+        composeRule.onNodeWithTag("android_voice_activity").assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_response_text")
+        composeRule.onNodeWithTag("android_response_text").assertIsDisplayed()
 
         port.emit(AndroidNormalizedEvent.AudioStarted(binding))
         port.emit(AndroidNormalizedEvent.AudioChunkReceived(binding))
@@ -103,8 +237,10 @@ class MainActivityTest {
         port.emit(AndroidNormalizedEvent.TurnCompleted(binding))
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithText("Turn phase: Complete").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("android_response_text").performScrollTo().assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_turn_phase")
+        composeRule.onNodeWithText("Turn phase: Complete").assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_response_text")
+        composeRule.onNodeWithTag("android_response_text").assertIsDisplayed()
         composeRule.onAllNodesWithText("Response audio unavailable. Completed response text remains available.")
             .assertCountEquals(0)
     }
@@ -119,10 +255,12 @@ class MainActivityTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Tell me a story")
         composeRule.onNodeWithText("Start typed turn").performClick()
+        closeSoftKeyboard()
         composeRule.waitForIdle()
         val binding = AndroidTurnBinding("amanda", "session-1", "turn-1")
 
@@ -131,9 +269,12 @@ class MainActivityTest {
         port.emit(AndroidNormalizedEvent.TurnCompleted(binding))
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithText("Turn phase: Unavailable").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("android_response_text").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("android_audio_unavailable").performScrollTo().assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_turn_phase")
+        composeRule.onNodeWithText("Turn phase: Unavailable").assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_response_text")
+        composeRule.onNodeWithTag("android_response_text").assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_audio_unavailable")
+        composeRule.onNodeWithTag("android_audio_unavailable").assertIsDisplayed()
         composeRule.onAllNodesWithText("Turn phase: Speaking").assertCountEquals(0)
     }
 
@@ -147,10 +288,12 @@ class MainActivityTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
         composeRule.onNodeWithText("Start typed turn").performClick()
+        closeSoftKeyboard()
         composeRule.waitForIdle()
         val binding = port.lastBinding!!
 
@@ -158,15 +301,22 @@ class MainActivityTest {
         port.emit(AndroidNormalizedEvent.Disconnected("session-1", "The socket closed."))
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithTag("android_unconfirmed_turn").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Hermes Session: Disconnected").performScrollTo().assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_unconfirmed_turn")
+        composeRule.onNodeWithTag("android_unconfirmed_turn").assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_connection_state")
+        composeRule.onNodeWithText("Hermes Session: Disconnected").assertIsDisplayed()
         assertEquals(1, port.requests.size)
 
-        composeRule.onNodeWithText("Reconnect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithText("Retry").performClick()
         composeRule.waitForIdle()
         assertEquals(1, port.requests.size)
 
-        composeRule.onNodeWithText("Resend this turn").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_unconfirmed_turn")
+        composeRule
+            .onNodeWithText("Resend this turn")
+            .performScrollTo()
+            .performClick()
         composeRule.waitForIdle()
 
         assertEquals(2, port.requests.size)
@@ -187,10 +337,12 @@ class MainActivityTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
         composeRule.onNodeWithText("Start typed turn").performClick()
+        closeSoftKeyboard()
         composeRule.waitForIdle()
         val binding = port.lastBinding!!
 
@@ -206,8 +358,10 @@ class MainActivityTest {
         composeRule.waitForIdle()
 
         // The answer stays visible, but must not read as a live conversation.
-        composeRule.onNodeWithTag("android_response_text").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("android_cached_response").performScrollTo().assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_response_text")
+        composeRule.onNodeWithTag("android_response_text").assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_cached_response")
+        composeRule.onNodeWithTag("android_cached_response").assertIsDisplayed()
         composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
 
         // The composer emptied when the turn was sent, so a draft only exists
@@ -242,6 +396,29 @@ class MainActivityTest {
 
         override fun reconnect() = AndroidReconnectOutcome.Connected("session-1")
     }
+
+    private fun emptyConfiguration() = RelayConfigurationController(
+        profiles = InMemoryRelayProfileStore(),
+        credentials = InMemoryRelayCredentialStore(),
+    )
+
+    private fun configuredConfiguration() = RelayConfigurationController(
+        profiles = InMemoryRelayProfileStore(
+            RelayProfileCollection(
+                profiles = listOf(
+                    RelayProfile(
+                        id = "amanda",
+                        endpoint = "wss://relay.example/voice-session",
+                        clientId = "amanda",
+                        deviceId = "android",
+                        displayName = "Amanda",
+                    ),
+                ),
+                selectedId = "amanda",
+            ),
+        ),
+        credentials = InMemoryRelayCredentialStore(mapOf("amanda" to "token")),
+    )
 
     private class ObservableAuthorizedFakePort : AndroidClientPort {
         private val profile = AndroidProfile("amanda", "Amanda")

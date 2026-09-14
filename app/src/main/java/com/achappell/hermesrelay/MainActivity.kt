@@ -7,16 +7,22 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -25,12 +31,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
+import com.achappell.hermesrelay.ui.theme.LocalHermesStateColors
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,6 +84,9 @@ internal fun AndroidClientScreen(
 ) {
     var configurationRevision by remember { mutableStateOf(0) }
     val snapshot = remember(clientPort, configurationRevision) { clientPort.snapshot() }
+    var configurationVisible by rememberSaveable {
+        mutableStateOf(snapshot.selectedProfile == null)
+    }
     val controller = remember(clientPort) { AndroidInitiationController(clientPort) }
     var prompt by rememberSaveable { mutableStateOf("") }
     var initiationState by remember { mutableStateOf<AndroidInitiationState>(AndroidInitiationState.Idle) }
@@ -99,7 +111,13 @@ internal fun AndroidClientScreen(
     val selectedProfileId = configuration?.collection?.selectedId
     LaunchedEffect(recorder, selectedProfileId, configurationRevision) {
         recorder?.open(selectedProfileId)
+        recorder?.let { prompt = it.history.draft }
         historyRevision += 1
+    }
+    LaunchedEffect(snapshot.selectedProfile?.id) {
+        if (snapshot.selectedProfile == null) {
+            configurationVisible = true
+        }
     }
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
@@ -139,6 +157,7 @@ internal fun AndroidClientScreen(
             resendResult = null
             turnState = AndroidTurnState.awaitingEvents(state.binding)
             (input as? AndroidTurnInput.Typed)?.let { typed ->
+                recorder?.recordDraft("")
                 recorder?.recordUserTurn(typed.text)
                 promptHistory = promptHistory.record(typed.text)
                 // The composer empties once the turn is accepted; a sent
@@ -198,6 +217,34 @@ internal fun AndroidClientScreen(
         if (granted) captureController?.beginCapture()
     }
 
+    val captureBlock = remember(
+        captureController,
+        isAuthorized,
+        isConnected,
+        permissionRevision,
+        captureState,
+    ) { captureController?.blockingReason() }
+    val doorwayState = resolveAndroidDoorwayState(
+        snapshot = snapshot,
+        isConnected = isConnected,
+        hasAcceptedTurn = hasAcceptedTurn,
+        isCapturing = captureController?.isCapturing == true,
+        hasUnconfirmedTurn = recoveryState.hasUnconfirmedTurn,
+        captureBlock = captureBlock,
+    )
+    val composerBlock = resolveAndroidComposerBlock(
+        hasProfile = snapshot.selectedProfile != null,
+        isAuthorized = isAuthorized,
+        isConnected = isConnected,
+        hasAcceptedTurn = hasAcceptedTurn,
+        prompt = prompt,
+    )
+
+    fun updatePrompt(value: String) {
+        prompt = value
+        recorder?.recordDraft(value)
+    }
+
     fun resendUnconfirmedTurn() {
         val result = recoveryController.resendUnconfirmedTurn()
         resendResult = result
@@ -225,102 +272,209 @@ internal fun AndroidClientScreen(
         }
     }
 
+    val stateColors = LocalHermesStateColors.current
+    val motionMode = rememberAndroidMotionMode()
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Column(
+        Scaffold(
             modifier = Modifier
-                .semantics { isTraversalGroup = true }
-                .widthIn(max = 720.dp)
-                .safeDrawingPadding()
-                .padding(24.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            DoorwayHeaderZone(snapshot = snapshot)
+                .fillMaxSize()
+                .semantics { isTraversalGroup = true },
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = {
+                DoorwayHeaderZone(snapshot = snapshot)
+            },
+            bottomBar = {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("android_action_surface"),
+                    color = stateColors.consoleSurface,
+                    tonalElevation = 2.dp,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .imePadding(),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .fillMaxWidth()
+                                .widthIn(max = 720.dp)
+                                .heightIn(max = 280.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            TypedComposerZone(
+                                prompt = prompt,
+                                onPromptChange = ::updatePrompt,
+                                promptFocus = promptFocus,
+                                promptHistory = promptHistory,
+                                onPromptHistoryChange = { promptHistory = it },
+                                isAuthorized = isAuthorized,
+                                isConnected = isConnected,
+                                composerBlock = composerBlock,
+                                onSend = { initiate(AndroidTurnInput.Typed(prompt)) },
+                            )
 
-            configuration?.let { controller ->
-                RelayConfigurationScreen(
-                    controller = controller,
-                    onChanged = { configurationRevision += 1 },
-                )
-            }
+                            if (captureController == null) {
+                                TapToSpeakFallback(
+                                    enabled = isAuthorized && isConnected && !hasAcceptedTurn,
+                                    onTapToSpeak = { initiate(AndroidTurnInput.TapToSpeak) },
+                                )
+                            } else if (captureController.isCapturing) {
+                                ActiveCaptureZone(
+                                    captureState = captureState,
+                                    handsFree = handsFree,
+                                    motionMode = motionMode,
+                                    onStop = { captureController.finishCapture() },
+                                    onCancel = { captureController.cancelCapture() },
+                                )
+                            } else {
+                                IdleCaptureZone(
+                                    captureController = captureController,
+                                    captureState = captureState,
+                                    handsFree = handsFree,
+                                    hasAcceptedTurn = hasAcceptedTurn,
+                                    isAuthorized = isAuthorized,
+                                    isConnected = isConnected,
+                                    permissionRevision = permissionRevision,
+                                    microphonePermission = microphonePermission,
+                                    showBlockMessage = doorwayState !is AndroidDoorwayState.NoProfile,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+            ) {
+                LazyColumn(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .widthIn(max = 720.dp)
+                        .testTag("android_conversation_rail"),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    item {
+                        DoorwayBoundaryZone(snapshot = snapshot)
+                    }
 
-            if (!isAuthorized) {
-                UnauthorizedNotice()
-            }
+                    doorwayState?.let { currentState ->
+                        item {
+                            DoorwayStateZone(
+                                state = currentState,
+                                connectionState = recoveryState.connection,
+                                canConfigure = configuration != null &&
+                                    currentState is AndroidDoorwayState.NoProfile,
+                                canEditRelay = configuration != null &&
+                                    snapshot.selectedProfile != null &&
+                                    !configurationVisible &&
+                                    isConnected &&
+                                    !recoveryState.hasUnconfirmedTurn,
+                                onConfigure = { configurationVisible = true },
+                                onEditRelay = { configurationVisible = true },
+                            )
+                        }
+                    }
 
-            TypedComposerZone(
-                prompt = prompt,
-                onPromptChange = { prompt = it },
-                promptFocus = promptFocus,
-                promptHistory = promptHistory,
-                onPromptHistoryChange = { promptHistory = it },
-                isAuthorized = isAuthorized,
-                isConnected = isConnected,
-                canSend = isAuthorized && isConnected && !hasAcceptedTurn && prompt.isNotBlank(),
-                onSend = { initiate(AndroidTurnInput.Typed(prompt)) },
-            )
+                    // With a selected Profile the live doorway owns the first
+                    // screen. Configuration remains in the same rail, but it
+                    // no longer pushes the conversation below the fold.
+                    if (configurationVisible && snapshot.selectedProfile == null) {
+                        configuration?.let { configurationController ->
+                            item {
+                                RelayConfigurationScreen(
+                                    controller = configurationController,
+                                    onChanged = {
+                                        configurationRevision += 1
+                                        configurationVisible =
+                                            configurationController.collection.selectedId == null
+                                    },
+                                )
+                            }
+                        }
+                    }
 
-            if (captureController == null) {
-                TapToSpeakFallback(
-                    enabled = isAuthorized && isConnected && !hasAcceptedTurn,
-                    onTapToSpeak = { initiate(AndroidTurnInput.TapToSpeak) },
-                )
-            } else if (captureController.isCapturing) {
-                ActiveCaptureZone(
-                    captureState = captureState,
-                    handsFree = handsFree,
-                    onStop = { captureController.finishCapture() },
-                    onCancel = { captureController.cancelCapture() },
-                )
-            } else {
-                IdleCaptureZone(
-                    captureController = captureController,
-                    captureState = captureState,
-                    handsFree = handsFree,
-                    hasAcceptedTurn = hasAcceptedTurn,
-                    isAuthorized = isAuthorized,
-                    isConnected = isConnected,
-                    permissionRevision = permissionRevision,
-                    microphonePermission = microphonePermission,
-                )
-            }
+                    item {
+                        Column {
+                            ConnectionRecoveryZone(
+                                recoveryState = recoveryState,
+                                resendResult = resendResult,
+                                isAuthorized = isAuthorized,
+                                isConnected = isConnected,
+                                canEditRelay = configuration != null &&
+                                    snapshot.selectedProfile != null &&
+                                    !configurationVisible,
+                                onRecover = { recoveryController.recover() },
+                                onEditRelay = { configurationVisible = true },
+                                onResend = { resendUnconfirmedTurn() },
+                                onDiscard = { recoveryController.discardUnconfirmedTurn() },
+                            )
+                        }
+                    }
 
-            ConnectionRecoveryZone(
-                recoveryState = recoveryState,
-                resendResult = resendResult,
-                isAuthorized = isAuthorized,
-                isConnected = isConnected,
-                onRecover = { recoveryController.recover() },
-                onResend = { resendUnconfirmedTurn() },
-                onDiscard = { recoveryController.discardUnconfirmedTurn() },
-            )
+                    item {
+                        Column {
+                            TurnZone(
+                                initiationState = initiationState,
+                                turnState = turnState,
+                                snapshot = snapshot,
+                                hasAcceptedTurn = hasAcceptedTurn,
+                                isConnected = isConnected,
+                                supportsInterrupt = clientPort.supportsInterrupt(),
+                                motionMode = motionMode,
+                                onInterrupt = { binding -> clientPort.interruptTurn(binding) },
+                            )
+                        }
+                    }
 
-            TurnZone(
-                initiationState = initiationState,
-                turnState = turnState,
-                snapshot = snapshot,
-                hasAcceptedTurn = hasAcceptedTurn,
-                isConnected = isConnected,
-                supportsInterrupt = clientPort.supportsInterrupt(),
-                onInterrupt = { binding -> clientPort.interruptTurn(binding) },
-            )
+                    if (configurationVisible && snapshot.selectedProfile != null) {
+                        configuration?.let { configurationController ->
+                            item {
+                                RelayConfigurationScreen(
+                                    controller = configurationController,
+                                    onChanged = {
+                                        configurationRevision += 1
+                                        configurationVisible =
+                                            configurationController.collection.selectedId == null
+                                    },
+                                )
+                            }
+                        }
+                    }
 
-            recorder?.let { history ->
-                @Suppress("UNUSED_EXPRESSION")
-                historyRevision // re-read the recorder when it changes
+                    recorder?.let { history ->
+                        @Suppress("UNUSED_EXPRESSION")
+                        historyRevision // re-read the recorder when it changes
 
-                LocalHistoryZone(
-                    recorder = history,
-                    exporter = exporter,
-                    profileDisplayName = snapshot.selectedProfile?.displayName,
-                    onClear = {
-                        history.clear()
-                        historyRevision += 1
-                    },
-                )
+                        item(key = "android_history_$historyRevision") {
+                            Column {
+                                LocalHistoryZone(
+                                    recorder = history,
+                                    exporter = exporter,
+                                    profileDisplayName = snapshot.selectedProfile?.displayName,
+                                    onClear = {
+                                        history.clear()
+                                        historyRevision += 1
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -113,11 +113,16 @@ actually describes.
 
 ## Verification
 
-- `./gradlew testDebugUnitTest assembleDebug lintDebug` — 117 unit tests, 0
-  failures (15 new); APK assembled; lint clean.
-- `./gradlew connectedDebugAndroidTest` — 25 instrumentation tests, 0 failures
-  (1 new), run three times after one unexplained partial run reported a single
-  empty failure. It passed alone and in two consecutive full suites afterwards.
+- `./gradlew testDebugUnitTest assembleDebug lintDebug` — 150 unit tests, 0
+  failures; APK assembled; lint clean.
+- `ANDROID_SERIAL=emulator-5554 ./gradlew connectedDebugAndroidTest --rerun
+  --no-daemon --no-configuration-cache` — 34 non-live instrumentation tests, 0
+  failures on the API 36 emulator started with host-audio forwarding. The
+  emulator result does not close the TalkBack or real-session microphone
+  limitations.
+- The same 34 non-live instrumentation tests also pass at `font_scale=1.3`
+  with Android animation scales disabled; the AVD was restored to its normal
+  settings afterward. Hardware rendering and TalkBack remain open.
 - A lint error was fixed rather than suppressed: `context.getString` inside the
   share action is not configuration-aware, so the string is now resolved in
   composable scope.
@@ -127,5 +132,6 @@ actually describes.
 Contrast is now measured, but two obligations from the `5-A-2` record remain:
 
 - **No screen reader has been run.** TalkBack is still unexercised.
-- **Reduced motion** is still unaddressed, because the surface still has no
-  animation to suppress.
+- **Reduced motion** is implemented in `5-A-3` Step 6: the active voice
+  indicator freezes and looping motion is omitted when Android's animation
+  scales are disabled. Hardware observation remains part of Step 7.

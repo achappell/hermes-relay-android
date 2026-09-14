@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
@@ -46,7 +47,8 @@ class MicrophoneCaptureTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
 
         composeRule.onNodeWithText("Allow microphone").performScrollTo().assertIsDisplayed()
@@ -88,7 +90,8 @@ class MicrophoneCaptureTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_tap_to_speak").performScrollTo().performClick()
         composeRule.waitForIdle()
@@ -96,6 +99,7 @@ class MicrophoneCaptureTest {
         composeRule.runOnIdle { speech.emit(AndroidSpeechEvent.Started) }
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_capture_state").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("android_voice_activity").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Listening…").performScrollTo().assertIsDisplayed()
 
         composeRule.onNodeWithTag("android_capture_stop").performScrollTo().performClick()
@@ -128,10 +132,12 @@ class MicrophoneCaptureTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("typed instead")
         composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
+        closeSoftKeyboard()
         composeRule.waitForIdle()
 
         assertEquals(AndroidTurnInput.Typed("typed instead"), port.requests.single().input)
@@ -149,7 +155,8 @@ class MicrophoneCaptureTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_tap_to_speak").performScrollTo().performClick()
         composeRule.waitForIdle()
@@ -187,7 +194,8 @@ class MicrophoneCaptureTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_hands_free").performScrollTo().performClick()
         composeRule.waitForIdle()

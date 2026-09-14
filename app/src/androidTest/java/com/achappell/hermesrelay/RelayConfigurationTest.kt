@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
@@ -103,6 +104,7 @@ class RelayConfigurationTest {
         composeRule.onNodeWithTag("android_relay_device_id").performTextInput("android")
         composeRule.onNodeWithTag("android_relay_display_name").performTextInput("Amanda")
         composeRule.onNodeWithTag("android_relay_token").performTextInput("super-secret-token")
+        closeSoftKeyboard()
         composeRule.onNodeWithTag("android_relay_save").performScrollTo().performClick()
         composeRule.waitForIdle()
 
@@ -135,6 +137,7 @@ class RelayConfigurationTest {
         composeRule.onNodeWithTag("android_relay_device_id").performTextInput("android")
         composeRule.onNodeWithTag("android_relay_display_name").performTextInput("Amanda")
         composeRule.onNodeWithTag("android_relay_token").performTextInput("token")
+        closeSoftKeyboard()
         composeRule.onNodeWithTag("android_relay_save").performScrollTo().performClick()
         composeRule.waitForIdle()
 

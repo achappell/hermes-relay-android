@@ -62,17 +62,17 @@ exists, so the phase can be non-terminal with a null `binding`. Nothing reads
 recovery and interruption while hands-free is armed should be checked here
 first.
 
-## `ANDROID-BUG-F4` — the header contradicts the screen below it
+## Resolved: `ANDROID-BUG-F4` — the header contradicted the screen below it
 
-The doorway header reads `Android Client bootstrap` and "The native Android
-surface is alive, but Hermes session transport is not connected yet", while the
-same screen shows `Authorization: Verified` and a configured, selected Profile
-against a live relay. The copy appears to predate working transport.
+Fixed in `5-A-3` Step 5 on 2026-09-13. The doorway header now reads
+`Hermes conversation` and describes the typed and spoken doorway without making
+a stale transport claim. The state card below it owns the current
+`No Profile selected`, `Unavailable`, or `Ready` claim.
 
 Seen on a Pixel 6a on 2026-09-12 during the `5-A-3` device pass. It is the first
-thing a person reads, and it contradicts a line three rows below it. A content
-defect rather than a visual one, so `5-A-3` did not fix it; the snapshot's
-`titleRes` and `descriptionRes` are what need revisiting.
+thing a person reads, and it contradicted a line three rows below it. The
+content defect is fixed in code; hardware re-capture remains part of the
+unverified visual pass.
 
 ## Unverified on hardware
 
