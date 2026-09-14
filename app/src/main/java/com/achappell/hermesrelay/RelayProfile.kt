@@ -2,6 +2,7 @@ package com.achappell.hermesrelay
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URI
 
 /**
  * The non-secret half of a relay configuration.
@@ -12,11 +13,24 @@ import org.json.JSONObject
  */
 internal data class RelayProfile(
     val id: String,
+    /** Legacy field retained as the editable route label for old JSON. */
     val endpoint: String,
     val clientId: String,
     val deviceId: String,
     val displayName: String,
+    val homeBinding: RelayHomeBinding? = null,
 )
+
+/** Versioned, non-secret metadata issued by the Home pairing flow. */
+internal data class RelayHomeBinding(
+    val approvedRoute: String,
+    val conversationHandle: String,
+    val schemaVersion: Int = HOME_BINDING_SCHEMA_VERSION,
+) {
+    companion object {
+        const val HOME_BINDING_SCHEMA_VERSION = 1
+    }
+}
 
 internal enum class RelayProfileField {
     Endpoint,
@@ -31,6 +45,7 @@ internal enum class RelayProfileError {
     EndpointMalformed,
     EndpointNotSecure,
     EndpointBareAddress,
+    StorageUnavailable,
 }
 
 /**
@@ -65,15 +80,19 @@ internal object RelayProfileValidator {
     }
 
     private fun validateEndpoint(endpoint: String): RelayProfileError? {
-        val separator = endpoint.indexOf("://")
-        if (separator <= 0) return RelayProfileError.EndpointMalformed
-
-        val scheme = endpoint.substring(0, separator).lowercase()
-        if (scheme != "wss") return RelayProfileError.EndpointNotSecure
-
-        val remainder = endpoint.substring(separator + 3)
-        val host = remainder.substringBefore('/').substringBefore('?').substringBefore(':')
-        if (host.isEmpty()) return RelayProfileError.EndpointMalformed
+        val uri = runCatching { URI(endpoint) }.getOrNull()
+            ?: return RelayProfileError.EndpointMalformed
+        if (uri.scheme == null) return RelayProfileError.EndpointMalformed
+        if (!uri.scheme.equals("wss", ignoreCase = true)) {
+            return RelayProfileError.EndpointNotSecure
+        }
+        val host = uri.host
+        if (host.isNullOrBlank() || uri.userInfo != null) {
+            return RelayProfileError.EndpointMalformed
+        }
+        if (uri.rawQuery != null || uri.rawFragment != null) {
+            return RelayProfileError.EndpointMalformed
+        }
 
         // A bare address can never match a certificate, and accepting one would
         // silently reopen the cleartext path the wss:// requirement closes.
@@ -81,6 +100,9 @@ internal object RelayProfileValidator {
 
         return null
     }
+
+    fun validateApprovedHomeRoute(route: String): RelayProfileError? =
+        validateEndpoint(route.trim())
 }
 
 internal data class RelayProfileCollection(
@@ -90,10 +112,21 @@ internal data class RelayProfileCollection(
     val selected: RelayProfile?
         get() = profiles.firstOrNull { it.id == selectedId }
 
-    fun add(profile: RelayProfile): RelayProfileCollection = copy(
-        profiles = profiles.filterNot { it.id == profile.id } + profile,
-        selectedId = selectedId ?: profile.id,
-    )
+    fun add(profile: RelayProfile): RelayProfileCollection = upsert(profile).let {
+        if (it.selectedId == null) it.copy(selectedId = profile.id) else it
+    }
+
+    /** Replaces one Profile in place so migration cannot create a second identity. */
+    fun upsert(profile: RelayProfile): RelayProfileCollection {
+        val existing = profiles.any { it.id == profile.id }
+        return copy(
+            profiles = if (existing) {
+                profiles.map { current -> if (current.id == profile.id) profile else current }
+            } else {
+                profiles + profile
+            },
+        )
+    }
 
     fun select(id: String): RelayProfileCollection =
         if (profiles.none { it.id == id }) this else copy(selectedId = id)
@@ -117,16 +150,25 @@ internal data class RelayProfileCollection(
     fun toJson(): String {
         val array = JSONArray()
         profiles.forEach { profile ->
-            array.put(
-                JSONObject()
+            val item = JSONObject()
                     .put("id", profile.id)
                     .put("endpoint", profile.endpoint)
                     .put("client_id", profile.clientId)
                     .put("device_id", profile.deviceId)
-                    .put("display_name", profile.displayName),
-            )
+                    .put("display_name", profile.displayName)
+            profile.homeBinding?.let { binding ->
+                item.put(
+                    "home_binding",
+                    JSONObject()
+                        .put("schema", binding.schemaVersion)
+                        .put("route", binding.approvedRoute)
+                        .put("conversation_handle", binding.conversationHandle),
+                )
+            }
+            array.put(item)
         }
         return JSONObject()
+            .put("schema_version", PROFILE_COLLECTION_SCHEMA_VERSION)
             .put("profiles", array)
             .putOpt("selected_id", selectedId)
             .toString()
@@ -142,12 +184,27 @@ internal data class RelayProfileCollection(
                     val item = array.optJSONObject(index) ?: return@mapNotNull null
                     val id = item.optString("id").takeIf { it.isNotBlank() }
                         ?: return@mapNotNull null
+                    val homeBinding = item.optJSONObject("home_binding")?.let { binding ->
+                        val route = binding.optString("route").trim()
+                        val handle = binding.optString("conversation_handle")
+                        val version = binding.optInt("schema", 0)
+                        if (
+                            version == RelayHomeBinding.HOME_BINDING_SCHEMA_VERSION &&
+                            route.isNotBlank() &&
+                            handle.isNotBlank()
+                        ) {
+                            RelayHomeBinding(route, handle, version)
+                        } else {
+                            null
+                        }
+                    } ?: legacyHomeBinding(item)
                     RelayProfile(
                         id = id,
                         endpoint = item.optString("endpoint"),
                         clientId = item.optString("client_id"),
                         deviceId = item.optString("device_id"),
                         displayName = item.optString("display_name"),
+                        homeBinding = homeBinding,
                     )
                 }
                 val selected = root.optString("selected_id").takeIf { it.isNotBlank() }
@@ -157,5 +214,17 @@ internal data class RelayProfileCollection(
                 )
             }.getOrElse { RelayProfileCollection() }
         }
+
+        private fun legacyHomeBinding(item: JSONObject): RelayHomeBinding? {
+            val route = item.optString("home_route").trim()
+            val handle = item.optString("conversation_handle")
+            return if (route.isNotBlank() && handle.isNotBlank()) {
+                RelayHomeBinding(route, handle)
+            } else {
+                null
+            }
+        }
+
+        private const val PROFILE_COLLECTION_SCHEMA_VERSION = 2
     }
 }

@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
@@ -107,12 +108,18 @@ class LocalHistoryTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_history_empty").performScrollTo().assertIsDisplayed()
+        composeRule.scrollToConversationTag("android_history_open")
+        composeRule.onNodeWithTag("android_history_open").performClick()
+        composeRule.onNodeWithTag("android_history_empty").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_history_close").performClick()
+        composeRule.waitForIdle()
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("check the weather")
         composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
+        closeSoftKeyboard()
         composeRule.waitForIdle()
 
         val binding = port.lastBinding!!
@@ -123,6 +130,8 @@ class LocalHistoryTest {
         composeRule.waitForIdle()
 
         // Both sides of the exchange are kept.
+        composeRule.scrollToConversationTag("android_history_open")
+        composeRule.onNodeWithTag("android_history_open").performClick()
         composeRule.onAllNodesWithTag("android_history_entry").assertCountEquals(2)
         assertEquals(2, store.load("profile-1").entries.size)
 
@@ -131,6 +140,36 @@ class LocalHistoryTest {
 
         composeRule.onAllNodesWithTag("android_history_entry").assertCountEquals(0)
         assertTrue(store.load("profile-1").entries.isEmpty())
+    }
+
+    @Test
+    fun local_history_uses_a_sheet_and_keeps_export_in_the_more_menu() {
+        val store = FileAndroidHistoryStore(directory)
+        AndroidHistoryRecorder(store).apply {
+            open("profile-1")
+            recordUserTurn("check the weather")
+            recordResponse("Rain later")
+        }
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(
+                    clientPort = HistoryFakePort(),
+                    configuration = historyConfiguration(store),
+                    historyStore = store,
+                )
+            }
+        }
+
+        composeRule.scrollToConversationTag("android_history_open")
+        composeRule.onNodeWithTag("android_history_open").performClick()
+        composeRule.onNodeWithTag("android_history_sheet").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_history_boundary").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("android_history_entry_meta").assertCountEquals(2)
+
+        composeRule.onNodeWithTag("android_history_more").performClick()
+        composeRule.onNodeWithText("Share as text").assertIsDisplayed()
+        composeRule.onNodeWithText("Share as Markdown").assertIsDisplayed()
     }
 
     @Test
@@ -144,10 +183,12 @@ class LocalHistoryTest {
             }
         }
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("check the weather")
         composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
+        closeSoftKeyboard()
         composeRule.waitForIdle()
 
         val binding = port.lastBinding!!
@@ -159,6 +200,7 @@ class LocalHistoryTest {
 
         // Start typing something new, then recall the previous prompt.
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("half typed")
+        closeSoftKeyboard()
         composeRule.onNodeWithTag("android_prompt_previous").performScrollTo().performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithText("check the weather").performScrollTo().assertIsDisplayed()
@@ -203,4 +245,23 @@ class LocalHistoryTest {
             listener?.invoke(event)
         }
     }
+
+    private fun historyConfiguration(store: AndroidHistoryStore) = RelayConfigurationController(
+        profiles = InMemoryRelayProfileStore(
+            RelayProfileCollection(
+                profiles = listOf(
+                    RelayProfile(
+                        id = "profile-1",
+                        endpoint = "wss://relay.example/voice-session",
+                        clientId = "amanda-laptop",
+                        deviceId = "android",
+                        displayName = "Amanda",
+                    ),
+                ),
+                selectedId = "profile-1",
+            ),
+        ),
+        credentials = InMemoryRelayCredentialStore(mapOf("profile-1" to "relay-token")),
+        history = store,
+    )
 }

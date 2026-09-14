@@ -24,6 +24,14 @@ internal enum class AndroidAudioDelivery {
     Unavailable,
 }
 
+/** Structured Home input is kept typed until an explicit response surface exists. */
+internal data class AndroidStructuredPrompt(
+    val type: String,
+    val correlationId: String,
+    val sensitive: Boolean,
+    val optionCount: Int,
+)
+
 internal data class AndroidTurnState(
     val binding: AndroidTurnBinding? = null,
     val phase: AndroidTurnPhase = AndroidTurnPhase.Idle,
@@ -31,6 +39,8 @@ internal data class AndroidTurnState(
     val audio: AndroidAudioDelivery = AndroidAudioDelivery.NotStarted,
     val turnCompleteObserved: Boolean = false,
     val unavailableReason: String? = null,
+    val structuredPrompt: AndroidStructuredPrompt? = null,
+    val availableCommands: Set<String> = emptySet(),
 ) {
     val isTerminal: Boolean
         get() = phase in setOf(
@@ -125,15 +135,33 @@ internal sealed interface AndroidNormalizedEvent {
     ) : AndroidNormalizedEvent
 
     data class Disconnected(
-        val sessionId: String,
+        val connectionId: String,
         val reason: String,
     ) : AndroidNormalizedEvent {
         override val binding: AndroidTurnBinding? = null
+
+        /** Compatibility alias; this is a local bridge connection identity. */
+        @Deprecated("Use connectionId; this value is not a Hermes Session ID.")
+        val sessionId: String
+            get() = connectionId
     }
 
     data class Unknown(
         override val binding: AndroidTurnBinding,
         val type: String,
+    ) : AndroidNormalizedEvent
+
+    data class StructuredPrompt(
+        override val binding: AndroidTurnBinding,
+        val type: String,
+        val correlationId: String,
+        val sensitive: Boolean,
+        val optionCount: Int,
+    ) : AndroidNormalizedEvent
+
+    data class CommandAvailable(
+        override val binding: AndroidTurnBinding,
+        val command: String,
     ) : AndroidNormalizedEvent
 }
 
@@ -144,7 +172,7 @@ internal object AndroidTurnStateReducer {
         event: AndroidNormalizedEvent,
     ): AndroidTurnState {
         if (event is AndroidNormalizedEvent.Disconnected) {
-            if (state.binding?.sessionId != event.sessionId || state.isTerminal) {
+            if (state.binding?.connectionId != event.connectionId || state.isTerminal) {
                 return state
             }
             return state.copy(
@@ -205,7 +233,14 @@ internal object AndroidTurnStateReducer {
             is AndroidNormalizedEvent.AudioEnded -> finishAudio(state)
 
             is AndroidNormalizedEvent.AudioFailed -> state.copy(
-                phase = AndroidTurnPhase.Unavailable,
+                // Audio is a sidecar. Its failure must not make a still-live
+                // turn terminal; Home may deliver readable text and the
+                // terminal message after the audio path has fallen back.
+                phase = if (state.turnCompleteObserved) {
+                    AndroidTurnPhase.Unavailable
+                } else {
+                    state.phase
+                },
                 audio = AndroidAudioDelivery.Unavailable,
                 unavailableReason = event.reason,
             )
@@ -232,6 +267,17 @@ internal object AndroidTurnStateReducer {
             )
 
             is AndroidNormalizedEvent.Unknown -> state
+            is AndroidNormalizedEvent.StructuredPrompt -> state.copy(
+                structuredPrompt = AndroidStructuredPrompt(
+                    type = event.type,
+                    correlationId = event.correlationId,
+                    sensitive = event.sensitive,
+                    optionCount = event.optionCount,
+                ),
+            )
+            is AndroidNormalizedEvent.CommandAvailable -> state.copy(
+                availableCommands = state.availableCommands + event.command,
+            )
             is AndroidNormalizedEvent.Disconnected -> state
         }
     }

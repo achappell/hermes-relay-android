@@ -280,4 +280,216 @@ class HermesEventNormalizerTest {
             event,
         )
     }
+
+    @Test
+    fun the_home_event_envelope_replaces_cumulative_previews_with_only_new_suffixes() {
+        val normalizer = normalizer()
+
+        val first = normalizer.normalize(
+            homeEvent("message.delta", org.json.JSONObject().put("rendered", "Rain")).toString(),
+            binding,
+        )
+        val second = normalizer.normalize(
+            homeEvent("message.delta", org.json.JSONObject().put("rendered", "Rain later")).toString(),
+            binding,
+        )
+
+        assertEquals(
+            listOf(AndroidNormalizedEvent.ResponseTextDelta(binding, "Rain")),
+            first,
+        )
+        assertEquals(
+            listOf(AndroidNormalizedEvent.ResponseTextDelta(binding, " later")),
+            second,
+        )
+    }
+
+    @Test
+    fun a_global_home_event_without_a_turn_cannot_retarget_the_active_turn() {
+        val frame = homeEvent("status", org.json.JSONObject().put("status", "thinking"))
+        frame.getJSONObject("params").remove("turn_id")
+
+        assertTrue(normalizer().normalize(frame.toString(), binding).isEmpty())
+    }
+
+    @Test
+    fun the_live_normalizer_rejects_legacy_vanilla_frames() {
+        val strict = HermesEventNormalizer("android", allowLegacyFrames = false).apply {
+            beginTurn()
+        }
+
+        assertEquals(
+            listOf(AndroidNormalizedEvent.Unknown(binding, "protocol_error")),
+            strict.normalize(
+                org.json.JSONObject()
+                    .put("type", "text_delta")
+                    .put("text", "not a Home envelope")
+                    .toString(),
+                binding,
+            ),
+        )
+    }
+
+    @Test
+    fun timeout_completion_is_a_failed_terminal_outcome() {
+        listOf("timeout", "timed_out", "timed-out").forEach { status ->
+            val events = normalizer().normalize(
+                homeEvent(
+                    "message.complete",
+                    org.json.JSONObject().put("status", status),
+                ).toString(),
+                binding,
+            )
+
+            assertEquals(
+                listOf(AndroidNormalizedEvent.TurnFailed(binding, status)),
+                events,
+            )
+        }
+    }
+
+    @Test
+    fun home_audio_frame_notifications_require_explicit_little_endian_pcm_metadata() {
+        val normalizer = normalizer()
+
+        val audioStart = homeAudio("audio.start")
+            .put("sample_rate", 24_000)
+            .put("channels", 1)
+            .put("sample_width", 2)
+            .put("byte_order", "little")
+            .let(::homeAudioFrame)
+        assertEquals(
+            "frame=$audioStart",
+            listOf(
+                AndroidNormalizedEvent.AudioStarted(
+                    binding,
+                    AndroidAudioFormat(24_000, 1, 2, "pcm_s16le"),
+                ),
+            ),
+            normalizer.normalize(audioStart, binding),
+        )
+        assertEquals(
+            listOf(
+                AndroidNormalizedEvent.AudioFailed(
+                    binding,
+                    "Response audio metadata was missing or unsupported.",
+                ),
+            ),
+            normalizer.normalize(homeAudioFrame(homeAudio("audio.start")), binding),
+        )
+        assertEquals(
+            listOf(AndroidNormalizedEvent.AudioEnded(binding)),
+            normalizer.normalize(homeAudioFrame(homeAudio("audio.end")), binding),
+        )
+    }
+
+    @Test
+    fun home_events_with_the_wrong_opaque_binding_are_never_adopted() {
+        val wrongHandle = org.json.JSONObject()
+            .put("schema", 1)
+            .put("jsonrpc", "2.0")
+            .put("method", "event")
+            .put(
+                "params",
+                org.json.JSONObject()
+                    .put("schema", 1)
+                    .put("conversation_handle", "other-conversation")
+                    .put("turn_id", binding.turnId)
+                    .put(
+                        "event",
+                        org.json.JSONObject()
+                            .put("type", "message.delta")
+                            .put("payload", org.json.JSONObject().put("text", "do not render")),
+                    ),
+            )
+
+        assertEquals(
+            listOf(AndroidNormalizedEvent.Unknown(binding.copy(conversationHandle = "other-conversation"), "conversation_mismatch")),
+            normalizer().normalize(wrongHandle.toString(), binding),
+        )
+    }
+
+    @Test
+    fun structured_home_prompts_keep_correlation_and_sensitivity_typed() {
+        val frame = homeEvent(
+            "secret.request",
+            org.json.JSONObject()
+                .put("options", org.json.JSONArray().put("one"))
+                .put("message", "enter the value"),
+        ).put("params", org.json.JSONObject()
+            .put("schema", 1)
+            .put("conversation_handle", binding.conversationHandle)
+            .put("turn_id", binding.turnId)
+            .put("correlation_id", "prompt-7")
+            .put(
+                "event",
+                org.json.JSONObject()
+                    .put("type", "secret.request")
+                    .put("payload", org.json.JSONObject().put("options", org.json.JSONArray().put("one"))),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                AndroidNormalizedEvent.StructuredPrompt(
+                    binding = binding,
+                    type = "secret.request",
+                    correlationId = "prompt-7",
+                    sensitive = true,
+                    optionCount = 1,
+                ),
+            ),
+            normalizer().normalize(frame.toString(), binding),
+        )
+    }
+
+    private fun homeEvent(type: String, payload: org.json.JSONObject): org.json.JSONObject =
+        org.json.JSONObject()
+            .put("schema", 1)
+            .put("jsonrpc", "2.0")
+            .put("method", "event")
+            .put(
+                "params",
+                org.json.JSONObject()
+                    .put("schema", 1)
+                    .put("conversation_handle", binding.conversationHandle)
+                    .put("turn_id", binding.turnId)
+                    .put(
+                        "event",
+                        org.json.JSONObject().put("type", type).put("payload", payload),
+                    ),
+            )
+
+    private fun homeAudio(method: String): org.json.JSONObject = org.json.JSONObject()
+        .put("schema", 1)
+        .put("conversation_handle", binding.conversationHandle)
+        .put("turn_id", binding.turnId)
+        .put("method", method)
+
+    private fun homeAudioFrame(params: org.json.JSONObject): String {
+        val method = params.getString("method")
+        params.remove("method")
+        val kind = when (method) {
+            "audio.start" -> "start"
+            "audio.end" -> "end"
+            "audio.fallback" -> "fallback"
+            else -> method
+        }
+        val audioFrame = org.json.JSONObject().put("kind", kind)
+        listOf("sample_rate", "channels", "sample_width", "byte_order", "reason", "code")
+            .forEach { key -> if (params.has(key)) audioFrame.put(key, params.get(key)) }
+        return org.json.JSONObject()
+            .put("schema", 1)
+            .put("jsonrpc", "2.0")
+            .put("method", "audio.frame")
+            .put(
+                "params",
+                org.json.JSONObject()
+                    .put("schema", 1)
+                    .put("conversation_handle", binding.conversationHandle)
+                    .put("turn_id", binding.turnId)
+                    .put("frame", audioFrame),
+            )
+            .toString()
+    }
 }

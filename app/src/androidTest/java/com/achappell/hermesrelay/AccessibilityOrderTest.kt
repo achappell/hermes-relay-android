@@ -9,8 +9,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -27,13 +29,16 @@ class AccessibilityOrderTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private fun traversalIndexOf(tag: String): Float =
-        composeRule.onNodeWithTag(tag).fetchSemanticsNode()
+    private fun traversalIndexOf(tag: String): Float {
+        scrollToRailTagIfNeeded(tag)
+        return composeRule.onNodeWithTag(tag).fetchSemanticsNode()
             .config
             .getOrElse(SemanticsProperties.TraversalIndex) { 0f }
+    }
 
-    private fun liveRegionOf(tag: String): LiveRegionMode? =
-        composeRule.onNodeWithTag(tag).fetchSemanticsNode()
+    private fun liveRegionOf(tag: String): LiveRegionMode? {
+        scrollToRailTagIfNeeded(tag)
+        return composeRule.onNodeWithTag(tag).fetchSemanticsNode()
             .config
             .let { config ->
                 if (config.contains(SemanticsProperties.LiveRegion)) {
@@ -42,6 +47,19 @@ class AccessibilityOrderTest {
                     null
                 }
             }
+    }
+
+    private fun scrollToRailTagIfNeeded(tag: String) {
+        if (tag !in railTags) return
+        composeRule.scrollToConversationTag(tag)
+    }
+
+    private val railTags = setOf(
+        "android_connection_state",
+        "android_turn_phase",
+        "android_response_text",
+        "android_audio_unavailable",
+    )
 
     @Test
     fun the_reading_order_runs_profile_then_state_then_response_then_action() {
@@ -63,10 +81,12 @@ class AccessibilityOrderTest {
             stateIndex < actionIndex,
         )
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
         composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
+        closeSoftKeyboard()
         composeRule.waitForIdle()
 
         val binding = port.lastBinding!!
@@ -108,10 +128,12 @@ class AccessibilityOrderTest {
             liveRegionOf("android_connection_state"),
         )
 
-        composeRule.onNodeWithTag("android_connect").performScrollTo().performClick()
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Tell me a story")
         composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
+        closeSoftKeyboard()
         composeRule.waitForIdle()
 
         val binding = port.lastBinding!!
@@ -126,10 +148,32 @@ class AccessibilityOrderTest {
             LiveRegionMode.Assertive,
             liveRegionOf("android_audio_unavailable"),
         )
-        assertEquals(
-            LiveRegionMode.Polite,
-            liveRegionOf("android_response_text"),
-        )
+        assertNull(liveRegionOf("android_response_text"))
+    }
+
+    @Test
+    fun partial_transcription_is_not_announced_for_each_recognizer_frame() {
+        val port = ConnectedFakePort()
+        val speech = FakeSpeechInput()
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(clientPort = port, speechInput = speech)
+            }
+        }
+
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("android_tap_to_speak").performScrollTo().performClick()
+        composeRule.runOnIdle {
+            speech.emit(AndroidSpeechEvent.Started)
+            speech.emit(AndroidSpeechEvent.Partial("check the weather"))
+        }
+        composeRule.waitForIdle()
+
+        assertEquals(LiveRegionMode.Polite, liveRegionOf("android_capture_state"))
+        assertNull(liveRegionOf("android_capture_partial"))
     }
 
     @Test

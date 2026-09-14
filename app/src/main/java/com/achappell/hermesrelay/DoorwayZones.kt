@@ -3,22 +3,52 @@ package com.achappell.hermesrelay
 import android.Manifest
 import android.content.Intent
 import androidx.activity.compose.ManagedActivityResultLauncher
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -27,7 +57,11 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.traversalIndex
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.achappell.hermesrelay.ui.theme.LocalHermesStateColors
+import java.text.DateFormat
+import java.util.Date
 
 /**
  * The conversation doorway, decomposed into the zones the Android visual design
@@ -47,22 +81,88 @@ import androidx.compose.ui.unit.dp
 // ---------------------------------------------------------------------------
 
 @Composable
-internal fun ColumnScope.DoorwayHeaderZone(
+@OptIn(ExperimentalMaterial3Api::class)
+internal fun DoorwayHeaderZone(
     snapshot: AndroidClientSnapshot,
 ) {
-    Text(
-        modifier = Modifier.a11yHeading(A11yOrder.HEADER),
-        text = stringResource(snapshot.titleRes),
-        style = MaterialTheme.typography.headlineLarge,
+    val stateColors = LocalHermesStateColors.current
+
+    TopAppBar(
+        modifier = Modifier.testTag("android_doorway_header"),
+        title = {
+            androidx.compose.foundation.layout.Column(
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    modifier = Modifier.a11yHeading(A11yOrder.HEADER),
+                    text = stringResource(snapshot.titleRes),
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    modifier = Modifier.a11yOrder(A11yOrder.HEADER),
+                    text = stringResource(snapshot.descriptionRes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        },
+        actions = {
+            androidx.compose.foundation.layout.Column(
+                modifier = Modifier.padding(end = 16.dp),
+                horizontalAlignment = Alignment.End,
+            ) {
+                Text(
+                    modifier = Modifier.a11yHeading(A11yOrder.PROFILE),
+                    text = stringResource(R.string.android_profile_label),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+                Text(
+                    modifier = Modifier.a11yOrder(A11yOrder.PROFILE),
+                    text = snapshot.selectedProfile?.displayName
+                        ?: stringResource(R.string.android_profile_none),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = stateColors.identity,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    modifier = Modifier.a11yOrder(A11yOrder.PROFILE, LiveRegionMode.Polite),
+                    text = stringResource(
+                        R.string.android_authorization_label,
+                        stringResource(snapshot.authorizationState.labelRes()),
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = stateColors.consoleSurface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
     )
-    Text(
-        modifier = Modifier.a11yOrder(A11yOrder.HEADER),
-        text = stringResource(snapshot.descriptionRes),
-        style = MaterialTheme.typography.bodyLarge,
-    )
+}
+
+@Composable
+internal fun DoorwayBoundaryZone(
+    snapshot: AndroidClientSnapshot,
+) {
+    val stateColors = LocalHermesStateColors.current
+
     Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .a11yOrder(A11yOrder.HEADER),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = stateColors.panel,
         ),
     ) {
         Text(
@@ -71,40 +171,138 @@ internal fun ColumnScope.DoorwayHeaderZone(
             style = MaterialTheme.typography.bodyMedium,
         )
     }
-
-    Text(
-        modifier = Modifier.a11yHeading(A11yOrder.PROFILE),
-        text = stringResource(R.string.android_profile_label),
-        style = MaterialTheme.typography.titleMedium,
-    )
-    Text(
-        modifier = Modifier.a11yOrder(A11yOrder.PROFILE),
-        text = snapshot.selectedProfile?.displayName
-            ?: stringResource(R.string.android_profile_none),
-        style = MaterialTheme.typography.bodyLarge,
-    )
-    Text(
-        modifier = Modifier.a11yOrder(A11yOrder.PROFILE, LiveRegionMode.Polite),
-        text = stringResource(
-            R.string.android_authorization_label,
-            stringResource(snapshot.authorizationState.labelRes()),
-        ),
-        style = MaterialTheme.typography.bodyMedium,
-    )
 }
 
 @Composable
-internal fun UnauthorizedNotice() {
+internal fun DoorwayStateZone(
+    state: AndroidDoorwayState,
+    connectionState: AndroidConnectionState,
+    canConfigure: Boolean,
+    canEditRelay: Boolean,
+    onConfigure: () -> Unit,
+    onEditRelay: () -> Unit,
+) {
+    val stateColors = LocalHermesStateColors.current
+    val stateColor: Color
+    val label: String
+    val description: String
+
+    when (state) {
+        AndroidDoorwayState.NoProfile -> {
+            stateColor = stateColors.identity
+            label = stringResource(R.string.android_state_no_profile)
+            description = stringResource(R.string.android_state_no_profile_description)
+        }
+
+        is AndroidDoorwayState.Unavailable -> {
+            stateColor = stateColors.unavailable
+            label = stringResource(R.string.android_state_unavailable)
+            description = when (state.reason) {
+                AndroidDoorwayUnavailableReason.Authorization -> stringResource(
+                    R.string.android_state_unavailable_authorization,
+                )
+
+                AndroidDoorwayUnavailableReason.Connection -> when (connectionState) {
+                    is AndroidConnectionState.Failed -> stringResource(
+                        R.string.android_state_unavailable_connection_failed,
+                        connectionState.reason,
+                    )
+
+                    is AndroidConnectionState.Reconnecting -> stringResource(
+                        R.string.android_state_unavailable_connection_reconnecting,
+                    )
+
+                    else -> stringResource(R.string.android_state_unavailable_connection)
+                }
+
+                AndroidDoorwayUnavailableReason.Microphone -> stringResource(
+                    R.string.android_state_unavailable_microphone,
+                )
+
+                AndroidDoorwayUnavailableReason.UnconfirmedTurn -> stringResource(
+                    R.string.android_state_unavailable_unconfirmed,
+                )
+            }
+        }
+
+        AndroidDoorwayState.Ready -> {
+            stateColor = stateColors.live
+            label = stringResource(R.string.android_state_ready)
+            description = stringResource(R.string.android_state_ready_description)
+        }
+    }
+
     Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("android_doorway_state_card"),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
+            containerColor = stateColors.panel,
         ),
     ) {
-        Text(
+        Column(
             modifier = Modifier.padding(20.dp),
-            text = stringResource(R.string.android_initiation_unavailable),
-            style = MaterialTheme.typography.bodyMedium,
-        )
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                modifier = Modifier
+                    .testTag("android_doorway_state")
+                    .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                text = label,
+                color = stateColor,
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            if (state is AndroidDoorwayState.Unavailable &&
+                connectionState != AndroidConnectionState.Connected
+            ) {
+                Text(
+                    modifier = Modifier
+                        .testTag("android_connection_state")
+                        .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                    text = stringResource(
+                        R.string.android_connection_label,
+                        connectionState.label(),
+                    ),
+                    color = stateColors.unavailable,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            Text(
+                modifier = Modifier
+                    .testTag("android_doorway_state_description")
+                    .a11yOrder(A11yOrder.STATE),
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            when (state) {
+                AndroidDoorwayState.NoProfile -> if (canConfigure) {
+                    Button(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("android_configure_relay")
+                            .a11yOrder(A11yOrder.ACTION),
+                        onClick = onConfigure,
+                    ) {
+                        Text(stringResource(R.string.android_configure_relay))
+                    }
+                }
+
+                is AndroidDoorwayState.Unavailable,
+                AndroidDoorwayState.Ready,
+                -> if (canEditRelay) {
+                    TextButton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("android_edit_relay")
+                            .a11yOrder(A11yOrder.ACTION),
+                        onClick = onEditRelay,
+                    ) {
+                        Text(stringResource(R.string.android_edit_relay))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -121,11 +319,13 @@ internal fun ColumnScope.TypedComposerZone(
     onPromptHistoryChange: (AndroidPromptHistory) -> Unit,
     isAuthorized: Boolean,
     isConnected: Boolean,
-    canSend: Boolean,
+    composerBlock: AndroidComposerBlock?,
+    isInitiating: Boolean = false,
     onSend: () -> Unit,
 ) {
     OutlinedTextField(
         modifier = Modifier
+            .fillMaxWidth()
             .testTag("android_typed_prompt")
             .focusRequester(promptFocus)
             .a11yOrder(A11yOrder.ACTION),
@@ -136,45 +336,73 @@ internal fun ColumnScope.TypedComposerZone(
     )
     if (!isConnected && prompt.isNotBlank()) {
         Text(
-            modifier = Modifier.testTag("android_cached_draft"),
+            modifier = Modifier
+                .testTag("android_cached_draft")
+                .a11yOrder(A11yOrder.ACTION),
             text = stringResource(R.string.android_cached_draft),
             style = MaterialTheme.typography.bodySmall,
         )
     }
     if (!promptHistory.isEmpty) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
                 modifier = Modifier
-                    .testTag("android_prompt_previous")
-                    .a11yOrder(A11yOrder.ACTION),
-                onClick = {
-                    val (next, recalled) = promptHistory.previous(prompt)
-                    onPromptHistoryChange(next)
-                    recalled?.let(onPromptChange)
-                },
+                    .testTag("android_prompt_history_label")
+                    .a11yHeading(A11yOrder.ACTION),
+                text = stringResource(R.string.android_prompt_history_label),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(stringResource(R.string.android_prompt_previous))
-            }
-            TextButton(
-                modifier = Modifier
-                    .testTag("android_prompt_next")
-                    .a11yOrder(A11yOrder.ACTION),
-                enabled = promptHistory.isNavigating,
-                onClick = {
-                    val (next, recalled) = promptHistory.next()
-                    onPromptHistoryChange(next)
-                    recalled?.let(onPromptChange)
-                },
-            ) {
-                Text(stringResource(R.string.android_prompt_next))
+                TextButton(
+                    modifier = Modifier
+                        .testTag("android_prompt_previous")
+                        .a11yOrder(A11yOrder.ACTION),
+                    onClick = {
+                        val (next, recalled) = promptHistory.previous(prompt)
+                        onPromptHistoryChange(next)
+                        recalled?.let(onPromptChange)
+                    },
+                ) {
+                    Text(stringResource(R.string.android_prompt_previous))
+                }
+                TextButton(
+                    modifier = Modifier
+                        .testTag("android_prompt_next")
+                        .a11yOrder(A11yOrder.ACTION),
+                    enabled = promptHistory.isNavigating,
+                    onClick = {
+                        val (next, recalled) = promptHistory.next()
+                        onPromptHistoryChange(next)
+                        recalled?.let(onPromptChange)
+                    },
+                ) {
+                    Text(stringResource(R.string.android_prompt_next))
+                }
             }
         }
     }
 
+    composerBlock?.let { block ->
+        Text(
+            modifier = Modifier
+                .testTag("android_send_blocked")
+                .a11yOrder(A11yOrder.ACTION, LiveRegionMode.Polite),
+            text = stringResource(block.messageRes()),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
     Button(
         onClick = onSend,
-        modifier = Modifier.a11yOrder(A11yOrder.ACTION),
-        enabled = canSend,
+        modifier = Modifier
+            .fillMaxWidth()
+            .a11yOrder(A11yOrder.ACTION),
+        enabled = composerBlock == null && !isInitiating,
     ) {
         Text(stringResource(R.string.android_start_typed_turn))
     }
@@ -193,11 +421,69 @@ internal fun TapToSpeakFallback(
     enabled: Boolean,
     onTapToSpeak: () -> Unit,
 ) {
-    Button(
+    OutlinedButton(
         onClick = onTapToSpeak,
+        modifier = Modifier.fillMaxWidth(),
         enabled = enabled,
     ) {
         Text(stringResource(R.string.android_tap_to_speak))
+    }
+}
+
+/**
+ * A small activity signal, never the source of truth. The readable phase label
+ * beside it remains present when system animation is reduced or disabled.
+ */
+@Composable
+internal fun VoiceActivityIndicator(
+    motionMode: AndroidMotionMode,
+) {
+    val stateColors = LocalHermesStateColors.current
+    val fractions = if (motionMode == AndroidMotionMode.Static) {
+        listOf(0.45f, 0.7f, 0.45f)
+    } else {
+        val transition = rememberInfiniteTransition(label = "voice activity")
+        val outer by transition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 0.95f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 900),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "outer voice activity",
+        )
+        val centre by transition.animateFloat(
+            initialValue = 0.55f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 900),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "centre voice activity",
+        )
+        listOf(outer, centre, outer)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("android_voice_activity"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            fractions.forEach { fraction ->
+                Box(
+                    modifier = Modifier
+                        .width(5.dp)
+                        .height((8f + (24f * fraction)).dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(stateColors.live),
+                )
+            }
+        }
     }
 }
 
@@ -205,6 +491,7 @@ internal fun TapToSpeakFallback(
 internal fun ColumnScope.ActiveCaptureZone(
     captureState: AndroidCaptureState,
     handsFree: Boolean,
+    motionMode: AndroidMotionMode,
     onStop: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -212,7 +499,7 @@ internal fun ColumnScope.ActiveCaptureZone(
         Text(
             modifier = Modifier
                 .testTag("android_hands_free_active")
-                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                .a11yOrder(A11yOrder.STATE),
             text = stringResource(R.string.android_hands_free_active),
             style = MaterialTheme.typography.bodySmall,
         )
@@ -222,8 +509,11 @@ internal fun ColumnScope.ActiveCaptureZone(
             .testTag("android_capture_state")
             .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
         text = stringResource(captureState.labelRes()),
-        style = MaterialTheme.typography.titleMedium,
+        style = MaterialTheme.typography.headlineSmall,
     )
+    if (captureState != AndroidCaptureState.Starting) {
+        VoiceActivityIndicator(motionMode)
+    }
 
     // The participant's own words, live, before any turn exists. Provisional
     // until the recognizer finalizes them.
@@ -238,20 +528,26 @@ internal fun ColumnScope.ActiveCaptureZone(
             Text(
                 modifier = Modifier
                     .testTag("android_capture_partial")
-                    .a11yOrder(A11yOrder.RESPONSE, LiveRegionMode.Polite),
+                    .a11yOrder(A11yOrder.RESPONSE),
                 text = partial,
                 style = MaterialTheme.typography.bodyLarge,
             )
         }
     Button(
         modifier = Modifier
+            .fillMaxWidth()
             .testTag("android_capture_stop")
             .a11yOrder(A11yOrder.ACTION),
         onClick = onStop,
     ) {
         Text(stringResource(R.string.android_capture_stop))
     }
-    Button(onClick = onCancel) {
+    TextButton(
+        modifier = Modifier
+            .fillMaxWidth()
+            .a11yOrder(A11yOrder.ACTION),
+        onClick = onCancel,
+    ) {
         Text(stringResource(R.string.android_capture_cancel))
     }
 }
@@ -262,10 +558,12 @@ internal fun ColumnScope.IdleCaptureZone(
     captureState: AndroidCaptureState,
     handsFree: Boolean,
     hasAcceptedTurn: Boolean,
+    hasUnconfirmedTurn: Boolean = false,
     isAuthorized: Boolean,
     isConnected: Boolean,
     permissionRevision: Int,
     microphonePermission: ManagedActivityResultLauncher<String, Boolean>,
+    showBlockMessage: Boolean = true,
 ) {
     val block = remember(
         isAuthorized,
@@ -274,9 +572,52 @@ internal fun ColumnScope.IdleCaptureZone(
         captureState,
     ) { captureController.blockingReason() }
 
+    captureController.lastHandsFreeExit
+        // A deliberate disarm needs no explanation; the user did it.
+        ?.takeIf { !handsFree && it != AndroidHandsFreeExit.Disarmed }
+        ?.let { exit ->
+            Text(
+                modifier = Modifier
+                    .testTag("android_hands_free_exit")
+                    .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                text = stringResource(exit.messageRes()),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+    OutlinedButton(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("android_tap_to_speak")
+            .a11yOrder(A11yOrder.ACTION),
+        onClick = {
+            if (block == AndroidCaptureBlock.PermissionRequired) {
+                microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            } else {
+                captureController.beginCapture()
+            }
+        },
+        enabled = !hasAcceptedTurn &&
+            !hasUnconfirmedTurn &&
+            block != AndroidCaptureBlock.ProfileUnavailable &&
+            block != AndroidCaptureBlock.NotConnected &&
+            block != AndroidCaptureBlock.RecognizerUnavailable,
+    ) {
+        Text(
+            stringResource(
+                if (block == AndroidCaptureBlock.PermissionRequired) {
+                    R.string.android_capture_grant
+                } else {
+                    R.string.android_tap_to_speak
+                },
+            ),
+        )
+    }
+
     if (block == null) {
-        Button(
+        TextButton(
             modifier = Modifier
+                .fillMaxWidth()
                 .testTag("android_hands_free")
                 .a11yOrder(A11yOrder.ACTION),
             onClick = {
@@ -299,47 +640,7 @@ internal fun ColumnScope.IdleCaptureZone(
         }
     }
 
-    captureController.lastHandsFreeExit
-        // A deliberate disarm needs no explanation; the user did it.
-        ?.takeIf { !handsFree && it != AndroidHandsFreeExit.Disarmed }
-        ?.let { exit ->
-            Text(
-                modifier = Modifier
-                    .testTag("android_hands_free_exit")
-                    .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
-                text = stringResource(exit.messageRes()),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-    Button(
-        modifier = Modifier
-            .testTag("android_tap_to_speak")
-            .a11yOrder(A11yOrder.ACTION),
-        onClick = {
-            if (block == AndroidCaptureBlock.PermissionRequired) {
-                microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-            } else {
-                captureController.beginCapture()
-            }
-        },
-        enabled = !hasAcceptedTurn &&
-            block != AndroidCaptureBlock.ProfileUnavailable &&
-            block != AndroidCaptureBlock.NotConnected &&
-            block != AndroidCaptureBlock.RecognizerUnavailable,
-    ) {
-        Text(
-            stringResource(
-                if (block == AndroidCaptureBlock.PermissionRequired) {
-                    R.string.android_capture_grant
-                } else {
-                    R.string.android_tap_to_speak
-                },
-            ),
-        )
-    }
-
-    block?.let { reason ->
+    block?.takeIf { showBlockMessage }?.let { reason ->
         Text(
             modifier = Modifier
                 .testTag("android_capture_block")
@@ -370,27 +671,20 @@ internal fun ColumnScope.ConnectionRecoveryZone(
     recoveryState: AndroidRecoveryState,
     resendResult: AndroidResendResult?,
     isAuthorized: Boolean,
+    canAttemptConnection: Boolean = isAuthorized,
     isConnected: Boolean,
+    canEditRelay: Boolean,
     onRecover: () -> Unit,
+    onEditRelay: () -> Unit,
     onResend: () -> Unit,
     onDiscard: () -> Unit,
 ) {
-    if (!isConnected || recoveryState.hasUnconfirmedTurn) {
-        Text(
-            modifier = Modifier
-                .testTag("android_connection_state")
-                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
-            text = stringResource(
-                R.string.android_connection_label,
-                recoveryState.connection.label(),
-            ),
-            style = MaterialTheme.typography.titleMedium,
-        )
-    }
+    val stateColors = LocalHermesStateColors.current
 
-    if (!isConnected && isAuthorized) {
+    if (!isConnected && canAttemptConnection) {
         Button(
             modifier = Modifier
+                .fillMaxWidth()
                 .testTag("android_connect")
                 .a11yOrder(A11yOrder.ACTION),
             onClick = onRecover,
@@ -400,10 +694,22 @@ internal fun ColumnScope.ConnectionRecoveryZone(
         }
     }
 
+    if ((!isConnected || recoveryState.hasUnconfirmedTurn) && canEditRelay) {
+        OutlinedButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("android_edit_relay")
+                .a11yOrder(A11yOrder.ACTION),
+            onClick = onEditRelay,
+        ) {
+            Text(stringResource(R.string.android_edit_relay))
+        }
+    }
+
     if (recoveryState.hasUnconfirmedTurn) {
         Card(
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
+                containerColor = stateColors.panel,
             ),
         ) {
             Text(
@@ -414,25 +720,56 @@ internal fun ColumnScope.ConnectionRecoveryZone(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        Button(onClick = onResend) {
+        OutlinedButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .a11yOrder(A11yOrder.ACTION),
+            onClick = onResend,
+        ) {
             Text(stringResource(R.string.android_resend_unconfirmed_turn))
         }
-        Button(onClick = onDiscard) {
+        TextButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .a11yOrder(A11yOrder.ACTION),
+            onClick = onDiscard,
+        ) {
             Text(stringResource(R.string.android_discard_unconfirmed_turn))
+        }
+    }
+
+    if (recoveryState.unresolvedHomeTurn && !recoveryState.hasUnconfirmedTurn) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = stateColors.panel,
+            ),
+        ) {
+            Text(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .testTag("android_home_unresolved_turn"),
+                text = stringResource(R.string.android_home_unresolved_turn),
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
     }
 
     when (resendResult) {
         null, is AndroidResendResult.Sent, AndroidResendResult.NothingToResend -> Unit
+        is AndroidResendResult.Uncertain -> Text(
+            text = stringResource(R.string.android_resend_uncertain),
+            color = stateColors.unavailable,
+            style = MaterialTheme.typography.bodyMedium,
+        )
         AndroidResendResult.NotConnected -> Text(
             text = stringResource(R.string.android_resend_not_connected),
-            color = MaterialTheme.colorScheme.error,
+            color = stateColors.unavailable,
             style = MaterialTheme.typography.bodyMedium,
         )
 
         is AndroidResendResult.Rejected -> Text(
             text = stringResource(resendResult.reason.messageRes()),
-            color = MaterialTheme.colorScheme.error,
+            color = stateColors.unavailable,
             style = MaterialTheme.typography.bodyMedium,
         )
     }
@@ -450,12 +787,14 @@ internal fun ColumnScope.TurnZone(
     hasAcceptedTurn: Boolean,
     isConnected: Boolean,
     supportsInterrupt: Boolean,
+    motionMode: AndroidMotionMode,
     onInterrupt: (AndroidTurnBinding) -> Unit,
 ) {
     when (initiationState) {
         AndroidInitiationState.Idle -> Unit
         is AndroidInitiationState.Accepted -> {
             Text(
+                modifier = Modifier.testTag("android_turn_status"),
                 text = stringResource(
                     R.string.android_initiation_accepted,
                     snapshot.selectedProfile?.displayName
@@ -465,8 +804,9 @@ internal fun ColumnScope.TurnZone(
             )
 
             if (hasAcceptedTurn && supportsInterrupt) {
-                Button(
+                OutlinedButton(
                     modifier = Modifier
+                        .fillMaxWidth()
                         .testTag("android_interrupt")
                         .a11yOrder(A11yOrder.ACTION),
                     onClick = { onInterrupt(initiationState.binding) },
@@ -496,8 +836,14 @@ internal fun ColumnScope.TurnZone(
                     modifier = Modifier
                         .testTag("android_turn_phase")
                         .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.headlineSmall,
                 )
+            }
+
+            if (turnState.phase == AndroidTurnPhase.Buffering ||
+                turnState.phase == AndroidTurnPhase.Speaking
+            ) {
+                VoiceActivityIndicator(motionMode)
             }
 
             if (turnState.responseText.isNotEmpty()) {
@@ -520,7 +866,7 @@ internal fun ColumnScope.TurnZone(
                 Text(
                     modifier = Modifier
                         .testTag("android_response_text")
-                        .a11yOrder(A11yOrder.RESPONSE, LiveRegionMode.Polite),
+                        .a11yOrder(A11yOrder.RESPONSE),
                     text = turnState.responseText,
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -534,6 +880,27 @@ internal fun ColumnScope.TurnZone(
                     text = stringResource(R.string.android_audio_unavailable),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            if (turnState.structuredPrompt != null) {
+                Text(
+                    modifier = Modifier
+                        .testTag("android_structured_prompt_unavailable")
+                        .a11yOrder(A11yOrder.STATE, LiveRegionMode.Assertive),
+                    text = stringResource(R.string.android_structured_prompt_unavailable),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            if (turnState.availableCommands.isNotEmpty()) {
+                Text(
+                    modifier = Modifier
+                        .testTag("android_command_unavailable")
+                        .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                    text = stringResource(R.string.android_command_unavailable),
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
 
@@ -556,6 +923,14 @@ internal fun ColumnScope.TurnZone(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
+
+        is AndroidInitiationState.Uncertain -> {
+            Text(
+                text = stringResource(R.string.android_failure_delivery_uncertain),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }
 
@@ -563,6 +938,7 @@ internal fun ColumnScope.TurnZone(
 // Zone 3b — Local History
 // ---------------------------------------------------------------------------
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ColumnScope.LocalHistoryZone(
     recorder: AndroidHistoryRecorder,
@@ -571,53 +947,9 @@ internal fun ColumnScope.LocalHistoryZone(
     onClear: () -> Unit,
 ) {
     val context = LocalContext.current
-
-    Text(
-        modifier = Modifier.a11yHeading(A11yOrder.RESPONSE),
-        text = stringResource(R.string.android_history_label),
-        style = MaterialTheme.typography.titleMedium,
-    )
-    Text(
-        modifier = Modifier.a11yOrder(A11yOrder.RESPONSE),
-        text = stringResource(R.string.android_history_boundary),
-        style = MaterialTheme.typography.bodySmall,
-    )
-
-    val entries = recorder.history.entries
-    if (entries.isEmpty()) {
-        Text(
-            modifier = Modifier
-                .testTag("android_history_empty")
-                .a11yOrder(A11yOrder.RESPONSE),
-            text = stringResource(R.string.android_history_empty),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        return
-    }
-
-    entries.takeLast(20).forEach { entry ->
-        Text(
-            modifier = Modifier.a11yOrder(A11yOrder.RESPONSE),
-            text = stringResource(
-                if (entry.role == AndroidTranscriptRole.User) {
-                    R.string.android_history_you
-                } else {
-                    R.string.android_history_hermes
-                },
-            ),
-            style = MaterialTheme.typography.labelMedium,
-        )
-        Text(
-            modifier = Modifier
-                .testTag("android_history_entry")
-                .a11yOrder(A11yOrder.RESPONSE),
-            text = entry.text,
-            style = MaterialTheme.typography.bodyMedium,
-        )
-    }
-
-    // Resolved in composable scope so a configuration change cannot leave the
-    // share sheet holding a stale string.
+    val stateColors = LocalHermesStateColors.current
+    var sheetVisible by rememberSaveable { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
     val shareTitle = stringResource(R.string.android_history_share_title)
 
     fun share(format: AndroidExportFormat) {
@@ -632,32 +964,180 @@ internal fun ColumnScope.LocalHistoryZone(
         }
     }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(
-            modifier = Modifier
-                .testTag("android_history_share_text")
-                .a11yOrder(A11yOrder.ACTION),
-            onClick = { share(AndroidExportFormat.PlainText) },
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("android_history_trigger"),
+        colors = CardDefaults.cardColors(containerColor = stateColors.panel),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(stringResource(R.string.android_history_share_text))
-        }
-        TextButton(
-            modifier = Modifier
-                .testTag("android_history_share_markdown")
-                .a11yOrder(A11yOrder.ACTION),
-            onClick = { share(AndroidExportFormat.Markdown) },
-        ) {
-            Text(stringResource(R.string.android_history_share_markdown))
+            Text(
+                modifier = Modifier
+                    .testTag("android_history_label")
+                    .a11yHeading(A11yOrder.RESPONSE),
+                text = stringResource(R.string.android_history_label),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                modifier = Modifier.a11yOrder(A11yOrder.RESPONSE),
+                text = stringResource(R.string.android_history_boundary),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            TextButton(
+                modifier = Modifier
+                    .testTag("android_history_open")
+                    .a11yOrder(A11yOrder.ACTION),
+                onClick = { sheetVisible = true },
+            ) {
+                Text(stringResource(R.string.android_history_open))
+            }
         }
     }
 
-    Button(
-        modifier = Modifier
-            .testTag("android_history_clear")
-            .a11yOrder(A11yOrder.ACTION),
-        onClick = onClear,
-    ) {
-        Text(stringResource(R.string.android_history_clear))
+    if (sheetVisible) {
+        val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+        )
+        ModalBottomSheet(
+            modifier = Modifier.testTag("android_history_sheet"),
+            onDismissRequest = {
+                menuExpanded = false
+                sheetVisible = false
+            },
+            sheetState = sheetState,
+            containerColor = stateColors.panel,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("android_history_sheet_title")
+                            .a11yHeading(A11yOrder.RESPONSE),
+                        text = stringResource(R.string.android_history_label),
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                    Box {
+                        TextButton(
+                            modifier = Modifier
+                                .testTag("android_history_more")
+                                .a11yOrder(A11yOrder.ACTION),
+                            onClick = { menuExpanded = true },
+                        ) {
+                            Text(stringResource(R.string.android_history_more))
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                modifier = Modifier.testTag("android_history_share_text"),
+                                text = {
+                                    Text(stringResource(R.string.android_history_share_text))
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    share(AndroidExportFormat.PlainText)
+                                },
+                            )
+                            DropdownMenuItem(
+                                modifier = Modifier.testTag("android_history_share_markdown"),
+                                text = {
+                                    Text(stringResource(R.string.android_history_share_markdown))
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    share(AndroidExportFormat.Markdown)
+                                },
+                            )
+                        }
+                    }
+                    TextButton(
+                        modifier = Modifier
+                            .testTag("android_history_close")
+                            .a11yOrder(A11yOrder.ACTION),
+                        onClick = {
+                            menuExpanded = false
+                            sheetVisible = false
+                        },
+                    ) {
+                        Text(stringResource(R.string.android_history_close))
+                    }
+                }
+                Text(
+                    modifier = Modifier
+                        .testTag("android_history_boundary")
+                        .a11yOrder(A11yOrder.RESPONSE),
+                    text = stringResource(R.string.android_history_boundary),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                HorizontalDivider()
+
+                val entries = recorder.history.entries
+                if (entries.isEmpty()) {
+                    Text(
+                        modifier = Modifier
+                            .testTag("android_history_empty")
+                            .a11yOrder(A11yOrder.RESPONSE),
+                        text = stringResource(R.string.android_history_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    val timeFormat = remember { DateFormat.getTimeInstance(DateFormat.SHORT) }
+                    entries.takeLast(20).forEach { entry ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                modifier = Modifier
+                                    .testTag("android_history_entry_meta")
+                                    .a11yOrder(A11yOrder.RESPONSE),
+                                text = stringResource(
+                                    if (entry.role == AndroidTranscriptRole.User) {
+                                        R.string.android_history_you
+                                    } else {
+                                        R.string.android_history_hermes
+                                    },
+                                ) + " · " + timeFormat.format(Date(entry.createdAtMillis)),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                modifier = Modifier
+                                    .testTag("android_history_entry")
+                                    .a11yOrder(A11yOrder.RESPONSE),
+                                text = entry.text,
+                                style = if (entry.role == AndroidTranscriptRole.Assistant) {
+                                    MaterialTheme.typography.bodyLarge
+                                } else {
+                                    MaterialTheme.typography.bodyMedium
+                                },
+                            )
+                        }
+                    }
+                    TextButton(
+                        modifier = Modifier
+                            .testTag("android_history_clear")
+                            .a11yOrder(A11yOrder.ACTION),
+                        onClick = onClear,
+                    ) {
+                        Text(stringResource(R.string.android_history_clear))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -706,6 +1186,18 @@ internal fun AndroidInitiationFailure.messageRes(): Int = when (this) {
     AndroidInitiationFailure.AuthorizationRequired -> R.string.android_failure_authorization_required
     AndroidInitiationFailure.EmptyTypedPrompt -> R.string.android_failure_empty_prompt
     AndroidInitiationFailure.SessionUnavailable -> R.string.android_failure_session_unavailable
+    AndroidInitiationFailure.HomeBindingUnavailable -> R.string.android_failure_home_binding_unavailable
+    AndroidInitiationFailure.RequestRejected -> R.string.android_failure_request_rejected
+    AndroidInitiationFailure.DeliveryUncertain -> R.string.android_failure_delivery_uncertain
+}
+
+internal fun AndroidComposerBlock.messageRes(): Int = when (this) {
+    AndroidComposerBlock.NoProfile -> R.string.android_composer_block_no_profile
+    AndroidComposerBlock.Authorization -> R.string.android_composer_block_authorization
+    AndroidComposerBlock.Disconnected -> R.string.android_composer_block_disconnected
+    AndroidComposerBlock.ActiveTurn -> R.string.android_composer_block_active_turn
+    AndroidComposerBlock.UnconfirmedTurn -> R.string.android_composer_block_unconfirmed_turn
+    AndroidComposerBlock.EmptyPrompt -> R.string.android_composer_block_empty_prompt
 }
 
 @Composable

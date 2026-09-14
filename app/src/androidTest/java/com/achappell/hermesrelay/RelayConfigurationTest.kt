@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
@@ -53,7 +54,7 @@ class RelayConfigurationTest {
 
         val stored = InstrumentationRegistry.getInstrumentation().targetContext
             .getSharedPreferences("hermes_relay_credentials", 0)
-            .getString("token:profile-1", null)
+            .getString("rollback:profile-1", null)
 
         assertTrue(stored != null && stored.isNotBlank())
         assertTrue(
@@ -82,6 +83,33 @@ class RelayConfigurationTest {
     }
 
     @Test
+    fun the_home_device_credential_has_its_own_keystore_slot() {
+        val credential = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+        assertTrue(credentials.putHomeCredential("profile-1", credential))
+        assertTrue(credentials.hasReadableHomeCredential("profile-1"))
+        assertEquals(credential, credentials.readHomeCredential("profile-1"))
+
+        credentials.deleteHomeCredential("profile-1")
+
+        assertTrue(!credentials.hasReadableHomeCredential("profile-1"))
+        assertNull(credentials.readHomeCredential("profile-1"))
+        assertTrue(!credentials.hasToken("profile-1"))
+    }
+
+    @Test
+    fun corrupt_home_device_ciphertext_fails_closed() {
+        InstrumentationRegistry.getInstrumentation().targetContext
+            .getSharedPreferences("hermes_relay_credentials", 0)
+            .edit()
+            .putString("home-device:profile-1", "not-a-keystore-envelope")
+            .commit()
+
+        assertTrue(!credentials.hasReadableHomeCredential("profile-1"))
+        assertNull(credentials.readHomeCredential("profile-1"))
+    }
+
+    @Test
     fun saving_a_profile_never_renders_the_token_back() {
         val controller = RelayConfigurationController(
             profiles = InMemoryRelayProfileStore(),
@@ -103,6 +131,7 @@ class RelayConfigurationTest {
         composeRule.onNodeWithTag("android_relay_device_id").performTextInput("android")
         composeRule.onNodeWithTag("android_relay_display_name").performTextInput("Amanda")
         composeRule.onNodeWithTag("android_relay_token").performTextInput("super-secret-token")
+        closeSoftKeyboard()
         composeRule.onNodeWithTag("android_relay_save").performScrollTo().performClick()
         composeRule.waitForIdle()
 
@@ -135,6 +164,7 @@ class RelayConfigurationTest {
         composeRule.onNodeWithTag("android_relay_device_id").performTextInput("android")
         composeRule.onNodeWithTag("android_relay_display_name").performTextInput("Amanda")
         composeRule.onNodeWithTag("android_relay_token").performTextInput("token")
+        closeSoftKeyboard()
         composeRule.onNodeWithTag("android_relay_save").performScrollTo().performClick()
         composeRule.waitForIdle()
 

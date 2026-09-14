@@ -8,23 +8,28 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Live gate for A-4: a real handshake against the household Hermes relay.
+ * Optional live gate for Story 5: a real handshake against an approved Home
+ * bridge deployment.
  *
- * Excluded from the default run by the [LiveRelay] annotation, so ordinary CI
- * and offline runs are unaffected. To run it:
+ * The public Home adapter is not live yet, so this remains an environment
+ * gate for the later deployment boundary rather than evidence for this story.
+ * It is excluded from the default run by the [LiveRelay] annotation, so
+ * ordinary CI and offline runs are unaffected. To run it after that adapter
+ * is deployed:
  *
  * ```
  * ./gradlew connectedDebugAndroidTest \
  *   -Pandroid.testInstrumentationRunnerArguments.notAnnotation=org.junit.Ignore \
  *   -Pandroid.testInstrumentationRunnerArguments.class=com.achappell.hermesrelay.LiveRelayHandshakeTest \
- *   -Pandroid.testInstrumentationRunnerArguments.relayEndpoint=wss://host/voice-session \
- *   -Pandroid.testInstrumentationRunnerArguments.relayToken="$TOKEN"
+ *   -Pandroid.testInstrumentationRunnerArguments.homeRoute=wss://home-host \
+ *   -Pandroid.testInstrumentationRunnerArguments.homeCredential="$DEVICE_CREDENTIAL" \
+ *   -Pandroid.testInstrumentationRunnerArguments.conversationHandle="$HANDLE"
  * ```
  *
  * Overriding `notAnnotation` is required: an empty value does not clear the
  * default, and the run silently executes zero tests instead.
  *
- * The token is never written to source, to a profile file, or to a log line.
+ * The credential is never written to source, to a profile file, or to a log line.
  */
 @RunWith(AndroidJUnit4::class)
 @LiveRelay
@@ -33,10 +38,11 @@ class LiveRelayHandshakeTest {
     @Test
     fun the_relay_accepts_this_client_identity_and_returns_a_session() {
         val arguments = InstrumentationRegistry.getArguments()
-        val endpoint = arguments.getString("relayEndpoint")
-        val token = arguments.getString("relayToken")
-        require(!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
-            "relayEndpoint and relayToken instrumentation arguments are required"
+        val route = arguments.getString("homeRoute")
+        val credential = arguments.getString("homeCredential")
+        val handle = arguments.getString("conversationHandle")
+        require(!route.isNullOrBlank() && !credential.isNullOrBlank() && !handle.isNullOrBlank()) {
+            "homeRoute, homeCredential, and conversationHandle instrumentation arguments are required"
         }
 
         val clientId = arguments.getString("relayClientId") ?: "amanda-laptop"
@@ -44,53 +50,60 @@ class LiveRelayHandshakeTest {
 
         val profile = RelayProfile(
             id = "live-gate",
-            endpoint = endpoint!!,
+            endpoint = route,
             clientId = clientId,
             deviceId = deviceId,
             displayName = "Android live gate",
+            homeBinding = RelayHomeBinding(route, handle),
         )
         val client = OkHttpRelaySessionClient(
             collection = {
                 RelayProfileCollection(profiles = listOf(profile), selectedId = profile.id)
             },
-            credentials = InMemoryRelayCredentialStore(mapOf(profile.id to token!!)),
+            credentials = InMemoryRelayCredentialStore(
+                homeCredentials = mapOf(profile.id to credential),
+            ),
             helloTimeoutMillis = 15_000,
         )
 
         val outcome = client.reconnect()
-        client.disconnect()
+        client.close()
 
         assertTrue(
             "expected Connected, got $outcome",
             outcome is AndroidReconnectOutcome.Connected,
         )
         assertTrue(
-            (outcome as AndroidReconnectOutcome.Connected).sessionId.isNotBlank(),
+            (outcome as AndroidReconnectOutcome.Connected).connectionId.isNotBlank(),
         )
     }
 
     @Test
     fun a_typed_turn_reaches_hermes_and_returns_a_projected_response() {
         val arguments = InstrumentationRegistry.getArguments()
-        val endpoint = arguments.getString("relayEndpoint")
-        val token = arguments.getString("relayToken")
-        require(!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
-            "relayEndpoint and relayToken instrumentation arguments are required"
+        val route = arguments.getString("homeRoute")
+        val credential = arguments.getString("homeCredential")
+        val handle = arguments.getString("conversationHandle")
+        require(!route.isNullOrBlank() && !credential.isNullOrBlank() && !handle.isNullOrBlank()) {
+            "homeRoute, homeCredential, and conversationHandle instrumentation arguments are required"
         }
 
         val profile = RelayProfile(
             id = "live-gate",
-            endpoint = endpoint!!,
+            endpoint = route,
             clientId = arguments.getString("relayClientId") ?: "amanda-laptop",
             deviceId = arguments.getString("relayDeviceId") ?: "android",
             displayName = "Android live gate",
+            homeBinding = RelayHomeBinding(route, handle),
         )
         val sink = AudioTrackAudioSink()
         val client = OkHttpRelaySessionClient(
             collection = {
                 RelayProfileCollection(profiles = listOf(profile), selectedId = profile.id)
             },
-            credentials = InMemoryRelayCredentialStore(mapOf(profile.id to token!!)),
+            credentials = InMemoryRelayCredentialStore(
+                homeCredentials = mapOf(profile.id to credential),
+            ),
             helloTimeoutMillis = 15_000,
             audioSink = sink,
         )
@@ -99,7 +112,7 @@ class LiveRelayHandshakeTest {
 
         val result = client.beginTurn(
             AndroidTurnRequest(
-                AndroidProfile(profile.clientId, profile.displayName),
+                AndroidProfile(profile.id, profile.displayName, profile.deviceId),
                 AndroidTurnInput.Typed(
                     arguments.getString("relayPrompt")
                         ?: "Reply with exactly the word: acknowledged",
@@ -118,7 +131,7 @@ class LiveRelayHandshakeTest {
 
         val completed = finished.await(120, java.util.concurrent.TimeUnit.SECONDS)
         observation.cancel()
-        client.disconnect()
+        client.close()
 
         assertTrue("the turn never reached a terminal state", completed)
         assertTrue(
@@ -134,24 +147,28 @@ class LiveRelayHandshakeTest {
     @Test
     fun an_interrupt_stops_a_real_turn_and_keeps_what_was_already_said() {
         val arguments = InstrumentationRegistry.getArguments()
-        val endpoint = arguments.getString("relayEndpoint")
-        val token = arguments.getString("relayToken")
-        require(!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
-            "relayEndpoint and relayToken instrumentation arguments are required"
+        val route = arguments.getString("homeRoute")
+        val credential = arguments.getString("homeCredential")
+        val handle = arguments.getString("conversationHandle")
+        require(!route.isNullOrBlank() && !credential.isNullOrBlank() && !handle.isNullOrBlank()) {
+            "homeRoute, homeCredential, and conversationHandle instrumentation arguments are required"
         }
 
         val profile = RelayProfile(
             id = "live-gate",
-            endpoint = endpoint!!,
+            endpoint = route,
             clientId = arguments.getString("relayClientId") ?: "amanda-laptop",
             deviceId = arguments.getString("relayDeviceId") ?: "android",
             displayName = "Android live gate",
+            homeBinding = RelayHomeBinding(route, handle),
         )
         val client = OkHttpRelaySessionClient(
             collection = {
                 RelayProfileCollection(profiles = listOf(profile), selectedId = profile.id)
             },
-            credentials = InMemoryRelayCredentialStore(mapOf(profile.id to token!!)),
+            credentials = InMemoryRelayCredentialStore(
+                homeCredentials = mapOf(profile.id to credential),
+            ),
             helloTimeoutMillis = 15_000,
             audioSink = AudioTrackAudioSink(),
         )
@@ -162,7 +179,7 @@ class LiveRelayHandshakeTest {
         val binding = (
             client.beginTurn(
                 AndroidTurnRequest(
-                    AndroidProfile(profile.clientId, profile.displayName),
+                    AndroidProfile(profile.id, profile.displayName, profile.deviceId),
                     AndroidTurnInput.Typed(
                         "Please count slowly from one to forty, one number per sentence.",
                     ),
@@ -189,7 +206,7 @@ class LiveRelayHandshakeTest {
 
         val stopped = settled.await(60, java.util.concurrent.TimeUnit.SECONDS)
         observation.cancel()
-        client.disconnect()
+        client.close()
 
         assertTrue("the interrupted turn never settled", stopped)
         assertEquals(AndroidTurnPhase.Interrupted, state.phase)

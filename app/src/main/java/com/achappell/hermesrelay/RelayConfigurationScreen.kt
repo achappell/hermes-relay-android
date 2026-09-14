@@ -5,9 +5,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -50,7 +50,10 @@ internal fun RelayConfigurationScreen(
         onChanged()
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier.testTag("android_relay_configuration"),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         Text(
             text = stringResource(R.string.android_relay_config_title),
             style = MaterialTheme.typography.titleMedium,
@@ -144,8 +147,10 @@ internal fun RelayConfigurationScreen(
             masked = true,
         )
 
-        Button(
-            modifier = Modifier.testTag("android_relay_save"),
+        FilledTonalButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("android_relay_save"),
             onClick = {
                 val result = controller.save(endpoint, clientId, deviceId, displayName, token)
                 errors = result
@@ -203,4 +208,5 @@ private fun RelayProfileError.messageRes(): Int = when (this) {
     RelayProfileError.EndpointMalformed -> R.string.android_relay_error_malformed
     RelayProfileError.EndpointNotSecure -> R.string.android_relay_error_not_secure
     RelayProfileError.EndpointBareAddress -> R.string.android_relay_error_bare_address
+    RelayProfileError.StorageUnavailable -> R.string.android_relay_error_storage
 }

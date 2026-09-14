@@ -7,7 +7,7 @@ import java.io.File
 internal interface RelayProfileStore {
     fun load(): RelayProfileCollection
 
-    fun save(collection: RelayProfileCollection)
+    fun save(collection: RelayProfileCollection): Boolean
 }
 
 internal class FileRelayProfileStore(
@@ -21,9 +21,19 @@ internal class FileRelayProfileStore(
             else RelayProfileCollection.fromJson(file.readText())
         }.getOrElse { RelayProfileCollection() }
 
-    override fun save(collection: RelayProfileCollection) {
-        runCatching { file.writeText(collection.toJson()) }
-    }
+    override fun save(collection: RelayProfileCollection): Boolean = runCatching {
+        val serialized = collection.toJson()
+        val temporary = File("${file.absolutePath}.tmp")
+        temporary.writeText(serialized)
+        if (!temporary.renameTo(file)) {
+            // Some Android filesystems do not replace an existing destination
+            // via renameTo. The temporary write still prevents a half-written
+            // JSON document from becoming the normal path.
+            file.writeText(serialized)
+            temporary.delete()
+        }
+        true
+    }.getOrDefault(false)
 
     private companion object {
         const val FILE_NAME = "relay-profiles.json"
@@ -35,9 +45,31 @@ internal class InMemoryRelayProfileStore(
 ) : RelayProfileStore {
     override fun load() = collection
 
-    override fun save(collection: RelayProfileCollection) {
+    override fun save(collection: RelayProfileCollection): Boolean {
         this.collection = collection
+        return true
     }
+}
+
+/** The non-secret result handed back by the approved Home pairing flow. */
+internal data class RelayHomePairing(
+    val approvedRoute: String,
+    val deviceCredential: String,
+    val conversationHandle: String,
+)
+
+internal enum class RelayHomeMigrationFailure {
+    ProfileUnavailable,
+    RouteInvalid,
+    CredentialInvalid,
+    ConversationHandleInvalid,
+    SecureStorageUnavailable,
+}
+
+internal sealed interface RelayHomeMigrationResult {
+    data class Migrated(val profile: RelayProfile) : RelayHomeMigrationResult
+
+    data class Rejected(val reason: RelayHomeMigrationFailure) : RelayHomeMigrationResult
 }
 
 /**
@@ -77,22 +109,94 @@ internal class RelayConfigurationController(
             deviceId = deviceId.trim(),
             displayName = displayName.trim(),
         )
-        credentials.put(profile.id, token.trim())
-        update(collection.add(profile))
+        if (!credentials.put(profile.id, token.trim())) {
+            return mapOf(RelayProfileField.Token to RelayProfileError.StorageUnavailable)
+        }
+        if (!update(collection.add(profile))) {
+            credentials.delete(profile.id)
+            return mapOf(RelayProfileField.Token to RelayProfileError.StorageUnavailable)
+        }
         return emptyMap()
     }
 
     fun select(id: String) = update(collection.select(id))
 
-    fun delete(id: String) {
-        credentials.delete(id)
-        // A Profile's conversation must not outlive the Profile that held it.
-        history?.delete(id)
-        update(collection.remove(id))
+    /**
+     * Applies an approved Home pairing to an existing Profile in place.
+     *
+     * This is a pairing transition, not a conversion of the legacy bearer. The
+     * old secret is copied into the rollback namespace before the new Home
+     * secret is written, and neither is exposed through Profile JSON.
+     */
+    fun migrateToHome(
+        profileId: String,
+        pairing: RelayHomePairing,
+    ): RelayHomeMigrationResult {
+        val current = collection.profiles.firstOrNull { it.id == profileId }
+            ?: return RelayHomeMigrationResult.Rejected(
+                RelayHomeMigrationFailure.ProfileUnavailable,
+            )
+        if (RelayProfileValidator.validateApprovedHomeRoute(pairing.approvedRoute) != null) {
+            return RelayHomeMigrationResult.Rejected(RelayHomeMigrationFailure.RouteInvalid)
+        }
+        if (!HomeCredentialValidator.isValid(pairing.deviceCredential)) {
+            return RelayHomeMigrationResult.Rejected(RelayHomeMigrationFailure.CredentialInvalid)
+        }
+        if (pairing.conversationHandle.isBlank() || pairing.conversationHandle.length > 512) {
+            return RelayHomeMigrationResult.Rejected(
+                RelayHomeMigrationFailure.ConversationHandleInvalid,
+            )
+        }
+
+        val hasStoredLegacy = credentials.hasStoredRollbackCredential(profileId)
+        if (hasStoredLegacy && !credentials.hasReadableRollbackCredential(profileId)) {
+            return RelayHomeMigrationResult.Rejected(
+                RelayHomeMigrationFailure.SecureStorageUnavailable,
+            )
+        }
+        val previousHomeCredential = credentials.readHomeCredential(profileId)
+        credentials.readRollbackCredential(profileId)?.let { legacy ->
+            if (!credentials.putRollbackCredential(profileId, legacy)) {
+                return RelayHomeMigrationResult.Rejected(
+                    RelayHomeMigrationFailure.SecureStorageUnavailable,
+                )
+            }
+        }
+        if (!credentials.putHomeCredential(profileId, pairing.deviceCredential)) {
+            return RelayHomeMigrationResult.Rejected(
+                RelayHomeMigrationFailure.SecureStorageUnavailable,
+            )
+        }
+
+        val migrated = current.copy(
+            homeBinding = RelayHomeBinding(
+                approvedRoute = pairing.approvedRoute.trim().trimEnd('/'),
+                conversationHandle = pairing.conversationHandle,
+            ),
+        )
+        val next = collection.upsert(migrated)
+        if (!profiles.save(next)) {
+            credentials.deleteHomeCredential(profileId)
+            previousHomeCredential?.let { credentials.putHomeCredential(profileId, it) }
+            return RelayHomeMigrationResult.Rejected(
+                RelayHomeMigrationFailure.SecureStorageUnavailable,
+            )
+        }
+        collection = next
+        return RelayHomeMigrationResult.Migrated(migrated)
     }
 
-    private fun update(next: RelayProfileCollection) {
+    fun delete(id: String) {
+        if (update(collection.remove(id))) {
+            credentials.delete(id)
+            // A Profile's conversation must not outlive the Profile that held it.
+            history?.delete(id)
+        }
+    }
+
+    private fun update(next: RelayProfileCollection): Boolean {
+        if (!profiles.save(next)) return false
         collection = next
-        profiles.save(next)
+        return true
     }
 }

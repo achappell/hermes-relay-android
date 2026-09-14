@@ -115,3 +115,30 @@ stories:
     title: Apply the Night Console visual language as a Material 3 adaptation
     kind: surface
     spec: null
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/31
+  - id: 5-A-4
+    product_epic: 5
+    source_story: 5
+    title: Migrate Android from the fork route to the Home bridge
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-5-android-migration.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-4-home-bridge-migration.md
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/32
+  - id: ANDROID-HOME-01
+    title: Add the Android Home pairing and configuration adapter
+    kind: next-wave
+    spec: _bmad-output/implementation-artifacts/spec-android-home-pairing-adapter.md
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/33
+    horizon: next
+  - id: ANDROID-PERM-01
+    title: Enforce Android endpoint permissions and masked Sensitive Entry
+    kind: next-wave
+    spec: _bmad-output/implementation-artifacts/spec-android-permissions-sensitive-entry.md
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/34
+    horizon: later
+  - id: ANDROID-NOTIFY-01
+    title: Add opt-in Android notifications and quiet hours
+    kind: next-wave
+    spec: _bmad-output/implementation-artifacts/spec-android-notifications.md
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/35
+    horizon: later
