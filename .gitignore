@@ -9,6 +9,7 @@ captures/
 .cxx/
 .DS_Store
 .kotlin/
+.worktrees/
 
 # Local credentials, audio, and machine-specific files.
 *.env

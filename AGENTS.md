@@ -38,6 +38,14 @@ Keep wrong diagnoses in the record when they were informative. A fix that
 changed nothing is evidence, and deleting it invites the next reader to repeat
 the theory.
 
+## Worktrees
+
+All linked feature and agent worktrees for this repository belong under
+`.worktrees/<name>` inside the repository's main checkout. Keep `.worktrees/`
+ignored and do not create sibling `*-worktrees` directories or use a global
+tool-specific worktree location. BMAD loop-managed run worktrees under
+`.bmad-loop/runs/<run>/worktrees/` are engine-owned and remain there.
+
 ## Verification
 
 ```
