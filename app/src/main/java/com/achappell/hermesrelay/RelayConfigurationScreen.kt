@@ -208,4 +208,5 @@ private fun RelayProfileError.messageRes(): Int = when (this) {
     RelayProfileError.EndpointMalformed -> R.string.android_relay_error_malformed
     RelayProfileError.EndpointNotSecure -> R.string.android_relay_error_not_secure
     RelayProfileError.EndpointBareAddress -> R.string.android_relay_error_bare_address
+    RelayProfileError.StorageUnavailable -> R.string.android_relay_error_storage
 }

@@ -6,6 +6,12 @@ internal sealed interface AndroidInitiationState {
     data class Accepted(val binding: AndroidTurnBinding) : AndroidInitiationState
 
     data class Rejected(val reason: AndroidInitiationFailure) : AndroidInitiationState
+
+    /** Home may have received the prompt, so retain it for an explicit decision. */
+    data class Uncertain(
+        val request: AndroidTurnRequest,
+        val reason: AndroidHomeUnavailableReason,
+    ) : AndroidInitiationState
 }
 
 /** Applies the pre-capture authorization gate for Android Client turns. */
@@ -28,6 +34,8 @@ internal class AndroidInitiationController(
         return when (val result = clientPort.beginTurn(AndroidTurnRequest(profile, input))) {
             is AndroidInitiationResult.Accepted -> AndroidInitiationState.Accepted(result.binding)
             is AndroidInitiationResult.Rejected -> AndroidInitiationState.Rejected(result.reason)
+            is AndroidInitiationResult.Uncertain ->
+                AndroidInitiationState.Uncertain(result.request, result.reason)
         }
     }
 }

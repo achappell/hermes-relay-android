@@ -121,6 +121,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.okhttp.tls)
     // Android stubs org.json in local unit tests; supply a real implementation.
     testImplementation(libs.org.json)
     androidTestImplementation(libs.androidx.test.ext.junit)

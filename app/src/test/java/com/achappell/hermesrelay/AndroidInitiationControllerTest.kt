@@ -114,6 +114,29 @@ class AndroidInitiationControllerTest {
         assertEquals(1, port.requests.size)
     }
 
+    @Test
+    fun uncertain_delivery_is_retained_as_a_distinct_state_for_explicit_recovery() {
+        val request = AndroidTurnRequest(profile, AndroidTurnInput.Typed("May have arrived"))
+        val port = FakeAndroidClientPort(
+            snapshot = authorizedSnapshot(),
+            result = AndroidInitiationResult.Uncertain(
+                request = request,
+                reason = AndroidHomeUnavailableReason.TransportTimeout,
+            ),
+        )
+
+        val result = AndroidInitiationController(port).initiate(request.input)
+
+        assertEquals(
+            AndroidInitiationState.Uncertain(
+                request = request,
+                reason = AndroidHomeUnavailableReason.TransportTimeout,
+            ),
+            result,
+        )
+        assertEquals(listOf(request), port.requests)
+    }
+
     private fun authorizedSnapshot(
         selectedProfile: AndroidProfile? = profile,
         authorizationState: AndroidAuthorizationState = AndroidAuthorizationState.Verified,

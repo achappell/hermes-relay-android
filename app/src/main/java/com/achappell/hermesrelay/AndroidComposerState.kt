@@ -6,6 +6,7 @@ internal enum class AndroidComposerBlock {
     Authorization,
     Disconnected,
     ActiveTurn,
+    UnconfirmedTurn,
     EmptyPrompt,
 }
 
@@ -22,10 +23,12 @@ internal fun resolveAndroidComposerBlock(
     isConnected: Boolean,
     hasAcceptedTurn: Boolean,
     prompt: String,
+    hasUnconfirmedTurn: Boolean = false,
 ): AndroidComposerBlock? = when {
     !hasProfile -> AndroidComposerBlock.NoProfile
     !isAuthorized -> AndroidComposerBlock.Authorization
     hasAcceptedTurn -> AndroidComposerBlock.ActiveTurn
+    hasUnconfirmedTurn -> AndroidComposerBlock.UnconfirmedTurn
     !isConnected -> AndroidComposerBlock.Disconnected
     prompt.isBlank() -> AndroidComposerBlock.EmptyPrompt
     else -> null

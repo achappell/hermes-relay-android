@@ -54,7 +54,7 @@ class RelayConfigurationTest {
 
         val stored = InstrumentationRegistry.getInstrumentation().targetContext
             .getSharedPreferences("hermes_relay_credentials", 0)
-            .getString("token:profile-1", null)
+            .getString("rollback:profile-1", null)
 
         assertTrue(stored != null && stored.isNotBlank())
         assertTrue(
@@ -80,6 +80,33 @@ class RelayConfigurationTest {
 
         assertEquals("token-one", credentials.read("profile-1"))
         assertEquals("token-two", credentials.read("profile-2"))
+    }
+
+    @Test
+    fun the_home_device_credential_has_its_own_keystore_slot() {
+        val credential = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+        assertTrue(credentials.putHomeCredential("profile-1", credential))
+        assertTrue(credentials.hasReadableHomeCredential("profile-1"))
+        assertEquals(credential, credentials.readHomeCredential("profile-1"))
+
+        credentials.deleteHomeCredential("profile-1")
+
+        assertTrue(!credentials.hasReadableHomeCredential("profile-1"))
+        assertNull(credentials.readHomeCredential("profile-1"))
+        assertTrue(!credentials.hasToken("profile-1"))
+    }
+
+    @Test
+    fun corrupt_home_device_ciphertext_fails_closed() {
+        InstrumentationRegistry.getInstrumentation().targetContext
+            .getSharedPreferences("hermes_relay_credentials", 0)
+            .edit()
+            .putString("home-device:profile-1", "not-a-keystore-envelope")
+            .commit()
+
+        assertTrue(!credentials.hasReadableHomeCredential("profile-1"))
+        assertNull(credentials.readHomeCredential("profile-1"))
     }
 
     @Test

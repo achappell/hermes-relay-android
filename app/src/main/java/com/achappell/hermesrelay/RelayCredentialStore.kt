@@ -6,34 +6,79 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.security.KeyStore
+import java.util.Base64 as JvmBase64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Stores one bearer token per relay profile.
- *
- * [read] is the transport's entry point and is deliberately the only way to
- * obtain a token. The configuration UI uses [hasToken] so a secret never
- * reaches Compose state, a saved instance bundle, or a log line.
+ * The two credential slots have different jobs and are never interchangeable.
+ * The Home Device credential is the only credential the active transport reads;
+ * the old bearer remains available solely for a deliberate rollback operation.
  */
 internal interface RelayCredentialStore {
-    fun put(profileId: String, token: String)
+    /** Legacy API: writes the rollback-only credential slot. */
+    fun put(profileId: String, token: String): Boolean
 
+    /** Legacy API: proves that the rollback slot can actually be read. */
     fun hasToken(profileId: String): Boolean
 
+    /** Legacy API: reads the rollback-only credential slot. */
     fun read(profileId: String): String?
 
+    /** Stores a validated Home Device credential in its distinct secure slot. */
+    fun putHomeCredential(profileId: String, credential: String): Boolean = false
+
+    /** Reads and decrypts the Home Device credential, or fails closed. */
+    fun readHomeCredential(profileId: String): String? = null
+
+    /** This is intentionally a secure read, not a presence check. */
+    fun hasReadableHomeCredential(profileId: String): Boolean =
+        readHomeCredential(profileId) != null
+
+    /** Used only to restore a failed replacement of the Home slot. */
+    fun deleteHomeCredential(profileId: String) = Unit
+
+    /** Explicit names for the rollback slot used by migration code. */
+    fun putRollbackCredential(profileId: String, credential: String): Boolean {
+        return put(profileId, credential)
+    }
+
+    fun readRollbackCredential(profileId: String): String? = read(profileId)
+
+    fun hasReadableRollbackCredential(profileId: String): Boolean =
+        readRollbackCredential(profileId) != null
+
+    /** Distinguishes an absent slot from a slot that cannot be decrypted. */
+    fun hasStoredRollbackCredential(profileId: String): Boolean =
+        hasReadableRollbackCredential(profileId)
+
+    /** Removes both slots when the owning Profile is deleted. */
     fun delete(profileId: String)
+}
+
+/** The production representation required by the Home credential contract. */
+internal object HomeCredentialValidator {
+    const val BYTE_COUNT = 32
+    const val ASCII_LENGTH = 43
+
+    private val encoded = Regex("[A-Za-z0-9_-]{${ASCII_LENGTH}}")
+
+    fun isValid(value: String): Boolean {
+        if (!encoded.matches(value)) return false
+        return runCatching {
+            JvmBase64.getUrlDecoder().decode(value).size == BYTE_COUNT
+        }.getOrDefault(false)
+    }
 }
 
 /**
  * Android Keystore implementation using AES-GCM.
  *
- * The key material never leaves the Keystore; only the ciphertext and its
- * per-record IV are persisted. A hand-rolled envelope keeps this path free of
- * an additional dependency for the small amount of work it actually needs.
+ * Key material never leaves the Keystore; only ciphertext and its per-record
+ * IV are persisted. The slot names are deliberately separate so a legacy
+ * bearer cannot accidentally become a Home authorization credential.
  */
 internal class KeystoreRelayCredentialStore(
     context: Context,
@@ -42,27 +87,66 @@ internal class KeystoreRelayCredentialStore(
         Context.MODE_PRIVATE,
     ),
 ) : RelayCredentialStore {
-
-    override fun put(profileId: String, token: String) {
-        val cipher = Cipher.getInstance(TRANSFORMATION).apply {
-            init(Cipher.ENCRYPT_MODE, secretKey())
-        }
-        val ciphertext = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
-        val envelope = buildString {
-            append(Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            append(':')
-            append(Base64.encodeToString(ciphertext, Base64.NO_WRAP))
-        }
-        preferences.edit().putString(key(profileId), envelope).apply()
-    }
+    override fun put(profileId: String, token: String): Boolean =
+        putRollbackCredential(profileId, token)
 
     override fun hasToken(profileId: String): Boolean =
-        preferences.contains(key(profileId))
+        hasReadableRollbackCredential(profileId)
 
-    override fun read(profileId: String): String? {
-        val envelope = preferences.getString(key(profileId), null) ?: return null
+    override fun read(profileId: String): String? = readRollbackCredential(profileId)
+
+    override fun putHomeCredential(profileId: String, credential: String): Boolean {
+        if (!HomeCredentialValidator.isValid(credential)) return false
+        return writeSecret(homeKey(profileId), credential)
+    }
+
+    override fun readHomeCredential(profileId: String): String? =
+        readSecret(homeKey(profileId))?.takeIf(HomeCredentialValidator::isValid)
+
+    override fun deleteHomeCredential(profileId: String) {
+        preferences.edit().remove(homeKey(profileId)).commit()
+    }
+
+    override fun putRollbackCredential(profileId: String, credential: String): Boolean =
+        credential.isNotBlank() && writeSecret(rollbackKey(profileId), credential.trim())
+
+    override fun readRollbackCredential(profileId: String): String? =
+        readSecret(rollbackKey(profileId))
+            ?: readSecret(legacyTokenKey(profileId))
+
+    override fun hasStoredRollbackCredential(profileId: String): Boolean =
+        preferences.contains(rollbackKey(profileId)) ||
+            preferences.contains(legacyTokenKey(profileId))
+
+    override fun delete(profileId: String) {
+        preferences.edit()
+            .remove(homeKey(profileId))
+            .remove(rollbackKey(profileId))
+            // Keep deletion compatible with profiles written before the slot
+            // split, where the old bearer lived under token:<profile>.
+            .remove(legacyTokenKey(profileId))
+            .commit()
+    }
+
+    private fun writeSecret(storageKey: String, secret: String): Boolean {
+        return runCatching {
+            val cipher = Cipher.getInstance(TRANSFORMATION).apply {
+                init(Cipher.ENCRYPT_MODE, secretKey())
+            }
+            val ciphertext = cipher.doFinal(secret.toByteArray(Charsets.UTF_8))
+            val envelope = buildString {
+                append(Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+                append(':')
+                append(Base64.encodeToString(ciphertext, Base64.NO_WRAP))
+            }
+            preferences.edit().putString(storageKey, envelope).commit()
+        }.getOrDefault(false)
+    }
+
+    private fun readSecret(storageKey: String): String? {
+        val envelope = preferences.getString(storageKey, null) ?: return null
         val separator = envelope.indexOf(':')
-        if (separator <= 0) return null
+        if (separator <= 0 || separator == envelope.lastIndex) return null
 
         return runCatching {
             val iv = Base64.decode(envelope.substring(0, separator), Base64.NO_WRAP)
@@ -70,15 +154,15 @@ internal class KeystoreRelayCredentialStore(
             val cipher = Cipher.getInstance(TRANSFORMATION).apply {
                 init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(TAG_BITS, iv))
             }
-            String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+            String(cipher.doFinal(ciphertext), Charsets.UTF_8).takeIf { it.isNotBlank() }
         }.getOrNull()
     }
 
-    override fun delete(profileId: String) {
-        preferences.edit().remove(key(profileId)).apply()
-    }
+    private fun homeKey(profileId: String) = "home-device:$profileId"
 
-    private fun key(profileId: String) = "token:$profileId"
+    private fun rollbackKey(profileId: String) = "rollback:$profileId"
+
+    private fun legacyTokenKey(profileId: String) = "token:$profileId"
 
     private fun secretKey(): SecretKey {
         val keyStore = KeyStore.getInstance(PROVIDER).apply { load(null) }
@@ -108,21 +192,48 @@ internal class KeystoreRelayCredentialStore(
     }
 }
 
-/** In-memory store for deterministic tests and the unconfigured bootstrap shell. */
+/** In-memory store for deterministic tests and typed pairing seams. */
 internal class InMemoryRelayCredentialStore(
     initial: Map<String, String> = emptyMap(),
+    homeCredentials: Map<String, String> = emptyMap(),
 ) : RelayCredentialStore {
-    private val tokens = initial.toMutableMap()
+    private val rollback = initial.toMutableMap()
+    private val home = homeCredentials.toMutableMap()
 
-    override fun put(profileId: String, token: String) {
-        tokens[profileId] = token
+    override fun put(profileId: String, token: String): Boolean =
+        putRollbackCredential(profileId, token)
+
+    override fun hasToken(profileId: String): Boolean =
+        hasReadableRollbackCredential(profileId)
+
+    override fun read(profileId: String): String? = readRollbackCredential(profileId)
+
+    override fun putHomeCredential(profileId: String, credential: String): Boolean {
+        if (!HomeCredentialValidator.isValid(credential)) return false
+        home[profileId] = credential
+        return true
     }
 
-    override fun hasToken(profileId: String) = tokens.containsKey(profileId)
+    override fun readHomeCredential(profileId: String): String? =
+        home[profileId]?.takeIf(HomeCredentialValidator::isValid)
 
-    override fun read(profileId: String) = tokens[profileId]
+    override fun deleteHomeCredential(profileId: String) {
+        home.remove(profileId)
+    }
+
+    override fun putRollbackCredential(profileId: String, credential: String): Boolean {
+        if (credential.isBlank()) return false
+        rollback[profileId] = credential.trim()
+        return true
+    }
+
+    override fun readRollbackCredential(profileId: String): String? = rollback[profileId]
+
+    override fun hasStoredRollbackCredential(profileId: String): Boolean =
+        rollback.containsKey(profileId)
 
     override fun delete(profileId: String) {
-        tokens.remove(profileId)
+        home.remove(profileId)
+        rollback.remove(profileId)
     }
 }

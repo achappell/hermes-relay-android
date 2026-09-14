@@ -48,6 +48,21 @@ class AndroidComposerStateTest {
     }
 
     @Test
+    fun an_unconfirmed_turn_blocks_a_new_submission_until_the_user_decides() {
+        assertEquals(
+            AndroidComposerBlock.UnconfirmedTurn,
+            resolveAndroidComposerBlock(
+                hasProfile = true,
+                isAuthorized = true,
+                isConnected = true,
+                hasAcceptedTurn = false,
+                prompt = "send again",
+                hasUnconfirmedTurn = true,
+            ),
+        )
+    }
+
+    @Test
     fun a_missing_profile_is_the_first_composer_boundary() {
         assertEquals(
             AndroidComposerBlock.NoProfile,

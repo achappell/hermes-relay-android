@@ -19,7 +19,8 @@ internal sealed interface AndroidConnectionState {
  * the Client's own initiative.
  */
 internal data class AndroidUnconfirmedTurn(
-    val binding: AndroidTurnBinding,
+    /** Null when prompt delivery became uncertain before Home returned a turn ID. */
+    val binding: AndroidTurnBinding?,
     val request: AndroidTurnRequest,
 )
 
@@ -27,30 +28,54 @@ internal data class AndroidRecoveryState(
     // Disconnected until a handshake actually succeeds. Defaulting to Connected
     // would claim a Session before one exists.
     val connection: AndroidConnectionState = AndroidConnectionState.Disconnected,
-    val sessionId: String? = null,
+    val connectionId: String? = null,
     val unconfirmedTurn: AndroidUnconfirmedTurn? = null,
+    val unresolvedHomeTurn: Boolean = false,
     val isRecovering: Boolean = false,
 ) {
+    /** Compatibility alias; the value is a local bridge connection identity. */
+    @Deprecated("Use connectionId; this value is not a Hermes Session ID.")
+    val sessionId: String?
+        get() = connectionId
+
     val hasUnconfirmedTurn: Boolean
         get() = unconfirmedTurn != null
 }
 
 /** Typed reconnect result owned by the adapter, not by Compose. */
 internal sealed interface AndroidReconnectOutcome {
-    /** A fresh Session was negotiated. The prior Session is not resumed. */
-    data class Connected(val sessionId: String) : AndroidReconnectOutcome
+    /** Home authenticated and reopened the existing opaque conversation. */
+    data class Connected(
+        val connectionId: String,
+        val route: AndroidRoute? = null,
+        val capabilities: AndroidHomeCapabilities = AndroidHomeCapabilities(),
+        val unresolvedTurn: Boolean = false,
+    ) : AndroidReconnectOutcome {
+        /** Compatibility alias for pre-Home fakes; never a Hermes Session ID. */
+        @Deprecated("Use connectionId; this value is local to the bridge connection.")
+        val sessionId: String
+            get() = connectionId
+    }
 
     /** Transient loss; the bounded ladder may try again. */
-    data class Retryable(val reason: String) : AndroidReconnectOutcome
+    data class Retryable(
+        val reason: String,
+        val reasonCode: AndroidHomeUnavailableReason? = null,
+    ) : AndroidReconnectOutcome
 
     /** Configuration or authorization failure; retrying cannot help. */
-    data class Unrecoverable(val reason: String) : AndroidReconnectOutcome
+    data class Unrecoverable(
+        val reason: String,
+        val reasonCode: AndroidHomeUnavailableReason? = null,
+    ) : AndroidReconnectOutcome
 }
 
 internal sealed interface AndroidResendResult {
     data class Sent(val binding: AndroidTurnBinding) : AndroidResendResult
 
     data class Rejected(val reason: AndroidInitiationFailure) : AndroidResendResult
+
+    data class Uncertain(val reason: AndroidHomeUnavailableReason) : AndroidResendResult
 
     /** No unconfirmed turn is retained, so nothing may be resent. */
     data object NothingToResend : AndroidResendResult
@@ -94,10 +119,16 @@ internal class AndroidRecoveryController(
     ): AndroidRecoveryState {
         val retained = state.unconfirmedTurn ?: inFlightTurn
         state = if (state.isRecovering) {
-            state.copy(unconfirmedTurn = retained)
+            state.copy(
+                connectionId = null,
+                unresolvedHomeTurn = false,
+                unconfirmedTurn = retained,
+            )
         } else {
             state.copy(
                 connection = AndroidConnectionState.Disconnected,
+                connectionId = null,
+                unresolvedHomeTurn = false,
                 unconfirmedTurn = retained,
             )
         }
@@ -107,8 +138,8 @@ internal class AndroidRecoveryController(
     /**
      * Run the bounded reconnect ladder.
      *
-     * A successful reconnect always adopts the adapter's fresh Session
-     * identity. No retained turn is submitted here under any outcome.
+     * A successful reconnect adopts a fresh local bridge connection identity.
+     * No retained turn is submitted here under any outcome.
      */
     fun recover(): AndroidRecoveryState {
         if (state.isRecovering) {
@@ -129,7 +160,8 @@ internal class AndroidRecoveryController(
                 is AndroidReconnectOutcome.Connected -> {
                     state = state.copy(
                         connection = AndroidConnectionState.Connected,
-                        sessionId = outcome.sessionId,
+                        connectionId = outcome.connectionId,
+                        unresolvedHomeTurn = outcome.unresolvedTurn,
                         isRecovering = false,
                     )
                     return state
@@ -174,6 +206,7 @@ internal class AndroidRecoveryController(
             }
 
             is AndroidInitiationResult.Rejected -> AndroidResendResult.Rejected(result.reason)
+            is AndroidInitiationResult.Uncertain -> AndroidResendResult.Uncertain(result.reason)
         }
     }
 

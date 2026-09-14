@@ -154,6 +154,202 @@ class RelayProfileTest {
         assertNull(restored.selectedId)
     }
 
+    @Test
+    fun home_credentials_use_the_opaque_32_byte_base64url_shape() {
+        assertTrue(HomeCredentialValidator.isValid("A".repeat(43)))
+        assertTrue(!HomeCredentialValidator.isValid("A".repeat(42)))
+        assertTrue(!HomeCredentialValidator.isValid("A".repeat(43) + "="))
+        assertTrue(!HomeCredentialValidator.isValid("old-hermes-bearer"))
+    }
+
+    @Test
+    fun home_migration_updates_one_profile_and_keeps_the_legacy_secret_rollback_only() {
+        val credentials = InMemoryRelayCredentialStore()
+        val profiles = InMemoryRelayProfileStore()
+        val controller = RelayConfigurationController(
+            profiles = profiles,
+            credentials = credentials,
+            idFactory = { "profile-1" },
+        )
+        controller.save(
+            endpoint = "wss://relay.example/voice-session",
+            clientId = "amanda-laptop",
+            deviceId = "android",
+            displayName = "Amanda",
+            token = "legacy-hermes-bearer",
+        )
+        val profileId = controller.collection.selectedId!!
+        val pairing = RelayHomePairing(
+            approvedRoute = "wss://home.example/",
+            deviceCredential = "A".repeat(43),
+            conversationHandle = "opaque-conversation-1",
+        )
+
+        val first = controller.migrateToHome(profileId, pairing)
+        assertTrue(first is RelayHomeMigrationResult.Migrated)
+        assertEquals(1, controller.collection.profiles.size)
+        assertEquals(profileId, controller.collection.selectedId)
+        assertEquals(
+            RelayHomeBinding("wss://home.example", "opaque-conversation-1"),
+            controller.collection.selected?.homeBinding,
+        )
+        assertEquals("legacy-hermes-bearer", credentials.readRollbackCredential(profileId))
+        assertEquals("A".repeat(43), credentials.readHomeCredential(profileId))
+
+        val second = controller.migrateToHome(
+            profileId,
+            pairing.copy(
+                deviceCredential = "B".repeat(43),
+                conversationHandle = "opaque-conversation-2",
+            ),
+        )
+        assertTrue(second is RelayHomeMigrationResult.Migrated)
+        assertEquals(1, controller.collection.profiles.size)
+        assertEquals("opaque-conversation-2", controller.collection.selected?.homeBinding?.conversationHandle)
+        assertEquals("legacy-hermes-bearer", credentials.readRollbackCredential(profileId))
+        assertEquals("B".repeat(43), credentials.readHomeCredential(profileId))
+
+        val json = profiles.load().toJson()
+        assertTrue(json.contains("opaque-conversation-2"))
+        assertTrue(!json.contains("legacy-hermes-bearer"))
+        assertTrue(!json.contains("deviceCredential"))
+        assertEquals(profiles.load(), RelayProfileCollection.fromJson(json))
+    }
+
+    @Test
+    fun a_failed_home_migration_leaves_the_source_profile_and_secret_untouched() {
+        val credentials = InMemoryRelayCredentialStore()
+        val controller = RelayConfigurationController(
+            profiles = InMemoryRelayProfileStore(),
+            credentials = credentials,
+            idFactory = { "profile-1" },
+        )
+        controller.save(
+            endpoint = "wss://relay.example/voice-session",
+            clientId = "amanda-laptop",
+            deviceId = "android",
+            displayName = "Amanda",
+            token = "legacy-hermes-bearer",
+        )
+        val profileId = controller.collection.selectedId!!
+        val before = controller.collection
+
+        val result = controller.migrateToHome(
+            profileId,
+            RelayHomePairing(
+                approvedRoute = "ws://home.example",
+                deviceCredential = "not-valid",
+                conversationHandle = "opaque-conversation-1",
+            ),
+        )
+
+        assertEquals(
+            RelayHomeMigrationResult.Rejected(RelayHomeMigrationFailure.RouteInvalid),
+            result,
+        )
+        assertEquals(before, controller.collection)
+        assertEquals("legacy-hermes-bearer", credentials.readRollbackCredential(profileId))
+        assertTrue(credentials.readHomeCredential(profileId) == null)
+    }
+
+    @Test
+    fun a_home_secure_write_failure_does_not_publish_the_new_binding() {
+        val credentials = HomeWriteFailureCredentialStore()
+        val controller = RelayConfigurationController(
+            profiles = InMemoryRelayProfileStore(),
+            credentials = credentials,
+            idFactory = { "profile-1" },
+        )
+        controller.save(
+            endpoint = "wss://relay.example/voice-session",
+            clientId = "amanda-laptop",
+            deviceId = "android",
+            displayName = "Amanda",
+            token = "legacy-hermes-bearer",
+        )
+        val profileId = controller.collection.selectedId!!
+        val before = controller.collection
+
+        val result = controller.migrateToHome(
+            profileId,
+            RelayHomePairing(
+                approvedRoute = "wss://home.example",
+                deviceCredential = "A".repeat(43),
+                conversationHandle = "opaque-conversation-1",
+            ),
+        )
+
+        assertEquals(
+            RelayHomeMigrationResult.Rejected(RelayHomeMigrationFailure.SecureStorageUnavailable),
+            result,
+        )
+        assertEquals(before, controller.collection)
+        assertEquals("legacy-hermes-bearer", credentials.readRollbackCredential(profileId))
+        assertNull(credentials.readHomeCredential(profileId))
+    }
+
+    @Test
+    fun a_profile_store_failure_restores_the_previous_home_credential() {
+        val profile = RelayProfile(
+            id = "profile-1",
+            endpoint = "wss://relay.example/voice-session",
+            clientId = "amanda-laptop",
+            deviceId = "android",
+            displayName = "Amanda",
+        )
+        val profiles = FailingProfileStore(
+            RelayProfileCollection(listOf(profile), selectedId = profile.id),
+        )
+        val credentials = InMemoryRelayCredentialStore(
+            homeCredentials = mapOf(profile.id to "B".repeat(43)),
+        )
+        val controller = RelayConfigurationController(profiles, credentials)
+
+        val result = controller.migrateToHome(
+            profile.id,
+            RelayHomePairing(
+                approvedRoute = "wss://home.example",
+                deviceCredential = "A".repeat(43),
+                conversationHandle = "opaque-conversation-1",
+            ),
+        )
+
+        assertEquals(
+            RelayHomeMigrationResult.Rejected(RelayHomeMigrationFailure.SecureStorageUnavailable),
+            result,
+        )
+        assertEquals(profile, controller.collection.selected)
+        assertEquals("B".repeat(43), credentials.readHomeCredential(profile.id))
+    }
+
+    @Test
+    fun serialized_home_binding_round_trips_without_runtime_session_or_secret_fields() {
+        val collection = RelayProfileCollection(
+            profiles = listOf(
+                RelayProfile(
+                    id = "p1",
+                    endpoint = "wss://legacy.example/voice-session",
+                    clientId = "android-client",
+                    deviceId = "android",
+                    displayName = "Amanda",
+                    homeBinding = RelayHomeBinding(
+                        approvedRoute = "wss://home.example",
+                        conversationHandle = "opaque-conversation-1",
+                    ),
+                ),
+            ),
+            selectedId = "p1",
+        )
+
+        val json = collection.toJson()
+        val restored = RelayProfileCollection.fromJson(json)
+
+        assertEquals(collection, restored)
+        assertTrue(!json.contains("session_id"))
+        assertTrue(!json.contains("token"))
+        assertTrue(!json.contains("credential"))
+    }
+
     private fun controller(
         credentials: RelayCredentialStore = InMemoryRelayCredentialStore(),
     ) = RelayConfigurationController(
@@ -161,4 +357,28 @@ class RelayProfileTest {
         credentials = credentials,
         idFactory = { "profile-1" },
     )
+
+    private class HomeWriteFailureCredentialStore : RelayCredentialStore {
+        private val delegate = InMemoryRelayCredentialStore()
+
+        override fun put(profileId: String, token: String) = delegate.put(profileId, token)
+
+        override fun hasToken(profileId: String): Boolean = delegate.hasToken(profileId)
+
+        override fun read(profileId: String): String? = delegate.read(profileId)
+
+        override fun putHomeCredential(profileId: String, credential: String): Boolean = false
+
+        override fun readHomeCredential(profileId: String): String? = delegate.readHomeCredential(profileId)
+
+        override fun delete(profileId: String) = delegate.delete(profileId)
+    }
+
+    private class FailingProfileStore(
+        private val initial: RelayProfileCollection,
+    ) : RelayProfileStore {
+        override fun load(): RelayProfileCollection = initial
+
+        override fun save(collection: RelayProfileCollection): Boolean = false
+    }
 }

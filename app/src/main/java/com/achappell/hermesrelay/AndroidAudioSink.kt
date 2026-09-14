@@ -7,7 +7,7 @@ import android.media.AudioTrack
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** The response audio format the relay announces in `audio_start`. */
+/** The response audio format Home announces in `audio.frame` kind `start`. */
 internal data class AndroidAudioFormat(
     val sampleRate: Int,
     val channels: Int,
@@ -57,6 +57,11 @@ internal interface AndroidAudioSink {
 
     /** Abandons playback immediately, discarding anything still queued. */
     fun cancel()
+
+    /** Releases any platform worker owned by the sink. */
+    fun close() {
+        cancel()
+    }
 }
 
 /** `AudioTrack`-backed playback for streamed 16-bit PCM. */
@@ -218,6 +223,11 @@ internal class AudioTrackAudioSink : AndroidAudioSink {
         releaseTrack()
     }
 
+    override fun close() {
+        cancel()
+        worker.shutdownNow()
+    }
+
     private fun releaseTrack() {
         runCatching { track?.release() }
         track = null
@@ -259,6 +269,7 @@ internal class RecordingAudioSink(
     override fun start(format: AndroidAudioFormat): Boolean {
         if (!acceptFormat || !format.isSupported) return false
         startedFormat = format
+        cancelled = false
         return true
     }
 

@@ -100,6 +100,21 @@ class AndroidRecoveryControllerTest {
     }
 
     @Test
+    fun delivery_uncertain_before_turn_ack_is_retained_without_a_fabricated_binding() {
+        val port = FakeRecoveryPort(outcomes = listOf(AndroidReconnectOutcome.Connected("session-2")))
+        val controller = AndroidRecoveryController(port)
+        val request = AndroidTurnRequest(profile, AndroidTurnInput.Typed("May have arrived"))
+        val preAck = AndroidUnconfirmedTurn(binding = null, request = request)
+
+        controller.transportLost("Prompt acknowledgement timed out.", preAck)
+        val state = controller.recover()
+
+        assertEquals(preAck, state.unconfirmedTurn)
+        assertNull(state.unconfirmedTurn?.binding)
+        assertEquals(0, port.requests.size)
+    }
+
+    @Test
     fun an_explicit_resend_sends_the_retained_turn_exactly_once() {
         val port = FakeRecoveryPort(
             outcomes = listOf(AndroidReconnectOutcome.Connected("session-2")),

@@ -185,7 +185,7 @@ class MainActivityTest {
 
         composeRule.scrollToConversationTag("android_turn_status")
         composeRule
-            .onNodeWithText("Turn accepted for Amanda. Waiting for normalized Session events.")
+            .onNodeWithText("Turn accepted for Amanda. Waiting for Home events.")
             .assertIsDisplayed()
         composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
         assertEquals(1, port.requests.size)
@@ -304,7 +304,7 @@ class MainActivityTest {
         composeRule.scrollToConversationTag("android_unconfirmed_turn")
         composeRule.onNodeWithTag("android_unconfirmed_turn").assertIsDisplayed()
         composeRule.scrollToConversationTag("android_connection_state")
-        composeRule.onNodeWithText("Hermes Session: Disconnected").assertIsDisplayed()
+        composeRule.onNodeWithText("Home bridge: Disconnected").assertIsDisplayed()
         assertEquals(1, port.requests.size)
 
         composeRule.scrollToConversationTag("android_connect")
@@ -322,7 +322,7 @@ class MainActivityTest {
         assertEquals(2, port.requests.size)
         assertEquals(port.requests[0], port.requests[1])
         composeRule.onAllNodesWithText(
-            "This turn lost transport before Hermes confirmed it. It was not replayed. " +
+                "This turn lost transport before Home confirmed it. It was not replayed. " +
                 "Resend it only if you want to ask again.",
         ).assertCountEquals(0)
     }

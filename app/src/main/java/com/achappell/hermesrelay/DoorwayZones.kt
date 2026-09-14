@@ -320,6 +320,7 @@ internal fun ColumnScope.TypedComposerZone(
     isAuthorized: Boolean,
     isConnected: Boolean,
     composerBlock: AndroidComposerBlock?,
+    isInitiating: Boolean = false,
     onSend: () -> Unit,
 ) {
     OutlinedTextField(
@@ -401,7 +402,7 @@ internal fun ColumnScope.TypedComposerZone(
         modifier = Modifier
             .fillMaxWidth()
             .a11yOrder(A11yOrder.ACTION),
-        enabled = composerBlock == null,
+        enabled = composerBlock == null && !isInitiating,
     ) {
         Text(stringResource(R.string.android_start_typed_turn))
     }
@@ -557,6 +558,7 @@ internal fun ColumnScope.IdleCaptureZone(
     captureState: AndroidCaptureState,
     handsFree: Boolean,
     hasAcceptedTurn: Boolean,
+    hasUnconfirmedTurn: Boolean = false,
     isAuthorized: Boolean,
     isConnected: Boolean,
     permissionRevision: Int,
@@ -596,6 +598,7 @@ internal fun ColumnScope.IdleCaptureZone(
             }
         },
         enabled = !hasAcceptedTurn &&
+            !hasUnconfirmedTurn &&
             block != AndroidCaptureBlock.ProfileUnavailable &&
             block != AndroidCaptureBlock.NotConnected &&
             block != AndroidCaptureBlock.RecognizerUnavailable,
@@ -668,6 +671,7 @@ internal fun ColumnScope.ConnectionRecoveryZone(
     recoveryState: AndroidRecoveryState,
     resendResult: AndroidResendResult?,
     isAuthorized: Boolean,
+    canAttemptConnection: Boolean = isAuthorized,
     isConnected: Boolean,
     canEditRelay: Boolean,
     onRecover: () -> Unit,
@@ -677,7 +681,7 @@ internal fun ColumnScope.ConnectionRecoveryZone(
 ) {
     val stateColors = LocalHermesStateColors.current
 
-    if (!isConnected && isAuthorized) {
+    if (!isConnected && canAttemptConnection) {
         Button(
             modifier = Modifier
                 .fillMaxWidth()
@@ -734,8 +738,29 @@ internal fun ColumnScope.ConnectionRecoveryZone(
         }
     }
 
+    if (recoveryState.unresolvedHomeTurn && !recoveryState.hasUnconfirmedTurn) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = stateColors.panel,
+            ),
+        ) {
+            Text(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .testTag("android_home_unresolved_turn"),
+                text = stringResource(R.string.android_home_unresolved_turn),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+
     when (resendResult) {
         null, is AndroidResendResult.Sent, AndroidResendResult.NothingToResend -> Unit
+        is AndroidResendResult.Uncertain -> Text(
+            text = stringResource(R.string.android_resend_uncertain),
+            color = stateColors.unavailable,
+            style = MaterialTheme.typography.bodyMedium,
+        )
         AndroidResendResult.NotConnected -> Text(
             text = stringResource(R.string.android_resend_not_connected),
             color = stateColors.unavailable,
@@ -858,6 +883,27 @@ internal fun ColumnScope.TurnZone(
                 )
             }
 
+            if (turnState.structuredPrompt != null) {
+                Text(
+                    modifier = Modifier
+                        .testTag("android_structured_prompt_unavailable")
+                        .a11yOrder(A11yOrder.STATE, LiveRegionMode.Assertive),
+                    text = stringResource(R.string.android_structured_prompt_unavailable),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            if (turnState.availableCommands.isNotEmpty()) {
+                Text(
+                    modifier = Modifier
+                        .testTag("android_command_unavailable")
+                        .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                    text = stringResource(R.string.android_command_unavailable),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
             if (turnState.phase == AndroidTurnPhase.Disconnected) {
                 Text(
                     modifier = Modifier
@@ -873,6 +919,14 @@ internal fun ColumnScope.TurnZone(
         is AndroidInitiationState.Rejected -> {
             Text(
                 text = stringResource(initiationState.reason.messageRes()),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+
+        is AndroidInitiationState.Uncertain -> {
+            Text(
+                text = stringResource(R.string.android_failure_delivery_uncertain),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -1132,6 +1186,9 @@ internal fun AndroidInitiationFailure.messageRes(): Int = when (this) {
     AndroidInitiationFailure.AuthorizationRequired -> R.string.android_failure_authorization_required
     AndroidInitiationFailure.EmptyTypedPrompt -> R.string.android_failure_empty_prompt
     AndroidInitiationFailure.SessionUnavailable -> R.string.android_failure_session_unavailable
+    AndroidInitiationFailure.HomeBindingUnavailable -> R.string.android_failure_home_binding_unavailable
+    AndroidInitiationFailure.RequestRejected -> R.string.android_failure_request_rejected
+    AndroidInitiationFailure.DeliveryUncertain -> R.string.android_failure_delivery_uncertain
 }
 
 internal fun AndroidComposerBlock.messageRes(): Int = when (this) {
@@ -1139,6 +1196,7 @@ internal fun AndroidComposerBlock.messageRes(): Int = when (this) {
     AndroidComposerBlock.Authorization -> R.string.android_composer_block_authorization
     AndroidComposerBlock.Disconnected -> R.string.android_composer_block_disconnected
     AndroidComposerBlock.ActiveTurn -> R.string.android_composer_block_active_turn
+    AndroidComposerBlock.UnconfirmedTurn -> R.string.android_composer_block_unconfirmed_turn
     AndroidComposerBlock.EmptyPrompt -> R.string.android_composer_block_empty_prompt
 }
 

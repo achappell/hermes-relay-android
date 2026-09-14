@@ -111,15 +111,20 @@ class AndroidTurnStateTest {
 
     @Test
     fun audio_failure_preserves_response_and_never_claims_speaking() {
-        val state = AndroidTurnState.awaitingEvents(binding)
+        var state = AndroidTurnState.awaitingEvents(binding)
             .reduce(AndroidNormalizedEvent.Thinking(binding))
             .reduce(AndroidNormalizedEvent.ResponseTextDelta(binding, "Partial answer"))
             .reduce(AndroidNormalizedEvent.AudioFailed(binding, "decoder unavailable"))
 
-        assertEquals(AndroidTurnPhase.Unavailable, state.phase)
+        assertEquals(AndroidTurnPhase.Thinking, state.phase)
         assertEquals(AndroidAudioDelivery.Unavailable, state.audio)
         assertEquals("Partial answer", state.responseText)
         assertEquals("decoder unavailable", state.unavailableReason)
+        assertFalse(state.isTerminal)
+
+        state = state.reduce(AndroidNormalizedEvent.TurnCompleted(binding))
+        assertEquals(AndroidTurnPhase.Unavailable, state.phase)
+        assertTrue(state.isTerminal)
     }
 
     @Test
