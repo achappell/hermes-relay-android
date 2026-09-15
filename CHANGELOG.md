@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0 (2026-09-15)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Other Changes
+* Fix/stereo drain frames by @achappell in https://github.com/achappell/hermes-relay-android/pull/26
+* 5-A-3: Night Console palette and doorway decomposition by @achappell in https://github.com/achappell/hermes-relay-android/pull/28
+* chore: make Android BMad delivery status local by @achappell in https://github.com/achappell/hermes-relay-android/pull/29
+* feat: migrate Android client to Home bridge by @achappell in https://github.com/achappell/hermes-relay-android/pull/36
+* feat: complete Android 5-A-3 doorway pass by @achappell in https://github.com/achappell/hermes-relay-android/pull/30
+* chore: standardize project-local worktrees by @achappell in https://github.com/achappell/hermes-relay-android/pull/37
+* chore: register Android next-wave aliases by @achappell in https://github.com/achappell/hermes-relay-android/pull/38
+* feat(android): align conversation navigation with iOS by @achappell in https://github.com/achappell/hermes-relay-android/pull/39
+* docs(android): defer manual TalkBack validation by @achappell in https://github.com/achappell/hermes-relay-android/pull/40
+
+
+**Full Changelog**: https://github.com/achappell/hermes-relay-android/compare/v0.3.1...v0.4.0
+
 ## 0.3.1 (2026-09-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->
