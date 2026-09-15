@@ -104,10 +104,14 @@ again on the Pixel on 2026-09-14.
   speaker, but no deliberate barge-in was attempted. Whether the speaker leaks
   into the next capture window is still open — the last piece of `A-6`'s
   environment limitation.
-- **TalkBack navigation** (`5-A-2`). TalkBack was temporarily enabled on the
-  Pixel 6a and the service bound, but the first-run tutorial and injected
-  keyboard-focus probe did not produce reliable spoken linear-order evidence.
-  Announcement wording, verbosity, and gesture navigation remain unproven.
+- **TalkBack navigation** (`5-A-2`). A second Pixel 6a pass bound TalkBack and
+  produced accessibility focus plus TTS synthesis when the overflow menu and
+  configuration sheet opened. ADB-injected gestures and the keyboard shortcut
+  still did not produce reliable linear-order evidence, and no selected/live
+  turn was available for focus restoration. Announcement wording, verbosity,
+  gesture navigation, and post-turn focus remain unproven. The manual pass is
+  intentionally deferred for the current family-only audience; reopen it if
+  the audience or accessibility requirements change.
 - **Contrast measurement** (`5-A-2`, `UX-DR21`). ~~No contrast ratio has been
   measured against the WCAG 2.2 AA target.~~ Closed by `ANDROID-DESIGN-F1` and
   widened by `5-A-3` to 56 pairs across both appearances. What remains unproven

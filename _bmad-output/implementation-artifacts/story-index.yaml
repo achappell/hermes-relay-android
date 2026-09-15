@@ -117,6 +117,10 @@ stories:
     spec: _bmad-output/implementation-artifacts/spec-5-a-3-night-console-validation.md
     validation: _bmad-output/implementation-artifacts/validation-5-a-3-visual-design-pass.md
     github_issue: https://github.com/achappell/hermes-relay-android/issues/31
+    scope_note: >-
+      Manual TalkBack spoken traversal and selected/live-turn focus restoration
+      are intentionally deferred for the current family-only audience; see
+      _bmad-output/implementation-artifacts/deferred-work.md.
   - id: 5-A-4
     product_epic: 5
     source_story: 5

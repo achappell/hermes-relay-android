@@ -335,8 +335,10 @@ pretend to be a different platform.
 5. **Fix the state hierarchy**: no-Profile, disconnected, unavailable, ready.
 6. **Recompose the composer, history, and voice controls**, including
    reduced-motion behaviour.
-7. **Re-verify TalkBack order and focus restoration** on hardware, closing the
-   `5-A-2` environment limitation in the same pass.
+7. **[Deferred] Re-verify TalkBack order and focus restoration** on hardware,
+   closing the `5-A-2` environment limitation in the same pass if TalkBack
+   returns to the current product scope. The manual gate is intentionally
+   deferred for the family-only audience; see `deferred-work.md`.
 
 Step 1 is safe to begin before approval of the visual direction; it makes every
 later step tractable and commits to nothing.
@@ -351,5 +353,6 @@ later step tractable and commits to nothing.
   `material3` artifact from Compose BOM `2026.08.00` at implementation time.
   No API in this document should be taken as confirmed; it is a design
   intention, not a verified call signature.
-- A real-device pass is required for TalkBack, font scaling, and the rendered
-  appearance of the palette. The emulator cannot close those.
+- A real-device pass is required for font scaling and the rendered appearance
+  of the palette. If TalkBack returns to scope, a real-device pass is also
+  required for its spoken traversal; the emulator cannot close those claims.

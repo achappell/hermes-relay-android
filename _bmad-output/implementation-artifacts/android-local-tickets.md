@@ -118,11 +118,13 @@ actually describes.
 - `ANDROID_SERIAL=emulator-5554 ./gradlew connectedDebugAndroidTest --rerun
   --no-daemon --no-configuration-cache` — 34 non-live instrumentation tests, 0
   failures on the API 36 emulator started with host-audio forwarding. The
-  emulator result does not close the TalkBack or real-session microphone
-  limitations.
+  emulator result does not close the manual TalkBack or real-session microphone
+  limitations; the former is intentionally deferred for the current
+  family-only audience.
 - The same 34 non-live instrumentation tests also pass at `font_scale=1.3`
   with Android animation scales disabled; the AVD was restored to its normal
-  settings afterward. Hardware rendering and TalkBack remain open.
+  settings afterward. Hardware rendering was subsequently observed on the
+  Pixel; manual TalkBack traversal remains deferred.
 - A lint error was fixed rather than suppressed: `context.getString` inside the
   share action is not configuration-aware, so the string is now resolved in
   composable scope.
@@ -131,7 +133,11 @@ actually describes.
 
 Contrast is now measured, but two obligations from the `5-A-2` record remain:
 
-- **No screen reader has been run.** TalkBack is still unexercised.
+- **Manual TalkBack spoken navigation remains unverified.** A later Pixel pass
+  bound the service and observed focus/TTS on the redesigned menu and sheet, but
+  did not establish linear spoken traversal or selected/live focus restoration.
+  That manual gate is intentionally deferred for the current family-only
+  audience; the existing semantics and automated order checks remain.
 - **Reduced motion** is implemented in `5-A-3` Step 6: the active voice
   indicator freezes and looping motion is omitted when Android's animation
   scales are disabled. Hardware observation remains part of Step 7.
