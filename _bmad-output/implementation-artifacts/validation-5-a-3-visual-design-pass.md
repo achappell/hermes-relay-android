@@ -15,9 +15,10 @@ context:
 **The implementation and host validation are complete with an environment
 limitation.** Steps 1–6 of the approved sequence are delivered and
 code-verified; the navigation follow-up is also implemented, while the
-post-change device run is green; spoken TalkBack and step 7's selected/live
-focus evidence remain hardware gates. This record exists so the next session
-starts from what was actually proven rather than from what the commits imply.
+post-change device run is green. Spoken TalkBack and step 7's selected/live
+focus evidence are retained as an explicit later follow-up for the current
+family-only audience. This record exists so the next session starts from what
+was actually proven rather than from what the commits imply.
 
 ## Delivered
 
@@ -236,6 +237,25 @@ probe moved keyboard focus through text fields rather than proving spoken
 TalkBack linear order. That spoken order, and a selected/live-turn focus
 restoration path, remain unverified rather than inferred.
 
+### TalkBack retry — 2026-09-14
+
+A second attempt used the unlocked Pixel 6a at the default font scale with
+TalkBack bound through Android's accessibility service. Real TTS synthesis and
+accessibility audio focus were observed. Opening the redesigned overflow menu
+placed the green accessibility-focus ring on `Configure relay`; activating that
+item opened the configuration bottom sheet and placed focus on its drag handle.
+These checks confirm that the new menu and sheet enter the accessibility focus
+path.
+
+ADB-injected one-finger swipes and the TalkBack keyboard shortcut did not move
+accessibility focus or produce a new utterance, so they cannot establish the
+linear spoken order. No selected/live relay turn was available, so focus
+restoration after a completed turn remains unverified. TalkBack was disabled
+afterward; `enabled_accessibility_services` was deleted,
+`accessibility_enabled` and `touch_exploration_enabled` returned to `0`, and
+TalkBack's notification permission remained not granted (`ignore` app-op). The
+app stayed in the foreground and the crash buffer remained empty.
+
 The layered review was incomplete: the Edge Case Hunter and Verification Gap
 Reviewer could not read their prompt files, while the Blind Hunter and
 Acceptance Auditor timed out. The direct review findings above are verified
@@ -296,19 +316,26 @@ the passing connected `LocalHistoryTest` suite.
 - **Unattended UI input** is now confirmed on the unlocked, reachable Pixel
   over ADB Wi-Fi. The keyboard-focus experiment is not being counted as
   TalkBack evidence.
-- **Manual TalkBack spoken navigation** remains unverified. The connected
-  accessibility tests passed, but the service was not taken through a reliable
-  spoken linear traversal on the physical device.
+- **Manual TalkBack spoken navigation** remains unverified. The second Pixel
+  pass bound the service and produced focus rings plus TTS synthesis for the
+  overflow menu and configuration sheet, but ADB-injected gestures and the
+  keyboard shortcut did not traverse the screen. Exact spoken linear order,
+  announcement wording, verbosity, and selected/live-turn focus restoration
+  remain unproven. This manual gate is intentionally deferred by product
+  decision for the current family-only audience.
 - **The light adaptation was seen once**, before the container fix. The
   post-fix capture is dark only. Light mode is believed correct — its slots
   never collided — but that is inference, not observation.
 
-## Remaining sequence
+## Deferred follow-up
 
-The remaining hardware sequence is:
+No remaining 5-A-3 hardware step is a release blocker for the current
+audience. If TalkBack returns to scope, the later hardware sequence is:
 
 7. Re-verify TalkBack order and focus restoration on hardware, closing the
-   `5-A-2` environment limitation in the same pass.
+   `5-A-2` environment limitation in the same pass. The existing semantics,
+   traversal indices, live-region contracts, and automated checks remain in
+   place until then.
 
 ## What the hardware pass showed about the design
 
@@ -327,8 +354,8 @@ default and 130% font scales:
 
 The post-navigation configuration sheet was observed at the default font
 scale; the earlier configuration surface also survived the 130% large-font
-pass cleanly. The next hardware pass only needs the spoken TalkBack traversal
-and a selected live-turn focus-restoration check.
+pass cleanly. If accessibility returns to scope, the next hardware pass needs
+the spoken TalkBack traversal and a selected live-turn focus-restoration check.
 
 ## Resolved finding — `ANDROID-BUG-F4`
 
