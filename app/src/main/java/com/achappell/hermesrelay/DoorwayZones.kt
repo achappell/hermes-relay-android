@@ -29,6 +29,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -53,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -84,8 +86,15 @@ import java.util.Date
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun DoorwayHeaderZone(
     snapshot: AndroidClientSnapshot,
+    canConfigure: Boolean = false,
+    canShowHistory: Boolean = false,
+    onConfigure: () -> Unit = {},
+    onShowHistory: () -> Unit = {},
 ) {
     val stateColors = LocalHermesStateColors.current
+    var menuExpanded by rememberSaveable { mutableStateOf(false) }
+    val showMenu = canConfigure || canShowHistory
+    val menuDescription = stringResource(R.string.android_menu_content_description)
 
     TopAppBar(
         modifier = Modifier.testTag("android_doorway_header"),
@@ -111,36 +120,91 @@ internal fun DoorwayHeaderZone(
             }
         },
         actions = {
-            androidx.compose.foundation.layout.Column(
-                modifier = Modifier.padding(end = 16.dp),
-                horizontalAlignment = Alignment.End,
+            Row(
+                modifier = Modifier.padding(end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    modifier = Modifier.a11yHeading(A11yOrder.PROFILE),
-                    text = stringResource(R.string.android_profile_label),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-                Text(
-                    modifier = Modifier.a11yOrder(A11yOrder.PROFILE),
-                    text = snapshot.selectedProfile?.displayName
-                        ?: stringResource(R.string.android_profile_none),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = stateColors.identity,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    modifier = Modifier.a11yOrder(A11yOrder.PROFILE, LiveRegionMode.Polite),
-                    text = stringResource(
-                        R.string.android_authorization_label,
-                        stringResource(snapshot.authorizationState.labelRes()),
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
+                androidx.compose.foundation.layout.Column(
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    Text(
+                        modifier = Modifier.a11yHeading(A11yOrder.PROFILE),
+                        text = stringResource(R.string.android_profile_label),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    Text(
+                        modifier = Modifier.a11yOrder(A11yOrder.PROFILE),
+                        text = snapshot.selectedProfile?.displayName
+                            ?: stringResource(R.string.android_profile_none),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = stateColors.identity,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        modifier = Modifier.a11yOrder(A11yOrder.PROFILE, LiveRegionMode.Polite),
+                        text = stringResource(
+                            R.string.android_authorization_label,
+                            stringResource(snapshot.authorizationState.labelRes()),
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+
+                if (showMenu) {
+                    Box {
+                        IconButton(
+                            modifier = Modifier
+                                .testTag("android_more_menu")
+                                .a11yOrder(A11yOrder.ACTION)
+                                .semantics {
+                                    contentDescription = menuDescription
+                                },
+                            onClick = { menuExpanded = true },
+                        ) {
+                            Text(
+                                text = "⋮",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        DropdownMenu(
+                            modifier = Modifier.testTag("android_navigation_menu"),
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            if (canConfigure) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.testTag("android_menu_configure_relay"),
+                                    text = {
+                                        Text(stringResource(R.string.android_configure_relay))
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onConfigure()
+                                    },
+                                )
+                            }
+                            if (canShowHistory) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.testTag("android_menu_history"),
+                                    text = {
+                                        Text(stringResource(R.string.android_history_label))
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onShowHistory()
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -317,7 +381,7 @@ internal fun ColumnScope.TypedComposerZone(
     promptFocus: FocusRequester,
     promptHistory: AndroidPromptHistory,
     onPromptHistoryChange: (AndroidPromptHistory) -> Unit,
-    isAuthorized: Boolean,
+    canEditPrompt: Boolean,
     isConnected: Boolean,
     composerBlock: AndroidComposerBlock?,
     isInitiating: Boolean = false,
@@ -331,7 +395,7 @@ internal fun ColumnScope.TypedComposerZone(
             .a11yOrder(A11yOrder.ACTION),
         value = prompt,
         onValueChange = onPromptChange,
-        enabled = isAuthorized,
+        enabled = canEditPrompt,
         label = { Text(stringResource(R.string.android_prompt_label)) },
     )
     if (!isConnected && prompt.isNotBlank()) {
@@ -940,17 +1004,26 @@ internal fun ColumnScope.TurnZone(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ColumnScope.LocalHistoryZone(
+internal fun LocalHistoryZone(
     recorder: AndroidHistoryRecorder,
     exporter: TranscriptExporter,
     profileDisplayName: String?,
     onClear: () -> Unit,
+    sheetVisibility: Boolean? = null,
+    onDismiss: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val stateColors = LocalHermesStateColors.current
-    var sheetVisible by rememberSaveable { mutableStateOf(false) }
+    var localSheetVisible by rememberSaveable { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     val shareTitle = stringResource(R.string.android_history_share_title)
+    val sheetVisible = sheetVisibility ?: localSheetVisible
+
+    fun closeSheet() {
+        menuExpanded = false
+        localSheetVisible = false
+        onDismiss()
+    }
 
     fun share(format: AndroidExportFormat) {
         val body = exporter.export(recorder.history, format, profileDisplayName)
@@ -964,35 +1037,37 @@ internal fun ColumnScope.LocalHistoryZone(
         }
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("android_history_trigger"),
-        colors = CardDefaults.cardColors(containerColor = stateColors.panel),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+    if (sheetVisibility == null) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("android_history_trigger"),
+            colors = CardDefaults.cardColors(containerColor = stateColors.panel),
         ) {
-            Text(
-                modifier = Modifier
-                    .testTag("android_history_label")
-                    .a11yHeading(A11yOrder.RESPONSE),
-                text = stringResource(R.string.android_history_label),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                modifier = Modifier.a11yOrder(A11yOrder.RESPONSE),
-                text = stringResource(R.string.android_history_boundary),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            TextButton(
-                modifier = Modifier
-                    .testTag("android_history_open")
-                    .a11yOrder(A11yOrder.ACTION),
-                onClick = { sheetVisible = true },
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(stringResource(R.string.android_history_open))
+                Text(
+                    modifier = Modifier
+                        .testTag("android_history_label")
+                        .a11yHeading(A11yOrder.RESPONSE),
+                    text = stringResource(R.string.android_history_label),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    modifier = Modifier.a11yOrder(A11yOrder.RESPONSE),
+                    text = stringResource(R.string.android_history_boundary),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(
+                    modifier = Modifier
+                        .testTag("android_history_open")
+                        .a11yOrder(A11yOrder.ACTION),
+                    onClick = { localSheetVisible = true },
+                ) {
+                    Text(stringResource(R.string.android_history_open))
+                }
             }
         }
     }
@@ -1003,10 +1078,7 @@ internal fun ColumnScope.LocalHistoryZone(
         )
         ModalBottomSheet(
             modifier = Modifier.testTag("android_history_sheet"),
-            onDismissRequest = {
-                menuExpanded = false
-                sheetVisible = false
-            },
+            onDismissRequest = ::closeSheet,
             sheetState = sheetState,
             containerColor = stateColors.panel,
         ) {
@@ -1071,8 +1143,7 @@ internal fun ColumnScope.LocalHistoryZone(
                             .testTag("android_history_close")
                             .a11yOrder(A11yOrder.ACTION),
                         onClick = {
-                            menuExpanded = false
-                            sheetVisible = false
+                            closeSheet()
                         },
                     ) {
                         Text(stringResource(R.string.android_history_close))

@@ -145,6 +145,25 @@ class AndroidHandsFreeTest {
     }
 
     @Test
+    fun an_empty_final_transcript_ends_hands_free_without_sending() {
+        val speech = FakeSpeechInput()
+        val port = FakePort()
+        val controller = controller(speech, port)
+
+        controller.armHandsFree()
+        speech.emit(AndroidSpeechEvent.Started)
+        speech.emit(AndroidSpeechEvent.Final("   "))
+
+        assertTrue(!controller.isHandsFree)
+        assertEquals(AndroidHandsFreeExit.Silence, controller.lastHandsFreeExit)
+        assertEquals(
+            AndroidCaptureState.Failed(AndroidSpeechFailure.NoSpeechHeard),
+            controller.state,
+        )
+        assertEquals(0, port.requests.size)
+    }
+
+    @Test
     fun a_recogniser_failure_ends_the_conversation() {
         val speech = FakeSpeechInput()
         val controller = controller(speech, FakePort())

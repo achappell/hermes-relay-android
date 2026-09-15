@@ -28,6 +28,12 @@ class LocalHistoryTest {
 
     private lateinit var directory: File
 
+    private fun openHistoryFromConversationMenu() {
+        composeRule.onNodeWithTag("android_more_menu").performClick()
+        composeRule.onNodeWithTag("android_menu_history").performClick()
+        composeRule.waitForIdle()
+    }
+
     @Before
     fun setUp() {
         directory = File(
@@ -108,8 +114,7 @@ class LocalHistoryTest {
             }
         }
 
-        composeRule.scrollToConversationTag("android_history_open")
-        composeRule.onNodeWithTag("android_history_open").performClick()
+        openHistoryFromConversationMenu()
         composeRule.onNodeWithTag("android_history_empty").assertIsDisplayed()
         composeRule.onNodeWithTag("android_history_close").performClick()
         composeRule.waitForIdle()
@@ -130,8 +135,7 @@ class LocalHistoryTest {
         composeRule.waitForIdle()
 
         // Both sides of the exchange are kept.
-        composeRule.scrollToConversationTag("android_history_open")
-        composeRule.onNodeWithTag("android_history_open").performClick()
+        openHistoryFromConversationMenu()
         composeRule.onAllNodesWithTag("android_history_entry").assertCountEquals(2)
         assertEquals(2, store.load("profile-1").entries.size)
 
@@ -161,8 +165,7 @@ class LocalHistoryTest {
             }
         }
 
-        composeRule.scrollToConversationTag("android_history_open")
-        composeRule.onNodeWithTag("android_history_open").performClick()
+        openHistoryFromConversationMenu()
         composeRule.onNodeWithTag("android_history_sheet").assertIsDisplayed()
         composeRule.onNodeWithTag("android_history_boundary").assertIsDisplayed()
         composeRule.onAllNodesWithTag("android_history_entry_meta").assertCountEquals(2)
