@@ -23,6 +23,7 @@
     <string name="android_state_ready_description">Ready for a new turn.</string>
     <string name="android_configure_relay">Configure relay</string>
     <string name="android_edit_relay">Edit relay</string>
+    <string name="android_menu_content_description">Open conversation menu</string>
     <string name="android_prompt_label">Typed prompt</string>
     <string name="android_start_typed_turn">Start typed turn</string>
     <string name="android_tap_to_speak">Tap to speak</string>

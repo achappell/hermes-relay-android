@@ -71,8 +71,32 @@ a stale transport claim. The state card below it owns the current
 
 Seen on a Pixel 6a on 2026-09-12 during the `5-A-3` device pass. It is the first
 thing a person reads, and it contradicted a line three rows below it. The
-content defect is fixed in code; hardware re-capture remains part of the
-unverified visual pass.
+content defect is fixed in code; the corrected bootstrap surface was observed
+again on the Pixel on 2026-09-14.
+
+## Resolved in the 2026-09-14 review
+
+- **Speech input was recreated during recomposition.** The production
+  `PlatformSpeechInput` instance was constructed inside the recomposable
+  content, so a screen update could replace the recognizer owner and strand
+  hands-free state. It is now remembered at the Activity content boundary.
+- **An empty final transcript left hands-free armed.** The capture controller
+  now clears the capture Session and exits hands-free as silence; regression
+  coverage confirms that no turn is sent.
+- **Disconnected Profiles could not keep a local draft editable.** The typed
+  field was gated on verified live authorization even though the send action
+  already had a separate connection/authorization guard. The field now remains
+  editable for a selected Profile while send stays blocked.
+
+## Resolved in the 2026-09-14 navigation follow-up
+
+- **Conversation, setup, and history were competing on one scroll surface.**
+  The header now owns one accessible menu for relay configuration and Local
+  History. Configuration opens in a scrollable Material bottom sheet, history
+  keeps its existing native sheet, and neither surface is rendered inline in
+  the conversation rail. The unlocked post-change Pixel rerun passed all 37
+  non-live instrumentation tests; the menu and configuration sheet were also
+  observed in the installed debug build.
 
 ## Unverified on hardware
 
@@ -80,8 +104,10 @@ unverified visual pass.
   speaker, but no deliberate barge-in was attempted. Whether the speaker leaks
   into the next capture window is still open — the last piece of `A-6`'s
   environment limitation.
-- **TalkBack navigation** (`5-A-2`). No screen reader pass has ever been run.
-  Announcement wording, verbosity, and gesture navigation are unproven.
+- **TalkBack navigation** (`5-A-2`). TalkBack was temporarily enabled on the
+  Pixel 6a and the service bound, but the first-run tutorial and injected
+  keyboard-focus probe did not produce reliable spoken linear-order evidence.
+  Announcement wording, verbosity, and gesture navigation remain unproven.
 - **Contrast measurement** (`5-A-2`, `UX-DR21`). ~~No contrast ratio has been
   measured against the WCAG 2.2 AA target.~~ Closed by `ANDROID-DESIGN-F1` and
   widened by `5-A-3` to 56 pairs across both appearances. What remains unproven

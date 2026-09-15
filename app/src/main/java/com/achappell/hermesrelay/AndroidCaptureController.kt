@@ -226,7 +226,9 @@ internal class AndroidCaptureController(
         }
 
         if (text.isEmpty()) {
+            captureSessionId = null
             state = AndroidCaptureState.Failed(AndroidSpeechFailure.NoSpeechHeard)
+            disarmHandsFree(AndroidHandsFreeExit.Silence)
             return
         }
 

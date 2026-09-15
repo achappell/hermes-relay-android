@@ -1,6 +1,7 @@
 package com.achappell.hermesrelay
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -37,7 +38,7 @@ class MainActivityTest {
             .onNodeWithText("Use this doorway for typed and spoken Hermes turns.")
             .assertIsDisplayed()
         composeRule
-            .onNodeWithText("Current turn and recovery state stay visible here. Local History is kept on this device.")
+            .onNodeWithText("Configure a relay to begin.")
             .assertIsDisplayed()
     }
 
@@ -69,6 +70,13 @@ class MainActivityTest {
         composeRule.onAllNodesWithText("No Profile selected").assertCountEquals(2)
         composeRule.onNodeWithText("Configure a relay to begin.").assertIsDisplayed()
         composeRule.onNodeWithTag("android_configure_relay").assertIsDisplayed()
+        composeRule
+            .onAllNodesWithTag("android_relay_configuration_sheet")
+            .assertCountEquals(0)
+        composeRule.onNodeWithTag("android_more_menu").performClick()
+        composeRule.onNodeWithTag("android_navigation_menu").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_menu_configure_relay").performClick()
+        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
         composeRule.onAllNodesWithText("Ready").assertCountEquals(0)
     }
 
@@ -90,7 +98,7 @@ class MainActivityTest {
         composeRule.scrollToConversationTag("android_edit_relay")
         composeRule.onNodeWithTag("android_edit_relay").assertIsDisplayed()
         composeRule.onNodeWithTag("android_edit_relay").performClick()
-        composeRule.scrollToConversationTag("android_relay_configuration")
+        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
         composeRule.onNodeWithText("Hermes relay configuration").assertIsDisplayed()
     }
 
@@ -140,6 +148,30 @@ class MainActivityTest {
             .assertIsDisplayed()
         composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
         assertEquals("check the weather", store.load("amanda").draft)
+    }
+
+    @Test
+    fun a_selected_profile_can_edit_a_local_draft_before_authorization_is_available() {
+        val store = InMemoryAndroidHistoryStore()
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(
+                    clientPort = UnavailableAuthorizedFakePort(),
+                    configuration = configuredConfiguration(),
+                    historyStore = store,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("android_typed_prompt").assertIsEnabled()
+            .performTextInput("written while offline")
+        composeRule.onNodeWithTag("android_cached_draft").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Verify the selected Hermes Profile before sending.")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
+        assertEquals("written while offline", store.load("amanda").draft)
     }
 
     @Test
@@ -397,6 +429,21 @@ class MainActivityTest {
         override fun reconnect() = AndroidReconnectOutcome.Connected("session-1")
     }
 
+    private class UnavailableAuthorizedFakePort : AndroidClientPort {
+        private val profile = AndroidProfile("amanda", "Amanda")
+
+        override fun snapshot() = AndroidClientSnapshot(
+            titleRes = BootstrapState.titleRes,
+            descriptionRes = BootstrapState.descriptionRes,
+            boundaryRes = BootstrapState.boundaryRes,
+            selectedProfile = profile,
+            authorizationState = AndroidAuthorizationState.Unavailable,
+        )
+
+        override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult =
+            AndroidInitiationResult.Rejected(AndroidInitiationFailure.AuthorizationRequired)
+    }
+
     private fun emptyConfiguration() = RelayConfigurationController(
         profiles = InMemoryRelayProfileStore(),
         credentials = InMemoryRelayCredentialStore(),
@@ -467,6 +514,7 @@ class MainActivityTest {
         private val profile = AndroidProfile("amanda", "Amanda")
         val requests = mutableListOf<AndroidTurnRequest>()
         private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        private var connectionListener: ((AndroidNormalizedEvent.Disconnected) -> Unit)? = null
         private var sessionId = "session-1"
         private var connections = 0
         var lastBinding: AndroidTurnBinding? = null
@@ -503,6 +551,17 @@ class MainActivityTest {
             }
         }
 
+        override fun observeConnection(
+            onEvent: (AndroidNormalizedEvent.Disconnected) -> Unit,
+        ): AndroidTurnObservation {
+            connectionListener = onEvent
+            return AndroidTurnObservation {
+                if (connectionListener === onEvent) {
+                    connectionListener = null
+                }
+            }
+        }
+
         override fun reconnect(): AndroidReconnectOutcome {
             // The first connect establishes session-1; a later recovery
             // negotiates a genuinely fresh session, as the relay does.
@@ -513,6 +572,9 @@ class MainActivityTest {
 
         fun emit(event: AndroidNormalizedEvent) {
             listener?.invoke(event)
+            if (event is AndroidNormalizedEvent.Disconnected) {
+                connectionListener?.invoke(event)
+            }
         }
     }
 }

@@ -22,12 +22,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -67,11 +70,12 @@ class MainActivity : ComponentActivity() {
         )
 
         setContent {
+            val speechInput = remember { PlatformSpeechInput(applicationContext) }
             HermesRelayTheme {
                 AndroidClientScreen(
                     clientPort = clientPort,
                     configuration = configuration,
-                    speechInput = PlatformSpeechInput(applicationContext),
+                    speechInput = speechInput,
                     historyStore = historyStore,
                 )
             }
@@ -79,6 +83,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AndroidClientScreen(
     clientPort: AndroidClientPort,
@@ -94,9 +99,8 @@ internal fun AndroidClientScreen(
         recoveryState.connection,
         recoveryState.connectionId,
     ) { clientPort.snapshot() }
-    var configurationVisible by rememberSaveable {
-        mutableStateOf(snapshot.selectedProfile == null)
-    }
+    var configurationVisible by rememberSaveable { mutableStateOf(false) }
+    var historyVisible by rememberSaveable { mutableStateOf(false) }
     val controller = remember(clientPort) { AndroidInitiationController(clientPort) }
     var prompt by rememberSaveable { mutableStateOf("") }
     var initiationState by remember { mutableStateOf<AndroidInitiationState>(AndroidInitiationState.Idle) }
@@ -132,11 +136,6 @@ internal fun AndroidClientScreen(
         recorder?.open(selectedProfileId)
         recorder?.let { prompt = it.history.draft }
         historyRevision += 1
-    }
-    LaunchedEffect(snapshot.selectedProfile?.id) {
-        if (snapshot.selectedProfile == null) {
-            configurationVisible = true
-        }
     }
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
@@ -332,6 +331,9 @@ internal fun AndroidClientScreen(
         prompt = prompt,
         hasUnconfirmedTurn = hasUnresolvedTurn,
     )
+    // Editing a local draft does not require a live Home authorization. Sending
+    // still does: composerBlock remains based on the verified authorization.
+    val canEditPrompt = snapshot.selectedProfile != null
 
     fun updatePrompt(value: String) {
         prompt = value
@@ -402,7 +404,19 @@ internal fun AndroidClientScreen(
                 .semantics { isTraversalGroup = true },
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
-                DoorwayHeaderZone(snapshot = snapshot)
+                DoorwayHeaderZone(
+                    snapshot = snapshot,
+                    canConfigure = configuration != null,
+                    canShowHistory = recorder != null && snapshot.selectedProfile != null,
+                    onConfigure = {
+                        historyVisible = false
+                        configurationVisible = true
+                    },
+                    onShowHistory = {
+                        configurationVisible = false
+                        historyVisible = true
+                    },
+                )
             },
             bottomBar = {
                 Surface(
@@ -434,7 +448,7 @@ internal fun AndroidClientScreen(
                                 promptFocus = promptFocus,
                                 promptHistory = promptHistory,
                                 onPromptHistoryChange = { promptHistory = it },
-                                isAuthorized = isAuthorized,
+                                canEditPrompt = canEditPrompt,
                                 isConnected = isConnected,
                                 composerBlock = composerBlock,
                                 isInitiating = initiationInFlight,
@@ -490,10 +504,6 @@ internal fun AndroidClientScreen(
                     contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    item {
-                        DoorwayBoundaryZone(snapshot = snapshot)
-                    }
-
                     doorwayState?.let { currentState ->
                         item {
                             DoorwayStateZone(
@@ -501,32 +511,13 @@ internal fun AndroidClientScreen(
                                 connectionState = recoveryState.connection,
                                 canConfigure = configuration != null &&
                                     currentState is AndroidDoorwayState.NoProfile,
-                                canEditRelay = configuration != null &&
-                                    snapshot.selectedProfile != null &&
-                                    !configurationVisible &&
-                                    isConnected &&
-                                    !hasUnresolvedTurn,
+                                // A connected conversation is edited from the
+                                // header menu; recovery keeps its explicit
+                                // secondary action when the relay is down.
+                                canEditRelay = false,
                                 onConfigure = { configurationVisible = true },
                                 onEditRelay = { configurationVisible = true },
                             )
-                        }
-                    }
-
-                    // With a selected Profile the live doorway owns the first
-                    // screen. Configuration remains in the same rail, but it
-                    // no longer pushes the conversation below the fold.
-                    if (configurationVisible && snapshot.selectedProfile == null) {
-                        configuration?.let { configurationController ->
-                            item {
-                                RelayConfigurationScreen(
-                                    controller = configurationController,
-                                    onChanged = {
-                                        configurationRevision += 1
-                                        configurationVisible =
-                                            configurationController.collection.selectedId == null
-                                    },
-                                )
-                            }
                         }
                     }
 
@@ -539,8 +530,7 @@ internal fun AndroidClientScreen(
                                 canAttemptConnection = canAttemptConnection,
                                 isConnected = isConnected,
                                 canEditRelay = configuration != null &&
-                                    snapshot.selectedProfile != null &&
-                                    !configurationVisible,
+                                    snapshot.selectedProfile != null,
                                 onRecover = { recover() },
                                 onEditRelay = { configurationVisible = true },
                                 onResend = { resendUnconfirmedTurn() },
@@ -564,39 +554,59 @@ internal fun AndroidClientScreen(
                         }
                     }
 
-                    if (configurationVisible && snapshot.selectedProfile != null) {
-                        configuration?.let { configurationController ->
-                            item {
-                                RelayConfigurationScreen(
-                                    controller = configurationController,
-                                    onChanged = {
-                                        configurationRevision += 1
-                                        configurationVisible =
-                                            configurationController.collection.selectedId == null
-                                    },
-                                )
-                            }
-                        }
-                    }
+                }
+            }
+        }
 
-                    recorder?.let { history ->
-                        @Suppress("UNUSED_EXPRESSION")
-                        historyRevision // re-read the recorder when it changes
-
-                        item(key = "android_history_$historyRevision") {
-                            Column {
-                                LocalHistoryZone(
-                                    recorder = history,
-                                    exporter = exporter,
-                                    profileDisplayName = snapshot.selectedProfile?.displayName,
-                                    onClear = {
-                                        history.clear()
-                                        historyRevision += 1
-                                    },
-                                )
-                            }
-                        }
+        if (configurationVisible) {
+            configuration?.let { configurationController ->
+                val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
+                    skipPartiallyExpanded = true,
+                )
+                ModalBottomSheet(
+                    modifier = Modifier.testTag("android_relay_configuration_sheet"),
+                    onDismissRequest = { configurationVisible = false },
+                    sheetState = sheetState,
+                    containerColor = stateColors.panel,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 720.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        RelayConfigurationScreen(
+                            controller = configurationController,
+                            onChanged = {
+                                configurationRevision += 1
+                                if (configurationController.collection.selectedId != null) {
+                                    configurationVisible = false
+                                }
+                            },
+                        )
                     }
+                }
+            }
+        }
+
+        if (historyVisible) {
+            recorder?.let { history ->
+                // Recreate the sheet content after a clear so the recorder's
+                // file-backed, non-Compose history is read again.
+                key(historyRevision) {
+                    LocalHistoryZone(
+                        recorder = history,
+                        exporter = exporter,
+                        profileDisplayName = snapshot.selectedProfile?.displayName,
+                        onClear = {
+                            history.clear()
+                            historyRevision += 1
+                        },
+                        sheetVisibility = true,
+                        onDismiss = { historyVisible = false },
+                    )
                 }
             }
         }

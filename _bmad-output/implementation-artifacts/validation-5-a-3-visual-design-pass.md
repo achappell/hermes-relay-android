@@ -2,7 +2,7 @@
 title: 'Validation — 5-A-3 Night Console visual design pass'
 type: 'validation'
 created: '2026-09-12'
-status: 'in-progress'
+status: 'done-with-environment-limitation'
 story: '5-A-3'
 baseline_commit: 'edd4c41'
 context:
@@ -12,9 +12,12 @@ context:
 
 # Validation — 5-A-3 Night Console visual design pass
 
-**The story is not done.** Steps 1–6 of the approved sequence are delivered and
-code-verified; step 7 remains. This record exists so the next session starts
-from what was actually proven rather than from what the commits imply.
+**The implementation and host validation are complete with an environment
+limitation.** Steps 1–6 of the approved sequence are delivered and
+code-verified; the navigation follow-up is also implemented, while the
+post-change device run is green; spoken TalkBack and step 7's selected/live
+focus evidence remain hardware gates. This record exists so the next session
+starts from what was actually proven rather than from what the commits imply.
 
 ## Delivered
 
@@ -48,13 +51,15 @@ Contrast coverage went from 16 pairs to 56.
 
 `AndroidClientScreen` now uses a `Scaffold` with a fixed `TopAppBar`, a
 scrolling `LazyColumn` conversation rail, and a bottom action surface. The
-profile/connection identity stays visible while the rail owns the boundary,
-recovery, live turn, configuration, and Local History content.
+profile/connection identity stays visible while the rail owns only the
+conversation boundary, recovery, and live turn. Relay configuration and Local
+History are deliberately not rail items: the header menu presents each as its
+own native Material surface, so setup cannot push the conversation below the
+fold and history does not compete with the live doorway.
 
-When a Profile is selected, the live doorway appears before the configuration
-form in the rail, so relay setup no longer pushes the conversation below the
-fold. When no Profile is selected, configuration remains near the top so the
-first-run path is still reachable without inventing a separate screen.
+When no Profile is selected, the state card keeps `Configure relay` as the
+primary first-run action; it opens the configuration sheet rather than
+auto-expanding a form into the home surface.
 
 The action surface keeps the typed composer and voice controls together, adds
 IME/navigation-bar protection, and caps its own height with an internal scroll.
@@ -71,8 +76,8 @@ instrumentation assertion covers the fixed header and action surface markers.
 The doorway now has one explicit stable state owner for idle and recovery:
 
 - No Profile selected shows `Configure a relay to begin` and a primary
-  `Configure relay` action. The configuration form is visible on the first-run
-  path.
+  `Configure relay` action. The configuration form opens in a native sheet from
+  that action or from the header menu.
 - A selected but disconnected or unauthorized Profile shows `Unavailable`,
   the affected connection/authorization path, and recovery actions. `Retry`
   reconnects only; `Edit relay` opens configuration without replaying a turn.
@@ -99,11 +104,11 @@ sending.` Send remains disabled with a separate plain-language reason. Prompt
 recall is grouped under the labelled `Recent prompts` affordance and remains
 hidden until history exists.
 
-Local History now opens in a native Material bottom sheet using the calm panel
-surface. The sheet keeps the Profile scope visible, renders role and time as
-secondary metadata, keeps the newest entry at the bottom, gives response text
-the visual centre, and moves both export formats behind one `More` menu. Clear
-remains a secondary text action.
+Local History opens from the conversation header menu in a native Material
+bottom sheet using the calm panel surface. The sheet keeps the Profile scope
+visible, renders role and time as secondary metadata, keeps the newest entry at
+the bottom, gives response text the visual centre, and moves both export
+formats behind one `More` menu. Clear remains a secondary text action.
 
 Active microphone capture and response playback have a restrained activity
 indicator alongside their readable phase label. The indicator reads the three
@@ -176,14 +181,101 @@ was green:
 | `both_appearances_and_every_state_role_are_actually_covered` | dropping the light appearance from the measured set | fails |
 | `container_slots_with_different_ink_do_not_share_a_value` | restoring `errorContainer` to `PANEL` | fails |
 
+## Review follow-up — 2026-09-14
+
+The direct review of the merged doorway pass found and fixed three Android
+issues before this validation record was closed:
+
+- `PlatformSpeechInput` is now remembered at the Activity content boundary,
+  instead of being recreated during every recomposition. Hands-free state no
+  longer loses its recognizer owner when the screen updates.
+- A selected Profile's typed composer remains editable when transport or Home
+  authorization is unavailable, so a draft can still be saved locally. Send
+  remains blocked until authorization and connection are valid.
+- An empty final recognizer transcript clears its capture Session and disarms
+  hands-free as silence; it cannot strand the mode armed with no microphone
+  window or submit a turn.
+
+Fresh checks in this session:
+
+- `./gradlew testDebugUnitTest assembleDebug lintDebug --no-daemon
+  --no-configuration-cache --rerun-tasks --console=plain` — passed; 167 JVM
+  tests, zero failures or errors.
+- `./gradlew assembleDebugAndroidTest --no-daemon --no-configuration-cache
+  --rerun-tasks --console=plain` — passed; 37 non-live instrumentation tests
+  compile, plus the three `@LiveRelay` tests.
+- `./gradlew connectedDebugAndroidTest --no-daemon --no-configuration-cache
+  --rerun-tasks --console=plain` — passed on the Pixel 6a / Android 17 over
+  ADB Wi-Fi; all 37 non-live instrumentation tests passed. The three
+  `@LiveRelay` tests remained excluded by the default annotation filter.
+  The first connected run exposed two failures in the recovery UI tests because
+  their fake port did not implement the required connection observer; the
+  fixture now delivers a disconnect to both observers, matching the production
+  adapter contract, and the rerun is clean.
+- `scripts/check-apk-metadata.sh` — passed; min SDK 26, version 0.3.1 (301),
+  with release signer checking skipped because `EXPECTED_SIGNER_SHA256` is not
+  set in this environment.
+- `git diff --check` — passed.
+
+The Pixel 6a device pass also launched the current debug APK and captured the
+bootstrap/configuration surface at the device's original `font_scale=0.85`.
+At `font_scale=1.3`, the header, state card, fixed action surface, all five
+Profile fields, Save action, and Local History were rendered and the rail
+scrolled to every field without overlap or clipping. The original `0.85`
+setting was restored.
+
+Lifecycle was checked by force-stopping and relaunching the current package;
+the process returned to the foreground and the crash buffer remained empty.
+
+TalkBack was temporarily enabled and its service bound successfully. Android's
+first-run tutorial appeared and was exited without completing a traversal; the
+service was disabled again, the notification permission returned to not
+granted, and the accessibility settings returned to their original values.
+The device `AccessibilityOrderTest` passed, but the attempted injected focus
+probe moved keyboard focus through text fields rather than proving spoken
+TalkBack linear order. That spoken order, and a selected/live-turn focus
+restoration path, remain unverified rather than inferred.
+
+The layered review was incomplete: the Edge Case Hunter and Verification Gap
+Reviewer could not read their prompt files, while the Blind Hunter and
+Acceptance Auditor timed out. The direct review findings above are verified
+against the source and regression coverage; the limitation is retained here
+so a clean automated-review claim is not implied.
+
+## Navigation follow-up — 2026-09-14
+
+The implementation was checked against the sibling iOS `ContentView` and
+`RelayConfigurationView`. Android now follows the same information boundary
+without copying SwiftUI geometry:
+
+- the header keeps Profile and authorization identity visible and adds one
+  accessible overflow menu;
+- `Configure relay` is reachable from the no-Profile primary action and from
+  that menu, then opens a scrollable native Material bottom sheet;
+- `Local History` is reachable from the same menu and opens its existing native
+  sheet; the conversation rail no longer renders a history trigger card;
+- the rail no longer renders the relay configuration form or history content;
+- the recovery surface retains `Edit relay` when a selected relay is down, where
+  it is part of the recovery decision rather than a second global navigation
+  path.
+
+The host gate after this change passed: 167 JVM tests, debug and instrumentation
+APK assembly, lint, metadata, and whitespace checks. The first post-change
+connected run did not produce valid UI evidence: the Pixel entered its secure
+keyguard after the test package was removed, so 28 tests reported no Compose
+hierarchy rather than exercising the app. That run is retained as an
+environment-invalid attempt, not a product failure. The unlocked rerun passed
+all 37 non-live tests, and the installed debug build showed the header menu and
+configuration sheet. The history sheet and clear-refresh path are covered by
+the passing connected `LocalHistoryTest` suite.
+
 ## Not verified
 
-- **The Pixel connected instrumentation suite did not produce a usable UI
-  verdict.** `connectedDebugAndroidTest` reached the Pixel 6a over ADB Wi-Fi
-  and ran 34 tests: 7 passed and 27 failed with `No compose hierarchies found in
-  the app`. The handset was behind its secure lock screen at the manual
-  checkpoint, and Gradle removed the target package after the run, so no clean
-  unlocked rerun or Pixel UI verdict is accepted here.
+- **The earlier Pixel connected run did not produce a usable UI verdict.** The
+  historical 2026-09-12 run reached the Pixel 6a over ADB Wi-Fi and ran 34
+  tests: 7 passed and 27 failed with `No compose hierarchies found in the app`.
+  The fresh 2026-09-14 run is separate evidence: the current debug APK was
+  installed and all 37 non-live tests passed on the unlocked device.
 - **A green emulator suite is not a real-microphone verdict.** The
   host-audio-enabled emulator completed 34 non-live tests, and its boot log
   confirms host microphone forwarding, but no live relay profile was loaded.
@@ -193,30 +285,27 @@ was green:
   is enabled, but the manual profile used an unresolved endpoint, so the app
   correctly refused to open capture. No real recognizer transcript was
   produced.
-- **TalkBack** has still never been exercised on this surface. `5-A-2`'s
-  environment limitation is untouched by this work.
-- **Hardware font scaling** remains unverified. The emulator now covers
-  `font_scale=1.3` with animations disabled, including a 34/34 instrumentation
-  run and a static screenshot; the Pixel's rendered result — including whether
-  the fixed header's intentional ellipsis is acceptable at that viewport —
-  still needs observation.
-- **Steps 4–6 have not been captured on hardware.** The fixed header, scrolling
-  rail, bottom action surface, button hierarchy, explicit idle/recovery states,
-  composer persistence, history sheet, activity indicator, and reduced-motion
-  rendering are verified by compilation and test artifacts only in this
-  environment; the debug APK is installed, but the locked handset prevented a
-  manual visual pass.
-- **Unattended UI input is conditional.** The ADB Wi-Fi pairing is retained and
-  can drive the app while the handset is unlocked and reachable. Android's
-  secure keyguard currently blocks UI automation; no attempt was made to
-  bypass it.
+- **Hardware font scaling** is verified for the observed bootstrap and
+  configuration surfaces at `font_scale=1.3`; the original `0.85` setting was
+  restored. A selected/live turn at that scale was not observed.
+- **Full state matrix on hardware** remains open. The default and 130% dark
+  bootstrap/configuration surfaces were captured; selected/live/recovery/
+  response states, history interaction, activity indicator, and reduced-motion
+  rendering remain covered by the test artifacts rather than a manual live
+  profile pass.
+- **Unattended UI input** is now confirmed on the unlocked, reachable Pixel
+  over ADB Wi-Fi. The keyboard-focus experiment is not being counted as
+  TalkBack evidence.
+- **Manual TalkBack spoken navigation** remains unverified. The connected
+  accessibility tests passed, but the service was not taken through a reliable
+  spoken linear traversal on the physical device.
 - **The light adaptation was seen once**, before the container fix. The
   post-fix capture is dark only. Light mode is believed correct — its slots
   never collided — but that is inference, not observation.
 
 ## Remaining sequence
 
-Step 7 of the approved design pass remains:
+The remaining hardware sequence is:
 
 7. Re-verify TalkBack order and focus restoration on hardware, closing the
    `5-A-2` environment limitation in the same pass.
@@ -224,10 +313,11 @@ Step 7 of the approved design pass remains:
 ## What the hardware pass showed about the design
 
 The palette is working. Step 4 now addresses the structural problems the design
-pass diagnosed, but the result has not yet been captured on hardware:
+pass diagnosed, and the dark result was captured on the Pixel at both the
+default and 130% font scales:
 
 - The fixed header and bottom action surface keep the conversation doorway
-  present while the configuration rail scrolls independently.
+  present while the configuration sheet scrolls independently.
 - Profile and authorization now live in the compact Material header rather than
   as unstyled lines between boundary copy and the form.
 - `Save relay profile` now uses filled-tonal treatment.
@@ -235,13 +325,15 @@ pass diagnosed, but the result has not yet been captured on hardware:
   directly instead of asking connection state, authorization, and disabled
   controls to imply the answer.
 
-The next hardware pass must confirm those changes at the Pixel viewport and at
-large font scaling.
+The post-navigation configuration sheet was observed at the default font
+scale; the earlier configuration surface also survived the 130% large-font
+pass cleanly. The next hardware pass only needs the spoken TalkBack traversal
+and a selected live-turn focus-restoration check.
 
 ## Resolved finding — `ANDROID-BUG-F4`
 
 Step 5 replaced the stale `Android Client bootstrap` / "transport is not
 connected yet" copy with `Hermes conversation` and a neutral description of the
 typed and spoken doorway. The header no longer makes a connection claim that
-can contradict the state card below it. A hardware re-capture is still needed
-for the rendered result, but the content defect is fixed in code.
+can contradict the state card below it. The content defect is fixed in code,
+and the corrected bootstrap surface was observed on the Pixel on 2026-09-14.

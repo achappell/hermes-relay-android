@@ -114,7 +114,8 @@ stories:
     product_epic: 5
     title: Apply the Night Console visual language as a Material 3 adaptation
     kind: surface
-    spec: null
+    spec: _bmad-output/implementation-artifacts/spec-5-a-3-night-console-validation.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-3-visual-design-pass.md
     github_issue: https://github.com/achappell/hermes-relay-android/issues/31
   - id: 5-A-4
     product_epic: 5
