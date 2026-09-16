@@ -191,6 +191,72 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun home_404_is_retryable_without_an_active_socket() {
+        server.enqueue(MockResponse().setResponseCode(404))
+
+        val client = client()
+        val outcome = client.reconnect()
+
+        assertTrue(outcome is AndroidReconnectOutcome.Retryable)
+        assertEquals(
+            AndroidHomeUnavailableReason.TransportUnavailable,
+            (outcome as AndroidReconnectOutcome.Retryable).reasonCode,
+        )
+        assertFalse(client.hasActiveTurn())
+        assertEquals(null, client.snapshot().route)
+        client.close()
+    }
+
+    @Test
+    fun readiness_rejects_malformed_home_state_without_a_turn() {
+        val malformed = listOf<(JSONObject) -> Unit>(
+            { it.getJSONObject("result").remove("unresolved_turn") },
+            { it.getJSONObject("result").put("unresolved_turn", "true") },
+            { it.getJSONObject("result").remove("route") },
+            { it.getJSONObject("result").getJSONObject("route").put("class", "private") },
+            { it.getJSONObject("result").remove("capabilities") },
+            { it.getJSONObject("result").getJSONObject("capabilities").put("timing", "wall") },
+            { it.getJSONObject("result").getJSONObject("capabilities").put("commands", JSONArray().put("shell")) },
+        )
+
+        malformed.forEach { mutate ->
+            val client = client()
+            val frame = JSONObject(readyResponse("open-1"))
+            mutate(frame)
+
+            val outcome = client.readOpenResult(frame, "open-1", CONVERSATION_HANDLE, "bridge-1")
+
+            assertTrue(outcome is AndroidReconnectOutcome.Unrecoverable)
+            val reason = (outcome as AndroidReconnectOutcome.Unrecoverable).reasonCode
+            assertTrue(
+                reason == AndroidHomeUnavailableReason.ProtocolError ||
+                    reason == AndroidHomeUnavailableReason.CapabilityShapeInvalid,
+            )
+            assertFalse(client.hasActiveTurn())
+            assertEquals(null, client.snapshot().route)
+            client.close()
+        }
+
+        val unresolvedClient = client()
+        val unresolvedFrame = JSONObject(readyResponse("open-2"))
+        unresolvedFrame.getJSONObject("result").put("unresolved_turn", true)
+        val unresolvedOutcome = unresolvedClient.readOpenResult(
+            unresolvedFrame,
+            "open-2",
+            CONVERSATION_HANDLE,
+            "bridge-2",
+        )
+        assertTrue(unresolvedOutcome is AndroidReconnectOutcome.Connected)
+        assertTrue((unresolvedOutcome as AndroidReconnectOutcome.Connected).unresolvedTurn)
+        val strict = LiveHomeReadiness.assertNewTurnReadiness(unresolvedOutcome)
+        assertEquals(AndroidHomeUnavailableReason.UnresolvedTurn, strict.reason)
+        assertEquals(0, unresolvedClient.snapshotRequestTelemetry().promptSubmitCount)
+        assertEquals(0, unresolvedClient.snapshotRequestTelemetry().interruptRequestCount)
+        unresolvedClient.close()
+        assertTrue(unresolvedFrame.getJSONObject("result").getBoolean("unresolved_turn"))
+    }
+
+    @Test
     fun a_stale_conversation_is_reported_without_submitting_a_turn() {
         server.enqueue(
             MockResponse().withWebSocketUpgrade(
@@ -694,7 +760,7 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
-    fun reconnect_reopens_the_same_handle_without_replaying_an_uncertain_prompt() {
+    fun reconnect_uses_conversation_reconnect_without_prompt_replay() {
         val firstPromptSeen = CountDownLatch(1)
         val secondMethods = Collections.synchronizedList(mutableListOf<String>())
 
@@ -813,6 +879,7 @@ class OkHttpRelaySessionClientTest {
         JSONObject()
             .put("schema", 1)
             .put("status", "ready")
+            .put("unresolved_turn", false)
             .put("conversation_handle", CONVERSATION_HANDLE)
             .put("route", JSONObject().put("class", "home").put("id", "route-home"))
             .put(

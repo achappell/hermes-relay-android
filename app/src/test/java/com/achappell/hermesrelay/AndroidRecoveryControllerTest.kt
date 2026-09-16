@@ -87,7 +87,7 @@ class AndroidRecoveryControllerTest {
     }
 
     @Test
-    fun recovery_never_replays_an_uncertain_turn() {
+    fun reconnect_does_not_replay_an_uncertain_turn() {
         val port = FakeRecoveryPort(outcomes = listOf(AndroidReconnectOutcome.Connected("session-2")))
         val controller = AndroidRecoveryController(port)
 

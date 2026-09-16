@@ -1,0 +1,15 @@
+- id: '5-A-4-LIVE-HOME-GATE'
+  title: '[Android] Prove the live Home bridge gate'
+  description: >-
+    Review and, only after an explicit plan verdict, implement the additive
+    Android live Home evidence for the completed 5-A-4 migration. Keep the
+    Home WSS boundary, Device credential safety, opt-in instrumentation gate,
+    terminal/audio-drain proof, and honest environment-limited outcome. Do not
+    add pairing UI or claim a live turn when Home returns hermes_unavailable.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    This is a supervised plan-review run. Halt after planning; do not
+    implement Android source or run live endpoints. Preserve the parent 5-A-4
+    record, keep live tests excluded by default, and name every Android file
+    and deterministic/device validation seam. Treat the current working
+    directory as the project root when rendering BMAD skills.

@@ -142,7 +142,7 @@ internal class RelayConfigurationController(
         if (!HomeCredentialValidator.isValid(pairing.deviceCredential)) {
             return RelayHomeMigrationResult.Rejected(RelayHomeMigrationFailure.CredentialInvalid)
         }
-        if (pairing.conversationHandle.isBlank() || pairing.conversationHandle.length > 512) {
+        if (!RelayProfileValidator.isValidHomeConversationHandle(pairing.conversationHandle)) {
             return RelayHomeMigrationResult.Rejected(
                 RelayHomeMigrationFailure.ConversationHandleInvalid,
             )

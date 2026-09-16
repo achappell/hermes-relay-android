@@ -349,6 +349,46 @@ class HermesEventNormalizerTest {
     }
 
     @Test
+    fun message_complete_statuses_map_to_canonical_terminal_events() {
+        val completed = normalizer().normalize(
+            homeEvent("message.complete", org.json.JSONObject().put("status", "completed")).toString(),
+            binding,
+        )
+        val interrupted = normalizer().normalize(
+            homeEvent("message.complete", org.json.JSONObject().put("status", "interrupted")).toString(),
+            binding,
+        )
+        val failed = normalizer().normalize(
+            homeEvent("message.complete", org.json.JSONObject().put("status", "failed")).toString(),
+            binding,
+        )
+        val unknown = normalizer().normalize(
+            homeEvent("message.complete", org.json.JSONObject().put("status", "later")).toString(),
+            binding,
+        )
+
+        assertEquals(listOf(AndroidNormalizedEvent.TurnCompleted(binding)), completed)
+        assertEquals(
+            listOf(AndroidNormalizedEvent.TurnInterrupted(binding, "interrupted")),
+            interrupted,
+        )
+        assertEquals(listOf(AndroidNormalizedEvent.TurnFailed(binding, "failed")), failed)
+        assertEquals(listOf(AndroidNormalizedEvent.TurnFailed(binding, "later")), unknown)
+        assertEquals(
+            AndroidCanonicalTerminalTrace("turn.completed", "completed"),
+            canonicalTerminalTrace("message.complete", org.json.JSONObject().put("status", "completed")),
+        )
+        assertEquals(
+            AndroidCanonicalTerminalTrace("turn.interrupted", "interrupted"),
+            canonicalTerminalTrace("session.interrupted"),
+        )
+        assertEquals(
+            AndroidCanonicalTerminalTrace("turn.failed", "failed"),
+            canonicalTerminalTrace("message.complete", org.json.JSONObject().put("status", "later")),
+        )
+    }
+
+    @Test
     fun home_audio_frame_notifications_require_explicit_little_endian_pcm_metadata() {
         val normalizer = normalizer()
 

@@ -1,7 +1,12 @@
 package com.achappell.hermesrelay
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Frame accounting for the drain guard.
@@ -40,5 +45,100 @@ class AndroidAudioSinkFramesTest {
         val bytes = 48_000 * 2
 
         assertEquals(48_000, bytes / bytesPerFrame(1))
+    }
+
+    @Test
+    fun delayed_drain_requires_playback_advancement() {
+        val driver = FakeAudioTrackDriver(playbackHead = { calls -> if (calls < 3) 0 else 2 })
+        val sink = AudioTrackAudioSink(
+            driverFactory = AudioTrackDriverFactory { _, _ -> driver },
+            drainStallDeadlineMillis = 200,
+            drainTimeoutMillis = 1_000,
+            minBufferSizeProvider = { 4 },
+        )
+        val drained = CountDownLatch(1)
+        val failed = CountDownLatch(1)
+
+        assertTrue(sink.start(AndroidAudioFormat(16_000, 1, 2, "pcm_s16le")))
+        sink.write(ByteArray(4))
+        sink.finish(drained::countDown) { failed.countDown() }
+
+        assertTrue(drained.await(2, TimeUnit.SECONDS))
+        assertFalse(failed.await(20, TimeUnit.MILLISECONDS))
+        assertTrue(driver.playbackHeadCalls.get() >= 3)
+        assertEquals(2, sink.snapshotTelemetry().acceptedFrames)
+        assertTrue(sink.snapshotTelemetry().drained)
+        assertFalse(sink.snapshotTelemetry().failed)
+        sink.close()
+    }
+
+    @Test
+    fun a_stranded_playback_head_fails_without_claiming_drain() {
+        val driver = FakeAudioTrackDriver(playbackHead = { 0 })
+        val sink = AudioTrackAudioSink(
+            driverFactory = AudioTrackDriverFactory { _, _ -> driver },
+            drainStallDeadlineMillis = 20,
+            drainTimeoutMillis = 200,
+            minBufferSizeProvider = { 4 },
+        )
+        val drained = CountDownLatch(1)
+        val failed = CountDownLatch(1)
+
+        assertTrue(sink.start(AndroidAudioFormat(16_000, 1, 2, "pcm_s16le")))
+        sink.write(ByteArray(4))
+        sink.finish(drained::countDown) { failed.countDown() }
+
+        assertTrue(failed.await(2, TimeUnit.SECONDS))
+        assertFalse(drained.await(20, TimeUnit.MILLISECONDS))
+        assertEquals(AudioSinkFailureKind.PlaybackStalled, sink.snapshotTelemetry().failureKind)
+        assertFalse(sink.snapshotTelemetry().drained)
+        sink.close()
+    }
+
+    @Test
+    fun an_underrun_fails_even_when_the_playback_head_advances() {
+        val underrunCalls = AtomicInteger(0)
+        val driver = FakeAudioTrackDriver(
+            playbackHead = { 2 },
+            underruns = { if (underrunCalls.incrementAndGet() == 1) 0 else 1 },
+        )
+        val sink = AudioTrackAudioSink(
+            driverFactory = AudioTrackDriverFactory { _, _ -> driver },
+            drainStallDeadlineMillis = 200,
+            drainTimeoutMillis = 1_000,
+            minBufferSizeProvider = { 4 },
+        )
+        val drained = CountDownLatch(1)
+        val failed = CountDownLatch(1)
+
+        assertTrue(sink.start(AndroidAudioFormat(16_000, 1, 2, "pcm_s16le")))
+        sink.write(ByteArray(4))
+        sink.finish(drained::countDown) { failed.countDown() }
+
+        assertTrue(failed.await(2, TimeUnit.SECONDS))
+        assertFalse(drained.await(20, TimeUnit.MILLISECONDS))
+        assertEquals(AudioSinkFailureKind.Underrun, sink.snapshotTelemetry().failureKind)
+        sink.close()
+    }
+
+    private class FakeAudioTrackDriver(
+        private val playbackHead: (Int) -> Long = { 0 },
+        private val underruns: () -> Int = { 0 },
+    ) : AudioTrackDriver {
+        val playbackHeadCalls = AtomicInteger(0)
+
+        override fun state(): Int = android.media.AudioTrack.STATE_INITIALIZED
+
+        override fun play() = Unit
+
+        override fun write(buffer: ByteArray, offset: Int, size: Int): Int = size
+
+        override fun playbackHeadFrames(): Long = playbackHead(playbackHeadCalls.incrementAndGet())
+
+        override fun underrunCount(): Int = underruns()
+
+        override fun stop() = Unit
+
+        override fun release() = Unit
     }
 }

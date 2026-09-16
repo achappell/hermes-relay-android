@@ -129,6 +129,17 @@ stories:
     spec: _bmad-output/implementation-artifacts/spec-5-android-migration.md
     validation: _bmad-output/implementation-artifacts/validation-5-a-4-home-bridge-migration.md
     github_issue: https://github.com/achappell/hermes-relay-android/issues/32
+  - id: 5-A-4-LIVE-HOME-GATE
+    parent_story: 5-A-4
+    product_epic: 5
+    title: Prove Android against the live Home bridge
+    kind: follow-up
+    spec: _bmad-output/implementation-artifacts/spec-5-a-4-live-home-gate.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-4-live-home-gate.md
+    scope_note: >-
+      Additive live-gate evidence only; the completed 5-A-4 migration record
+      remains the parent authority until a real Home deployment and device gate
+      pass.
   - id: ANDROID-HOME-01
     title: Add the Android Home pairing and configuration adapter
     kind: next-wave

@@ -46,11 +46,93 @@ internal enum class AndroidHomeUnavailableReason {
     ConversationMismatch,
     HermesTimeout,
     HermesUnavailable,
+    Home404,
     RequestRejected,
     TransportUnavailable,
     TransportTimeout,
     ProtocolError,
     CapabilityUnavailable,
+    UnresolvedTurn,
+    CapabilityShapeInvalid,
+    ReconnectTrace,
+}
+
+/** Capability that a live proof branch must see before it can create a turn. */
+internal enum class LiveHomeCapability {
+    Audio,
+    Interrupt,
+}
+
+/** Safe result of applying the stricter live-gate rules to ordinary recovery. */
+internal data class LiveHomeReadinessResult(
+    val connected: AndroidReconnectOutcome.Connected? = null,
+    val reason: AndroidHomeUnavailableReason? = null,
+    val preservesUnresolvedTurn: Boolean = false,
+) {
+    val accepted: Boolean
+        get() = connected != null && reason == null
+}
+
+/**
+ * Live evidence is stricter than ordinary reconnect.  The ordinary adapter
+ * still exposes an unresolved connection so the product can show recovery;
+ * these helpers decide whether a particular proof branch may proceed.
+ */
+internal object LiveHomeReadiness {
+    fun assertNewTurnReadiness(outcome: AndroidReconnectOutcome): LiveHomeReadinessResult =
+        when (outcome) {
+            is AndroidReconnectOutcome.Connected -> if (outcome.unresolvedTurn) {
+                LiveHomeReadinessResult(reason = AndroidHomeUnavailableReason.UnresolvedTurn)
+            } else {
+                LiveHomeReadinessResult(connected = outcome)
+            }
+
+            is AndroidReconnectOutcome.Retryable -> LiveHomeReadinessResult(
+                reason = outcome.reasonCode ?: AndroidHomeUnavailableReason.TransportUnavailable,
+            )
+
+            is AndroidReconnectOutcome.Unrecoverable -> LiveHomeReadinessResult(
+                reason = outcome.reasonCode ?: AndroidHomeUnavailableReason.ProtocolError,
+            )
+        }
+
+    fun assertReconnectReadiness(outcome: AndroidReconnectOutcome): LiveHomeReadinessResult =
+        when (outcome) {
+            is AndroidReconnectOutcome.Connected -> if (outcome.unresolvedTurn) {
+                LiveHomeReadinessResult(
+                    connected = outcome,
+                    preservesUnresolvedTurn = true,
+                )
+            } else {
+                LiveHomeReadinessResult(reason = AndroidHomeUnavailableReason.ReconnectTrace)
+            }
+
+            is AndroidReconnectOutcome.Retryable -> LiveHomeReadinessResult(
+                reason = outcome.reasonCode ?: AndroidHomeUnavailableReason.ReconnectTrace,
+            )
+
+            is AndroidReconnectOutcome.Unrecoverable -> LiveHomeReadinessResult(
+                reason = outcome.reasonCode ?: AndroidHomeUnavailableReason.ProtocolError,
+            )
+        }
+
+    fun assertLiveHomeCapabilities(
+        outcome: AndroidReconnectOutcome.Connected,
+        required: LiveHomeCapability,
+    ): LiveHomeReadinessResult {
+        val supported = when (required) {
+            LiveHomeCapability.Audio -> outcome.capabilities.audio
+            LiveHomeCapability.Interrupt -> outcome.capabilities.interrupt
+        }
+        return if (supported) {
+            LiveHomeReadinessResult(
+                connected = outcome,
+                preservesUnresolvedTurn = outcome.unresolvedTurn,
+            )
+        } else {
+            LiveHomeReadinessResult(reason = AndroidHomeUnavailableReason.CapabilityUnavailable)
+        }
+    }
 }
 
 internal enum class AndroidAuthorizationState {

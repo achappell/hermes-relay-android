@@ -56,6 +56,10 @@ internal enum class RelayProfileError {
  * server without a certificate.
  */
 internal object RelayProfileValidator {
+    const val APPROVED_HOME_BRIDGE_PATH = "/api/v1/bridge/ws"
+    const val MAX_HOME_CONVERSATION_HANDLE_BYTES = 256
+    const val MAX_HOME_ROUTE_ID_BYTES = 256
+
     private val bareAddress = Regex("^(\\d{1,3}\\.){3}\\d{1,3}$|^\\[?[0-9a-fA-F:]+]?$")
 
     fun validate(
@@ -101,8 +105,35 @@ internal object RelayProfileValidator {
         return null
     }
 
-    fun validateApprovedHomeRoute(route: String): RelayProfileError? =
-        validateEndpoint(route.trim())
+    /**
+     * The Home pairing contract accepts a host/root base or the exact bridge
+     * path.  A route prefix is not a harmless variation: appending the bridge
+     * path to it would open a different endpoint.
+     */
+    fun validateApprovedHomeRoute(route: String): RelayProfileError? {
+        val normalized = route.trim()
+        val endpointError = validateEndpoint(normalized)
+        if (endpointError != null) return endpointError
+
+        val uri = runCatching { URI(normalized) }.getOrNull()
+            ?: return RelayProfileError.EndpointMalformed
+        val rawPath = uri.rawPath.orEmpty()
+        if (
+            rawPath.isNotEmpty() &&
+            rawPath != "/" &&
+            rawPath != APPROVED_HOME_BRIDGE_PATH &&
+            rawPath != "$APPROVED_HOME_BRIDGE_PATH/"
+        ) {
+            return RelayProfileError.EndpointMalformed
+        }
+        return null
+    }
+
+    fun isValidHomeConversationHandle(value: String): Boolean {
+        val bytes = value.toByteArray(Charsets.UTF_8)
+        return bytes.size in 1..MAX_HOME_CONVERSATION_HANDLE_BYTES &&
+            value.none { it == '\u0000' || it == '\r' || it == '\n' || it.isWhitespace() }
+    }
 }
 
 internal data class RelayProfileCollection(
