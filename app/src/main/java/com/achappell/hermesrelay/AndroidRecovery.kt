@@ -199,6 +199,7 @@ internal class AndroidRecoveryController(
             return AndroidResendResult.NotConnected
         }
 
+        clientPort.prepareForExplicitResend()
         return when (val result = clientPort.beginTurn(unconfirmed.request)) {
             is AndroidInitiationResult.Accepted -> {
                 state = state.copy(unconfirmedTurn = null)
@@ -212,6 +213,7 @@ internal class AndroidRecoveryController(
 
     /** Drop the retained turn without sending it. */
     fun discardUnconfirmedTurn(): AndroidRecoveryState {
+        clientPort.prepareForExplicitResend()
         state = state.copy(unconfirmedTurn = null)
         return state
     }

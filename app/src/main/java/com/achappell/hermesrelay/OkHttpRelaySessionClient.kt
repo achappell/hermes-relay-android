@@ -121,6 +121,9 @@ internal class OkHttpRelaySessionClient(
     private val activeProfileId = AtomicReference<String?>(null)
     private val connectionId = AtomicReference<String?>(null)
     private val activeTurn = AtomicReference<AndroidTurnBinding?>(null)
+    private val turnAdmissionLock = Any()
+    private val turnInFlight = AtomicBoolean(false)
+    private val uncertainDelivery = AtomicBoolean(false)
     private val observer = AtomicReference<TurnObserver?>(null)
     private val normalizer = AtomicReference<HermesEventNormalizer?>(null)
     private val route = AtomicReference<AndroidRoute?>(null)
@@ -267,115 +270,113 @@ internal class OkHttpRelaySessionClient(
             return AndroidInitiationResult.Rejected(AndroidInitiationFailure.EmptyTypedPrompt)
         }
 
+        val admitted = synchronized(turnAdmissionLock) {
+            if (turnInFlight.get() || uncertainDelivery.get()) {
+                false
+            } else {
+                turnInFlight.set(true)
+                true
+            }
+        }
+        if (!admitted) {
+            return AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable)
+        }
+
         val normalizedRequest = request.copy(
             profile = AndroidProfile(profile.id, profile.displayName, profile.deviceId),
         )
-        val requestId = rpcId("prompt")
-        val response = PendingRpc()
-        pending[requestId] = response
-        normalizer.get()?.beginTurn()
-        audioActive.set(false)
-        audioDrainPending.set(false)
-        synchronized(inboundLock) {
-            audioBytesPerFrame = 2
-            audioBytesRemainder = 0
-            audioRemainder = ByteArray(0)
-        }
-        audioSink.cancel()
-        interruptRequested.set(false)
-        terminalObserved.set(false)
+        try {
+            fun uncertain(reason: AndroidHomeUnavailableReason) =
+                AndroidInitiationResult.Uncertain(normalizedRequest, reason).also {
+                    synchronized(turnAdmissionLock) {
+                        uncertainDelivery.set(true)
+                    }
+                }
 
-        val sent = socket.send(
-            rpcRequest(
-                id = requestId,
-                method = "prompt.submit",
-                params = JSONObject()
-                    .put("conversation_handle", binding.conversationHandle)
-                    .put("text", text),
-            ).toString(),
-        )
-        if (!sent) {
+            val requestId = rpcId("prompt")
+            val response = PendingRpc()
+            pending[requestId] = response
+            normalizer.get()?.beginTurn()
+            audioActive.set(false)
+            audioDrainPending.set(false)
+            synchronized(inboundLock) {
+                audioBytesPerFrame = 2
+                audioBytesRemainder = 0
+                audioRemainder = ByteArray(0)
+            }
+            audioSink.cancel()
+            interruptRequested.set(false)
+            terminalObserved.set(false)
+
+            val sent = runCatching {
+                socket.send(
+                    rpcRequest(
+                        id = requestId,
+                        method = "prompt.submit",
+                        params = JSONObject()
+                            .put("conversation_handle", binding.conversationHandle)
+                            .put("text", text),
+                    ).toString(),
+                )
+            }.getOrDefault(false)
+            if (!sent) {
+                pending.remove(requestId)
+                return uncertain(AndroidHomeUnavailableReason.TransportUnavailable)
+            }
+            requestTelemetry.recordPromptSubmit()
+
+            val frame = response.await(requestTimeoutMillis)
             pending.remove(requestId)
-            return AndroidInitiationResult.Uncertain(
-                request = normalizedRequest,
-                reason = AndroidHomeUnavailableReason.TransportUnavailable,
-            )
-        }
-        requestTelemetry.recordPromptSubmit()
+            if (frame == null) {
+                return uncertain(AndroidHomeUnavailableReason.TransportTimeout)
+            }
 
-        val frame = response.await(requestTimeoutMillis)
-        pending.remove(requestId)
-        if (frame == null) {
-            return AndroidInitiationResult.Uncertain(
-                request = normalizedRequest,
-                reason = AndroidHomeUnavailableReason.TransportTimeout,
-            )
-        }
+            if (!isHomeEnvelope(frame)) {
+                return uncertain(AndroidHomeUnavailableReason.ProtocolError)
+            }
+            frame.optJSONObject("error")?.let { error ->
+                return when (errorCode(error)) {
+                    "request_rejected" -> AndroidInitiationResult.Rejected(
+                        AndroidInitiationFailure.RequestRejected,
+                    )
+                    else -> uncertain(unavailableReason(errorCode(error)))
+                }
+            }
+            val result = frame.optJSONObject("result")
+                ?: return uncertain(AndroidHomeUnavailableReason.ProtocolError)
+            if (!hasExactInt(result, "schema", SCHEMA_VERSION)) {
+                return uncertain(AndroidHomeUnavailableReason.ProtocolError)
+            }
+            if (exactString(result, "status") != "submitted") {
+                return uncertain(AndroidHomeUnavailableReason.ProtocolError)
+            }
+            if (exactString(result, "conversation_handle") != binding.conversationHandle) {
+                return uncertain(AndroidHomeUnavailableReason.ConversationMismatch)
+            }
+            val turnId = exactString(result, "turn_id")
+                ?: return uncertain(AndroidHomeUnavailableReason.ProtocolError)
+            if (turnId.isBlank()) {
+                return uncertain(AndroidHomeUnavailableReason.ProtocolError)
+            }
 
-        if (!isHomeEnvelope(frame)) {
-            return AndroidInitiationResult.Uncertain(
-                normalizedRequest,
-                AndroidHomeUnavailableReason.ProtocolError,
+            val accepted = AndroidTurnBinding(
+                profileId = profile.id,
+                conversationHandle = binding.conversationHandle,
+                connectionId = localConnection,
+                turnId = turnId,
             )
-        }
-        frame.optJSONObject("error")?.let { error ->
-            return when (errorCode(error)) {
-                "request_rejected" -> AndroidInitiationResult.Rejected(
-                    AndroidInitiationFailure.RequestRejected,
-                )
-                else -> AndroidInitiationResult.Uncertain(
-                    normalizedRequest,
-                    unavailableReason(errorCode(error)),
-                )
+            synchronized(inboundLock) {
+                activeTurn.set(accepted)
+            }
+            synchronized(turnAdmissionLock) {
+                uncertainDelivery.set(false)
+            }
+            return AndroidInitiationResult.Accepted(accepted)
+        } finally {
+            synchronized(turnAdmissionLock) {
+                turnInFlight.set(false)
             }
         }
-        val result = frame.optJSONObject("result")
-            ?: return AndroidInitiationResult.Uncertain(
-                normalizedRequest,
-                AndroidHomeUnavailableReason.ProtocolError,
-            )
-        if (!hasExactInt(result, "schema", SCHEMA_VERSION)) {
-            return AndroidInitiationResult.Uncertain(
-                normalizedRequest,
-                AndroidHomeUnavailableReason.ProtocolError,
-            )
-        }
-        if (exactString(result, "status") != "submitted") {
-            return AndroidInitiationResult.Uncertain(
-                normalizedRequest,
-                AndroidHomeUnavailableReason.ProtocolError,
-            )
-        }
-        if (exactString(result, "conversation_handle") != binding.conversationHandle) {
-            return AndroidInitiationResult.Uncertain(
-                normalizedRequest,
-                AndroidHomeUnavailableReason.ConversationMismatch,
-            )
-        }
-        val turnId = exactString(result, "turn_id")
-        if (turnId == null) {
-            return AndroidInitiationResult.Uncertain(
-                normalizedRequest,
-                AndroidHomeUnavailableReason.ProtocolError,
-            )
-        }
-        if (turnId.isBlank()) {
-            return AndroidInitiationResult.Uncertain(
-                normalizedRequest,
-                AndroidHomeUnavailableReason.ProtocolError,
-            )
-        }
-
-        val accepted = AndroidTurnBinding(
-            profileId = profile.id,
-            conversationHandle = binding.conversationHandle,
-            connectionId = localConnection,
-            turnId = turnId,
-        )
-        synchronized(inboundLock) {
-            activeTurn.set(accepted)
-        }
-        return AndroidInitiationResult.Accepted(accepted)
     }
 
     override fun observeTurn(
@@ -737,6 +738,12 @@ internal class OkHttpRelaySessionClient(
 
     override fun hasActiveTurn(): Boolean = activeTurn.get() != null
 
+    override fun prepareForExplicitResend() {
+        synchronized(turnAdmissionLock) {
+            uncertainDelivery.set(false)
+        }
+    }
+
     override fun interruptTurn(binding: AndroidTurnBinding): Boolean {
         val socket = activeSocket.get() ?: return false
         if (
@@ -802,6 +809,9 @@ internal class OkHttpRelaySessionClient(
         closeTransport()
         observer.set(null)
         activeTurn.set(null)
+        synchronized(turnAdmissionLock) {
+            uncertainDelivery.set(false)
+        }
         terminalObserved.set(false)
         queuedFrames.clear()
         audioSink.close()
@@ -843,7 +853,11 @@ internal class OkHttpRelaySessionClient(
             val currentObserver = observer.get()
             if (taggedBinding != null && taggedBinding != binding) return
             if (binding == null || currentObserver == null) {
-                if (binding != null) {
+                // Home can publish a turn event before the prompt acknowledgement
+                // reaches beginTurn. Keep text until the response supplies the
+                // turn binding; binary data has no safe correlation identity and
+                // is deliberately dropped until a binding exists.
+                if (binding != null || turnInFlight.get()) {
                     enqueue(InboundFrame.Text(text, connectionId.get(), binding))
                 }
                 return
@@ -1080,6 +1094,11 @@ internal class OkHttpRelaySessionClient(
 
     private fun reportDisconnect(socket: WebSocket, reason: String) {
         if (activeSocket.get() !== socket) return
+        synchronized(turnAdmissionLock) {
+            if (activeTurn.get() != null && !terminalObserved.get()) {
+                uncertainDelivery.set(true)
+            }
+        }
         val oldProfile = activeProfileId.get()
         val oldConnection = connectionId.getAndSet(null)
         activeSocket.compareAndSet(socket, null)

@@ -269,3 +269,28 @@ See the exact default and opt-in commands, preflight rules, safe result schema,
 and artifact scan in the linked specification. The live command is not run
 until its external route, pairing, disposable handles, device, audio, and Home
 provenance prerequisites exist.
+
+## Follow-up client hardening — 2026-09-15
+
+The post-build review found three transport-boundary races in the Android
+client and they are now covered and fixed:
+
+- only one `prompt.submit` initiation can be in flight at a time;
+- an uncertain delivery blocks a new prompt until the explicit resend or
+  discard path clears it; and
+- text events received before Home's prompt acknowledgement are queued until
+  the returned turn binding is known. Uncorrelated binary audio is still
+  discarded until a verified binding exists.
+
+The focused regression tests are
+`a_second_prompt_is_rejected_while_first_acknowledgement_is_pending`,
+`an_uncertain_prompt_blocks_new_turns_until_explicit_resend_is_prepared`, and
+`events_received_before_prompt_ack_are_delivered_after_binding_is_known` in
+`OkHttpRelaySessionClientTest`. The full JVM/build/lint gate and Android-test
+compilation were rerun successfully after these changes.
+
+The physical Pixel 6a remained at the secure lock screen during this pass, so
+the Compose-backed connected suite was not rerun. Its earlier failure reported
+the device as asleep/non-interactive; no app crash was established. Unlocking
+the handset is still required for the on-device UI validation. This does not
+change the live Home provenance limitation or the `backlog` delivery status.

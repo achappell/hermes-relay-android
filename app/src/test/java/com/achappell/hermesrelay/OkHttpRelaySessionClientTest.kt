@@ -21,6 +21,7 @@ import org.junit.Test
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class OkHttpRelaySessionClientTest {
@@ -491,6 +492,77 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun events_received_before_prompt_ack_are_delivered_after_binding_is_known() {
+        val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+        val completed = CountDownLatch(1)
+
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        val request = JSONObject(text)
+                        when (request.optString("method")) {
+                            "conversation.open", "conversation.reconnect" ->
+                                webSocket.send(readyResponse(request.getString("id"), audio = false))
+                            "prompt.submit" -> {
+                                val turnId = "home-turn-early-event"
+                                webSocket.send(
+                                    eventFrame(
+                                        turnId,
+                                        "message.delta",
+                                        JSONObject().put("rendered", "Early answer"),
+                                    ),
+                                )
+                                webSocket.send(
+                                    rpcResult(
+                                        request.getString("id"),
+                                        JSONObject()
+                                            .put("schema", 1)
+                                            .put("conversation_handle", CONVERSATION_HANDLE)
+                                            .put("turn_id", turnId)
+                                            .put("status", "submitted"),
+                                    ),
+                                )
+                                webSocket.send(
+                                    eventFrame(
+                                        turnId,
+                                        "message.complete",
+                                        JSONObject()
+                                            .put("rendered", "Early answer")
+                                            .put("status", "complete"),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+
+        val client = client()
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val result = client.beginTurn(
+            AndroidTurnRequest(
+                AndroidProfile(PROFILE_ID, "Amanda"),
+                AndroidTurnInput.Typed("send it"),
+            ),
+        ) as AndroidInitiationResult.Accepted
+        val observation = client.observeTurn(result.binding) { event ->
+            events += event
+            if (event is AndroidNormalizedEvent.TurnCompleted) completed.countDown()
+        }
+
+        assertTrue(completed.await(5, TimeUnit.SECONDS))
+        assertTrue(
+            events.contains(
+                AndroidNormalizedEvent.ResponseTextDelta(result.binding, "Early answer"),
+            ),
+        )
+        observation.cancel()
+        client.close()
+    }
+
+    @Test
     fun audio_fallback_keeps_text_visible_without_claiming_speaking() {
         val failed = CountDownLatch(1)
         val completed = CountDownLatch(1)
@@ -706,6 +778,156 @@ class OkHttpRelaySessionClientTest {
         assertTrue(result is AndroidInitiationResult.Uncertain)
         assertEquals(request, (result as AndroidInitiationResult.Uncertain).request)
         assertEquals(AndroidHomeUnavailableReason.TransportTimeout, result.reason)
+        client.close()
+    }
+
+    @Test
+    fun a_second_prompt_is_rejected_while_first_acknowledgement_is_pending() {
+        val promptCount = AtomicInteger(0)
+        val firstPromptSeen = CountDownLatch(1)
+        val releaseFirstResponse = CountDownLatch(1)
+        val firstResult = AtomicReference<AndroidInitiationResult?>(null)
+        val firstDone = CountDownLatch(1)
+
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        val request = JSONObject(text)
+                        when (request.optString("method")) {
+                            "conversation.open", "conversation.reconnect" ->
+                                webSocket.send(readyResponse(request.getString("id"), audio = false))
+                            "prompt.submit" -> {
+                                val count = promptCount.incrementAndGet()
+                                val requestId = request.getString("id")
+                                if (count == 1) {
+                                    firstPromptSeen.countDown()
+                                    Thread {
+                                        if (releaseFirstResponse.await(5, TimeUnit.SECONDS)) {
+                                            webSocket.send(
+                                                rpcResult(
+                                                    requestId,
+                                                    JSONObject()
+                                                        .put("schema", 1)
+                                                        .put("conversation_handle", CONVERSATION_HANDLE)
+                                                        .put("turn_id", "home-turn-first")
+                                                        .put("status", "submitted"),
+                                                ),
+                                            )
+                                        }
+                                    }.apply { isDaemon = true }.start()
+                                } else {
+                                    webSocket.send(
+                                        rpcResult(
+                                            requestId,
+                                            JSONObject()
+                                                .put("schema", 1)
+                                                .put("conversation_handle", CONVERSATION_HANDLE)
+                                                .put("turn_id", "home-turn-second")
+                                                .put("status", "submitted"),
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+
+        val client = client(requestTimeoutMillis = 2_000)
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val firstRequest = AndroidTurnRequest(
+            AndroidProfile(PROFILE_ID, "Amanda"),
+            AndroidTurnInput.Typed("first prompt"),
+        )
+        val firstThread = Thread {
+            try {
+                firstResult.set(client.beginTurn(firstRequest))
+            } finally {
+                firstDone.countDown()
+            }
+        }.apply { isDaemon = true }
+        firstThread.start()
+
+        assertTrue(firstPromptSeen.await(5, TimeUnit.SECONDS))
+        val second = client.beginTurn(
+            AndroidTurnRequest(
+                AndroidProfile(PROFILE_ID, "Amanda"),
+                AndroidTurnInput.Typed("second prompt"),
+            ),
+        )
+        releaseFirstResponse.countDown()
+
+        assertTrue(firstDone.await(5, TimeUnit.SECONDS))
+        assertTrue(firstResult.get() is AndroidInitiationResult.Accepted)
+        assertEquals(
+            AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable),
+            second,
+        )
+        assertEquals(1, promptCount.get())
+        client.close()
+    }
+
+    @Test
+    fun an_uncertain_prompt_blocks_new_turns_until_explicit_resend_is_prepared() {
+        val promptCount = AtomicInteger(0)
+        val firstPromptSeen = CountDownLatch(1)
+
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        val request = JSONObject(text)
+                        when (request.optString("method")) {
+                            "conversation.open", "conversation.reconnect" ->
+                                webSocket.send(readyResponse(request.getString("id"), audio = false))
+                            "prompt.submit" -> {
+                                if (promptCount.incrementAndGet() == 1) {
+                                    firstPromptSeen.countDown()
+                                } else {
+                                    webSocket.send(
+                                        rpcResult(
+                                            request.getString("id"),
+                                            JSONObject()
+                                                .put("schema", 1)
+                                                .put("conversation_handle", CONVERSATION_HANDLE)
+                                                .put("turn_id", "home-turn-explicit")
+                                                .put("status", "submitted"),
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+
+        val client = client(requestTimeoutMillis = 250)
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val request = AndroidTurnRequest(
+            AndroidProfile(PROFILE_ID, "Amanda"),
+            AndroidTurnInput.Typed("may have arrived"),
+        )
+        val uncertain = client.beginTurn(request)
+
+        assertTrue(firstPromptSeen.await(5, TimeUnit.SECONDS))
+        assertTrue(uncertain is AndroidInitiationResult.Uncertain)
+        assertEquals(
+            AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable),
+            client.beginTurn(
+                AndroidTurnRequest(
+                    AndroidProfile(PROFILE_ID, "Amanda"),
+                    AndroidTurnInput.Typed("do not send yet"),
+                ),
+            ),
+        )
+        assertEquals(1, promptCount.get())
+
+        client.prepareForExplicitResend()
+        assertTrue(client.beginTurn(request) is AndroidInitiationResult.Accepted)
+        assertEquals(2, promptCount.get())
         client.close()
     }
 
