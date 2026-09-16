@@ -294,3 +294,21 @@ the Compose-backed connected suite was not rerun. Its earlier failure reported
 the device as asleep/non-interactive; no app crash was established. Unlocking
 the handset is still required for the on-device UI validation. This does not
 change the live Home provenance limitation or the `backlog` delivery status.
+
+## Device retest — 2026-09-16
+
+The wireless physical Pixel 6a was awake and unlocked for a fresh validation
+pass. The current `com.achappell.hermesrelay` debug APK and test APK installed
+successfully, `MainActivity` resolved and launched, and the UI tree exposed the
+expected Compose hierarchy for the empty-profile state. The final crash buffer
+was empty.
+
+The default connected instrumentation report passed all 37 non-live tests with
+zero failures, errors, or skips. The runner selected zero `@LiveRelay` tests,
+as intended. `AudioOutputPreflightTest.verifyPhysicalAudioOutput` then passed
+as a separate device-only check with `AUDIO_PREFLIGHT=PASS`.
+
+This clears the former lock-screen/Compose-hierarchy limitation. It does not
+constitute live Home proof: no signed deployment or current-run trace
+attestation was available, so the four opt-in live branches remain not run and
+the record stays `done-with-environment-limitation`.
