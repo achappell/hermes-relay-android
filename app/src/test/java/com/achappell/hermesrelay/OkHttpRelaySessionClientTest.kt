@@ -255,6 +255,40 @@ class OkHttpRelaySessionClientTest {
         assertEquals(0, unresolvedClient.snapshotRequestTelemetry().interruptRequestCount)
         unresolvedClient.close()
         assertTrue(unresolvedFrame.getJSONObject("result").getBoolean("unresolved_turn"))
+
+        val resumedClient = client()
+        val resumedFrame = JSONObject(readyResponse("open-3"))
+        resumedFrame.getJSONObject("result").put(
+            "unresolved_turn",
+            JSONObject()
+                .put("schema", 1)
+                .put("conversation_handle", CONVERSATION_HANDLE)
+                .put("turn_id", "home-turn-resumed")
+                .put("status", "submitted"),
+        )
+        val resumedOutcome = resumedClient.readOpenResult(
+            resumedFrame,
+            "open-3",
+            CONVERSATION_HANDLE,
+            "bridge-3",
+            PROFILE_ID,
+        ) as AndroidReconnectOutcome.Connected
+        assertTrue(resumedOutcome.unresolvedTurn)
+        assertEquals("home-turn-resumed", resumedOutcome.unresolvedTurnId)
+        assertEquals(
+            AndroidTurnBinding(
+                PROFILE_ID,
+                CONVERSATION_HANDLE,
+                "bridge-3",
+                "home-turn-resumed",
+            ),
+            resumedOutcome.unresolvedTurnBinding,
+        )
+        assertEquals(
+            0,
+            resumedClient.snapshotRequestTelemetry().promptSubmitCount,
+        )
+        resumedClient.close()
     }
 
     @Test

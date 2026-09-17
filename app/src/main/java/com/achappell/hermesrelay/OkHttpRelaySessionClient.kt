@@ -527,7 +527,10 @@ internal class OkHttpRelaySessionClient(
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     if (transportGeneration.get() != attemptGeneration) return
                     if (handshakeDone.get() && activeSocket.get() !== webSocket) return
-                    if (handshakeDone.get() && !handshakeCommitted.get()) return
+                    if (handshakeDone.get() && !handshakeCommitted.get()) {
+                        enqueue(InboundFrame.Text(text, localConnection, null))
+                        return
+                    }
                     val frame = runCatching { JSONObject(text) }.getOrNull()
                     if (frame == null) {
                         if (!handshakeDone.get()) {
@@ -579,6 +582,10 @@ internal class OkHttpRelaySessionClient(
                 override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                     if (transportGeneration.get() != attemptGeneration) return
                     if (activeSocket.get() !== webSocket) return
+                    if (handshakeDone.get() && !handshakeCommitted.get()) {
+                        enqueue(InboundFrame.Binary(bytes, localConnection, null))
+                        return
+                    }
                     if (!handshakeCommitted.get()) return
                     dispatch(bytes)
                 }
@@ -655,6 +662,7 @@ internal class OkHttpRelaySessionClient(
                 expectedRpcId = openId,
                 expectedHandle = homeBinding.conversationHandle,
                 connectionId = localConnection,
+                expectedProfileId = profile.id,
             )
         }
 
@@ -681,7 +689,23 @@ internal class OkHttpRelaySessionClient(
                 route.set(result.route)
                 capabilities.set(result.capabilities)
                 ready.set(true)
-                normalizer.set(HermesEventNormalizer(profile.id, allowLegacyFrames = false))
+                if (result.unresolvedTurnBinding != null) {
+                    activeTurn.set(result.unresolvedTurnBinding)
+                    normalizer.set(
+                        HermesEventNormalizer(profile.id, allowLegacyFrames = false).apply {
+                            beginTurn()
+                        },
+                    )
+                    synchronized(turnAdmissionLock) {
+                        turnInFlight.set(true)
+                        uncertainDelivery.set(false)
+                    }
+                    terminalObserved.set(false)
+                } else {
+                    activeTurn.set(null)
+                    if (!result.unresolvedTurn) queuedFrames.clear()
+                    normalizer.set(HermesEventNormalizer(profile.id, allowLegacyFrames = false))
+                }
                 hasOpenedConversation.set(true)
                 reconnectRequired.set(false)
                 reconnectRequiredProfileId.set(null)
@@ -1084,7 +1108,7 @@ internal class OkHttpRelaySessionClient(
                 }
                 is InboundFrame.Binary -> if (
                     frame.connectionId == currentConnection &&
-                    frame.binding == currentBinding
+                    (frame.binding == null || frame.binding == currentBinding)
                 ) {
                     dispatch(frame.value, frame.binding)
                 }
@@ -1133,6 +1157,7 @@ internal class OkHttpRelaySessionClient(
         expectedRpcId: String,
         expectedHandle: String,
         connectionId: String,
+        expectedProfileId: String? = null,
     ): AndroidReconnectOutcome {
         if (frame == null) {
             return AndroidReconnectOutcome.Retryable(
@@ -1199,7 +1224,7 @@ internal class OkHttpRelaySessionClient(
                 }
             }
 
-            "ready" -> readReadyResult(result, connectionId)
+            "ready" -> readReadyResult(result, connectionId, expectedHandle, expectedProfileId)
             else -> AndroidReconnectOutcome.Unrecoverable(
                 "The Home bridge returned an invalid conversation status.",
                 AndroidHomeUnavailableReason.ProtocolError,
@@ -1210,8 +1235,10 @@ internal class OkHttpRelaySessionClient(
     private fun readReadyResult(
         result: JSONObject,
         connectionId: String,
+        expectedHandle: String,
+        expectedProfileId: String?,
     ): AndroidReconnectOutcome {
-        val unresolvedTurn = exactBoolean(result, "unresolved_turn")
+        val unresolvedValue = readUnresolvedTurn(result, expectedHandle)
             ?: return AndroidReconnectOutcome.Unrecoverable(
                 "The Home bridge omitted unresolved-turn state.",
                 AndroidHomeUnavailableReason.ProtocolError,
@@ -1247,8 +1274,43 @@ internal class OkHttpRelaySessionClient(
             connectionId = connectionId,
             route = AndroidRoute(routeClass, routeId),
             capabilities = parsedCapabilities,
-            unresolvedTurn = unresolvedTurn,
+            unresolvedTurn = unresolvedValue.first,
+            unresolvedTurnId = unresolvedValue.second,
+            unresolvedTurnBinding = unresolvedValue.second?.let { turnId ->
+                expectedProfileId?.let { profileId ->
+                    AndroidTurnBinding(profileId, expectedHandle, connectionId, turnId)
+                }
+            },
         )
+    }
+
+    private fun readUnresolvedTurn(
+        result: JSONObject,
+        expectedHandle: String,
+    ): Pair<Boolean, String?>? {
+        if (!result.has("unresolved_turn")) return null
+        val topLevelTurnId = if (result.has("turn_id")) {
+            exactString(result, "turn_id") ?: return null
+        } else {
+            null
+        }
+        return when (val value = result.get("unresolved_turn")) {
+            is Boolean -> {
+                if (!value && topLevelTurnId != null) return null
+                value to topLevelTurnId
+            }
+            is JSONObject -> {
+                if (!hasExactInt(value, "schema", SCHEMA_VERSION) ||
+                    exactString(value, "conversation_handle") != expectedHandle ||
+                    exactString(value, "status").isNullOrBlank()
+                ) return null
+                val turnId = exactString(value, "turn_id")?.takeIf(String::isNotBlank)
+                    ?: return null
+                if (topLevelTurnId != null && topLevelTurnId != turnId) return null
+                true to turnId
+            }
+            else -> null
+        }
     }
 
     private fun openResponseFrame(response: PendingRpc): JSONObject? = response.await(0)

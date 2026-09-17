@@ -31,6 +31,7 @@ internal data class AndroidRecoveryState(
     val connectionId: String? = null,
     val unconfirmedTurn: AndroidUnconfirmedTurn? = null,
     val unresolvedHomeTurn: Boolean = false,
+    val resumedTurnBinding: AndroidTurnBinding? = null,
     val isRecovering: Boolean = false,
 ) {
     /** Compatibility alias; the value is a local bridge connection identity. */
@@ -50,6 +51,8 @@ internal sealed interface AndroidReconnectOutcome {
         val route: AndroidRoute? = null,
         val capabilities: AndroidHomeCapabilities = AndroidHomeCapabilities(),
         val unresolvedTurn: Boolean = false,
+        val unresolvedTurnId: String? = null,
+        val unresolvedTurnBinding: AndroidTurnBinding? = null,
     ) : AndroidReconnectOutcome {
         /** Compatibility alias for pre-Home fakes; never a Hermes Session ID. */
         @Deprecated("Use connectionId; this value is local to the bridge connection.")
@@ -122,6 +125,7 @@ internal class AndroidRecoveryController(
             state.copy(
                 connectionId = null,
                 unresolvedHomeTurn = false,
+                resumedTurnBinding = null,
                 unconfirmedTurn = retained,
             )
         } else {
@@ -129,6 +133,7 @@ internal class AndroidRecoveryController(
                 connection = AndroidConnectionState.Disconnected,
                 connectionId = null,
                 unresolvedHomeTurn = false,
+                resumedTurnBinding = null,
                 unconfirmedTurn = retained,
             )
         }
@@ -162,6 +167,12 @@ internal class AndroidRecoveryController(
                         connection = AndroidConnectionState.Connected,
                         connectionId = outcome.connectionId,
                         unresolvedHomeTurn = outcome.unresolvedTurn,
+                        resumedTurnBinding = outcome.unresolvedTurnBinding,
+                        unconfirmedTurn = if (outcome.unresolvedTurnBinding != null) {
+                            null
+                        } else {
+                            state.unconfirmedTurn
+                        },
                         isRecovering = false,
                     )
                     return state
@@ -215,6 +226,17 @@ internal class AndroidRecoveryController(
     fun discardUnconfirmedTurn(): AndroidRecoveryState {
         clientPort.prepareForExplicitResend()
         state = state.copy(unconfirmedTurn = null)
+        return state
+    }
+
+    /** Clear Home-owned turn state after its terminal event reaches the client. */
+    fun resolveHomeTurn(): AndroidRecoveryState {
+        if (state.unresolvedHomeTurn || state.resumedTurnBinding != null) {
+            state = state.copy(
+                unresolvedHomeTurn = false,
+                resumedTurnBinding = null,
+            )
+        }
         return state
     }
 

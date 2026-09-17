@@ -389,6 +389,49 @@ class HermesEventNormalizerTest {
     }
 
     @Test
+    fun home_reasoning_aliases_are_accepted_and_terminal_aliases_finish_the_turn() {
+        val reasoning = normalizer().normalize(
+            homeEvent(
+                "reasoning.delta",
+                org.json.JSONObject().put("text", "Checking the result"),
+            ).toString(),
+            binding,
+        )
+        assertEquals(listOf(AndroidNormalizedEvent.Thinking(binding)), reasoning)
+
+        listOf(
+            "turn_complete",
+            "turn.complete",
+            "turn.completed",
+            "turn.end",
+            "turn.ended",
+            "turn_end",
+            "response.complete",
+            "response.completed",
+        ).forEach { type ->
+            assertEquals(
+                type,
+                listOf(AndroidNormalizedEvent.TurnCompleted(binding)),
+                normalizer().normalize(
+                    homeEvent(type, org.json.JSONObject().put("status", "completed")).toString(),
+                    binding,
+                ),
+            )
+        }
+
+        listOf("turn_interrupted", "turn.interrupted", "turn.cancelled").forEach { type ->
+            assertEquals(
+                type,
+                listOf(AndroidNormalizedEvent.TurnInterrupted(binding, "cancelled")),
+                normalizer().normalize(
+                    homeEvent(type, org.json.JSONObject().put("status", "cancelled")).toString(),
+                    binding,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun home_audio_frame_notifications_require_explicit_little_endian_pcm_metadata() {
         val normalizer = normalizer()
 

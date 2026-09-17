@@ -117,7 +117,13 @@ internal fun AndroidClientScreen(
     var resendInFlight by remember { mutableStateOf(false) }
     val recoveryController = remember(clientPort) {
         AndroidRecoveryController(clientPort) { changed ->
-            mainHandler.post { recoveryState = changed }
+            mainHandler.post {
+                recoveryState = changed
+                changed.resumedTurnBinding?.let { binding ->
+                    initiationState = AndroidInitiationState.Accepted(binding)
+                    turnState = AndroidTurnState.awaitingEvents(binding)
+                }
+            }
         }
     }
     var captureState by remember { mutableStateOf<AndroidCaptureState>(AndroidCaptureState.Idle) }
@@ -190,6 +196,13 @@ internal fun AndroidClientScreen(
                 mainHandler.post {
                     val previous = turnState
                     turnState = AndroidTurnStateReducer.reduce(previous, event)
+                    if (
+                        event is AndroidNormalizedEvent.TurnCompleted ||
+                        event is AndroidNormalizedEvent.TurnFailed ||
+                        event is AndroidNormalizedEvent.TurnInterrupted
+                    ) {
+                        recoveryState = recoveryController.resolveHomeTurn()
+                    }
                 }
             }
         }

@@ -208,7 +208,7 @@ internal class HermesEventNormalizer(
                     payload.optString("reason").ifBlank { "already_processed" },
                 ),
             )
-            "status" -> statusEvent(binding, payload, frame)
+            "status", "status.update" -> statusEvent(binding, payload, frame)
             "text_delta" -> deltaEvents(
                 binding,
                 firstNonBlank(payload, "text", "delta", "rendered").orEmpty(),
@@ -261,15 +261,23 @@ internal class HermesEventNormalizer(
     ): List<AndroidNormalizedEvent> = when (type) {
         "gateway.ready", "status" -> statusEvent(binding, payload, JSONObject())
         "message.start" -> listOf(AndroidNormalizedEvent.Thinking(binding))
-        "message.delta", "message.interim", "text_delta" -> {
+        "message.delta", "message.interim", "text.delta", "text_delta" -> {
             val text = firstNonBlank(payload, "rendered", "text", "delta").orEmpty()
             val cumulative = payload.has("rendered") ||
                 payload.optBoolean("cumulative", false) ||
                 payload.optString("mode").equals("cumulative", ignoreCase = true)
             deltaEvents(binding, text, replace = cumulative)
         }
+        "text", "text_final" -> finalTextEvents(
+            binding,
+            firstNonBlank(payload, "rendered", "text").orEmpty(),
+        )
+        "thinking", "reasoning", "thinking.delta", "reasoning.delta", "reasoning.available" ->
+            listOf(AndroidNormalizedEvent.Thinking(binding))
         "message.complete" -> completeEvents(binding, payload)
-        "session.interrupted", "turn.interrupted", "turn.cancelled" -> listOf(
+        "turn_complete", "turn.complete", "turn.completed", "turn.end", "turn.ended",
+        "turn_end", "response.complete", "response.completed" -> completeEvents(binding, payload)
+        "session.interrupted", "turn_interrupted", "turn.interrupted", "turn.cancelled" -> listOf(
             AndroidNormalizedEvent.TurnInterrupted(
                 binding,
                 firstNonBlank(payload, "reason", "status") ?: "The turn was interrupted.",
