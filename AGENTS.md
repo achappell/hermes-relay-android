@@ -38,6 +38,15 @@ Keep wrong diagnoses in the record when they were informative. A fix that
 changed nothing is evidence, and deleting it invites the next reader to repeat
 the theory.
 
+## Issue tracking
+
+The configured GitHub issue tracker is active for Android-owned story work.
+Keep issue changes scoped to this repository and preserve the stable Android
+story identity. The local story index, specification, validation record, and
+`sprint-status.yaml` remain authoritative for delivery scope and status.
+GitHub Project #3 is a mechanical mirror maintained through the coordinator
+procedure; mirror only accepted Android-owned records from this repository.
+
 ## Worktrees
 
 All linked feature and agent worktrees for this repository belong under
