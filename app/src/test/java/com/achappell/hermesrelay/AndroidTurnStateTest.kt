@@ -40,6 +40,22 @@ class AndroidTurnStateTest {
         assertEquals(state, after)
     }
 
+    @Test
+    fun interrupt_acknowledgement_is_not_terminal() {
+        val thinking = AndroidTurnState.awaitingEvents(binding)
+            .reduce(AndroidNormalizedEvent.Thinking(binding))
+        val acknowledgement = AndroidInterruptTelemetry(
+            sentCount = 1,
+            acknowledgementObserved = true,
+            terminalObserved = false,
+        )
+
+        assertTrue(acknowledgement.acknowledgementObserved)
+        assertFalse(acknowledgement.terminalObserved)
+        assertFalse(thinking.isTerminal)
+        assertEquals(AndroidTurnPhase.Thinking, thinking.phase)
+    }
+
     private val binding = AndroidTurnBinding(
         profileId = "amanda",
         sessionId = "session-1",

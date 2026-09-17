@@ -55,6 +55,32 @@ class RelayProfileTest {
     }
 
     @Test
+    fun approved_route_rejects_non_bridge_paths() {
+        val routes = listOf(
+            "wss://home.example/voice-session",
+            "wss://home.example/api/v1/bridge/ws/extra",
+            "wss://home.example/api/v1/bridge",
+        )
+
+        routes.forEach { route ->
+            assertEquals(
+                RelayProfileError.EndpointMalformed,
+                RelayProfileValidator.validateApprovedHomeRoute(route),
+            )
+        }
+        assertEquals(
+            null,
+            RelayProfileValidator.validateApprovedHomeRoute("wss://home.example"),
+        )
+        assertEquals(
+            null,
+            RelayProfileValidator.validateApprovedHomeRoute(
+                "wss://home.example/api/v1/bridge/ws/",
+            ),
+        )
+    }
+
+    @Test
     fun every_blank_identity_field_reports_its_own_error() {
         val errors = RelayProfileValidator.validate(
             endpoint = "",

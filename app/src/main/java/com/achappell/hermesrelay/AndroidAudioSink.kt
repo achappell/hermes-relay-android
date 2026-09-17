@@ -5,7 +5,11 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /** The response audio format Home announces in `audio.frame` kind `start`. */
 internal data class AndroidAudioFormat(
@@ -64,163 +68,248 @@ internal interface AndroidAudioSink {
     }
 }
 
-/** `AudioTrack`-backed playback for streamed 16-bit PCM. */
-internal class AudioTrackAudioSink : AndroidAudioSink {
-    private val worker = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "hermes-audio-out").apply { isDaemon = true }
+internal enum class AudioSinkFailureKind {
+    StartFailure,
+    WriteFailure,
+    InvalidFrameAlignment,
+    PlaybackStalled,
+    Underrun,
+    DrainTimeout,
+    OutputUnavailable,
+}
+
+/** Content-free playback facts exposed to deterministic tests and live proof. */
+internal data class AndroidAudioSinkTelemetry(
+    val started: Boolean,
+    val acceptedBytes: Int,
+    val acceptedFrames: Int,
+    val drained: Boolean,
+    val failed: Boolean,
+    val underrunCount: Int,
+    val failureKind: AudioSinkFailureKind?,
+)
+
+/** Narrow platform seam; implementations must not retain PCM for inspection. */
+internal interface AudioTrackDriver {
+    fun state(): Int
+
+    fun play()
+
+    fun write(buffer: ByteArray, offset: Int, size: Int): Int
+
+    fun playbackHeadFrames(): Long
+
+    fun underrunCount(): Int
+
+    fun stop()
+
+    fun release()
+}
+
+internal fun interface AudioTrackDriverFactory {
+    fun create(format: AndroidAudioFormat, bufferSize: Int): AudioTrackDriver
+}
+
+private class PlatformAudioTrackDriver(
+    private val track: AudioTrack,
+) : AudioTrackDriver {
+    override fun state(): Int = track.state
+
+    override fun play() = track.play()
+
+    override fun write(buffer: ByteArray, offset: Int, size: Int): Int = track.write(
+        buffer,
+        offset,
+        size,
+        AudioTrack.WRITE_NON_BLOCKING,
+    )
+
+    override fun playbackHeadFrames(): Long = track.playbackHeadPosition.toLong()
+
+    override fun underrunCount(): Int = track.underrunCount
+
+    override fun stop() = track.stop()
+
+    override fun release() = track.release()
+}
+
+private val platformAudioTrackDriverFactory = AudioTrackDriverFactory { format, bufferSize ->
+    val channelMask = if (format.channels == 1) {
+        AudioFormat.CHANNEL_OUT_MONO
+    } else {
+        AudioFormat.CHANNEL_OUT_STEREO
     }
-    private var track: AudioTrack? = null
-    private var framesWritten = 0L
-    private var sampleRate = 0
-    private var bytesPerFrame = bytesPerFrame(1)
-    private val failed = AtomicBoolean(false)
+    val track = AudioTrack.Builder()
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build(),
+        )
+        .setAudioFormat(
+            AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(format.sampleRate)
+                .setChannelMask(channelMask)
+                .build(),
+        )
+        .setBufferSizeInBytes(bufferSize)
+        .setTransferMode(AudioTrack.MODE_STREAM)
+        .build()
+    PlatformAudioTrackDriver(track)
+}
 
-    override fun start(format: AndroidAudioFormat): Boolean {
-        if (!format.isSupported) return false
-
-        return runCatching {
-            cancel()
-            val channelMask = if (format.channels == 1) {
+/** `AudioTrack`-backed playback for streamed 16-bit PCM. */
+internal class AudioTrackAudioSink(
+    private val driverFactory: AudioTrackDriverFactory = platformAudioTrackDriverFactory,
+    private val writeStallDeadlineMillis: Long = DEFAULT_WRITE_STALL_DEADLINE_MILLIS,
+    private val drainStallDeadlineMillis: Long = DEFAULT_DRAIN_STALL_DEADLINE_MILLIS,
+    private val drainTimeoutMillis: Long = DEFAULT_DRAIN_TIMEOUT_MILLIS,
+    private val minBufferSizeProvider: (AndroidAudioFormat) -> Int = { format ->
+        AudioTrack.getMinBufferSize(
+            format.sampleRate,
+            if (format.channels == 1) {
                 AudioFormat.CHANNEL_OUT_MONO
             } else {
                 AudioFormat.CHANNEL_OUT_STEREO
+            },
+            AudioFormat.ENCODING_PCM_16BIT,
+        )
+    },
+) : AndroidAudioSink {
+    private val worker = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "hermes-audio-out").apply { isDaemon = true }
+    }
+    private val generation = AtomicLong(0)
+    private val driver = AtomicReference<AudioTrackDriver?>(null)
+    private val active = AtomicBoolean(false)
+    private val started = AtomicBoolean(false)
+    private val acceptedBytes = AtomicLong(0)
+    private val acceptedFrames = AtomicLong(0)
+    private val drained = AtomicBoolean(false)
+    private val failed = AtomicBoolean(false)
+    private val underrunCount = AtomicInteger(0)
+    private val underrunBaseline = AtomicInteger(0)
+    private val failureKind = AtomicReference<AudioSinkFailureKind?>(null)
+    @Volatile
+    private var frameBytes = bytesPerFrame(1)
+
+    internal fun snapshotTelemetry(): AndroidAudioSinkTelemetry = AndroidAudioSinkTelemetry(
+        started = started.get(),
+        acceptedBytes = acceptedBytes.get().coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        acceptedFrames = acceptedFrames.get().coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        drained = drained.get(),
+        failed = failed.get(),
+        underrunCount = underrunCount.get().coerceAtLeast(0),
+        failureKind = failureKind.get(),
+    )
+
+    override fun start(format: AndroidAudioFormat): Boolean {
+        cancel()
+        started.set(false)
+        acceptedBytes.set(0)
+        acceptedFrames.set(0)
+        drained.set(false)
+        failed.set(false)
+        underrunCount.set(0)
+        underrunBaseline.set(0)
+        failureKind.set(null)
+        frameBytes = bytesPerFrame(format.channels)
+        if (!format.isSupported) {
+            fail(AudioSinkFailureKind.StartFailure)
+            return false
+        }
+
+        return runCatching {
+            val minBuffer = minBufferSizeProvider(format)
+            if (minBuffer <= 0) {
+                fail(AudioSinkFailureKind.OutputUnavailable)
+                return@runCatching false
             }
-            val minBuffer = AudioTrack.getMinBufferSize(
-                format.sampleRate,
-                channelMask,
-                AudioFormat.ENCODING_PCM_16BIT,
-            )
-            if (minBuffer <= 0) return false
-
-            val created = AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build(),
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(format.sampleRate)
-                        .setChannelMask(channelMask)
-                        .build(),
-                )
-                .setBufferSizeInBytes(minBuffer * BUFFER_FACTOR)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
-
-            if (created.state != AudioTrack.STATE_INITIALIZED) {
-                created.release()
-                return false
+            val created = driverFactory.create(format, minBuffer * BUFFER_FACTOR)
+            if (created.state() != AudioTrack.STATE_INITIALIZED) {
+                runCatching { created.release() }
+                fail(AudioSinkFailureKind.StartFailure)
+                return@runCatching false
             }
-
+            val baselineUnderruns = created.underrunCount().coerceAtLeast(0)
+            underrunBaseline.set(baselineUnderruns)
+            underrunCount.set(0)
+            driver.set(created)
             created.play()
-            track = created
-            sampleRate = format.sampleRate
-            bytesPerFrame = bytesPerFrame(format.channels)
-            framesWritten = 0
-            failed.set(false)
+            active.set(true)
+            started.set(true)
             true
-        }.getOrElse { false }
+        }.getOrElse {
+            fail(AudioSinkFailureKind.StartFailure)
+            releaseDriver(stop = false)
+            false
+        }
     }
 
     override fun write(bytes: ByteArray) {
-        val active = track ?: return
-        worker.execute {
-            runCatching {
-                var offset = 0
-                var stalled = 0
-                // A blocking write would wait forever on a device that stops
-                // consuming, stranding the turn in Speaking because finish()
-                // is queued behind it. Bound the wait and fail instead.
-                while (offset < bytes.size) {
-                    val written = active.write(
-                        bytes,
-                        offset,
-                        bytes.size - offset,
-                        AudioTrack.WRITE_NON_BLOCKING,
-                    )
-                    when {
-                        written < 0 -> {
-                            failed.set(true)
-                            return@runCatching
-                        }
-
-                        written == 0 -> {
-                            stalled += 1
-                            if (stalled > WRITE_STALL_ITERATIONS) {
-                                failed.set(true)
-                                return@runCatching
-                            }
-                            Thread.sleep(WRITE_STALL_POLL_MILLIS)
-                        }
-
-                        else -> {
-                            stalled = 0
-                            offset += written
-                            framesWritten += written / bytesPerFrame
-                        }
-                    }
-                }
-            }.onFailure { failed.set(true) }
+        if (!active.get() || failed.get()) {
+            fail(AudioSinkFailureKind.WriteFailure)
+            return
+        }
+        if (bytes.isEmpty() || bytes.size % frameBytes != 0) {
+            fail(AudioSinkFailureKind.InvalidFrameAlignment)
+            return
+        }
+        val expectedGeneration = generation.get()
+        try {
+            worker.execute {
+                writeQueued(bytes, expectedGeneration)
+            }
+        } catch (_: RuntimeException) {
+            fail(AudioSinkFailureKind.WriteFailure)
         }
     }
 
     override fun finish(onDrained: () -> Unit, onFailure: (String) -> Unit) {
-        val active = track
-        if (active == null) {
-            onFailure("Response audio playback was never started.")
+        val expectedGeneration = generation.get()
+        if (!active.get() || driver.get() == null) {
+            fail(AudioSinkFailureKind.StartFailure)
+            onFailure(SAFE_FAILURE_MESSAGE)
             return
         }
-
-        worker.execute {
-            val outcome = runCatching {
-                // Let the device finish what is already queued, then wait for
-                // the playhead to reach it. Reporting Complete before this
-                // would claim a response finished speaking while it still is.
-                active.stop()
-                var guard = 0
-                var stalled = 0
-                var lastPosition = active.playbackHeadPosition
-                // The playhead does not always reach the written frame count.
-                // An underrun takes the track off AudioFlinger's active list and
-                // those frames are never rendered, so waiting for equality burns
-                // the whole guard on every underrunning stream. After stop() no
-                // further audio is queued, so a playhead that stops advancing has
-                // finished whatever it is going to play.
-                while (
-                    active.playbackHeadPosition < framesWritten &&
-                    stalled < DRAIN_STALL_ITERATIONS &&
-                    guard < DRAIN_GUARD_ITERATIONS &&
-                    !failed.get()
-                ) {
-                    Thread.sleep(DRAIN_POLL_MILLIS)
-                    guard += 1
-                    val position = active.playbackHeadPosition
-                    stalled = if (position == lastPosition) stalled + 1 else 0
-                    lastPosition = position
+        val callbackSent = AtomicBoolean(false)
+        fun drainedOnce() {
+            if (callbackSent.compareAndSet(false, true)) onDrained()
+        }
+        fun failedOnce() {
+            if (callbackSent.compareAndSet(false, true)) onFailure(SAFE_FAILURE_MESSAGE)
+        }
+        try {
+            worker.execute {
+                val outcome = runCatching {
+                    drainQueued(expectedGeneration)
                 }
-                active.playbackHeadPosition
+                if (generation.get() != expectedGeneration) return@execute
+                if (outcome.isSuccess && !failed.get()) {
+                    releaseDriver(stop = true)
+                    drained.set(true)
+                    active.set(false)
+                    drainedOnce()
+                } else {
+                    if (failureKind.get() == null) fail(AudioSinkFailureKind.DrainTimeout)
+                    releaseDriver(stop = false)
+                    active.set(false)
+                    failedOnce()
+                }
             }
-            releaseTrack()
-
-            when {
-                outcome.isFailure || failed.get() ->
-                    onFailure("Response audio playback failed.")
-                else -> onDrained()
-            }
+        } catch (_: RuntimeException) {
+            fail(AudioSinkFailureKind.DrainTimeout)
+            releaseDriver(stop = false)
+            active.set(false)
+            failedOnce()
         }
     }
 
     override fun cancel() {
-        runCatching {
-            track?.let { active ->
-                active.pause()
-                active.flush()
-            }
-        }
-        releaseTrack()
+        generation.incrementAndGet()
+        active.set(false)
+        releaseDriver(stop = true)
     }
 
     override fun close() {
@@ -228,23 +317,150 @@ internal class AudioTrackAudioSink : AndroidAudioSink {
         worker.shutdownNow()
     }
 
-    private fun releaseTrack() {
-        runCatching { track?.release() }
-        track = null
-        framesWritten = 0
+    private fun writeQueued(bytes: ByteArray, expectedGeneration: Long) {
+        if (generation.get() != expectedGeneration || !active.get() || failed.get()) return
+        val activeDriver = driver.get() ?: run {
+            fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
+            return
+        }
+        var offset = 0
+        var lastProgress = System.nanoTime()
+        while (offset < bytes.size) {
+            if (generation.get() != expectedGeneration || !active.get() || failed.get()) return
+            if (!observeUnderruns(activeDriver, expectedGeneration)) return
+            val written = runCatching {
+                activeDriver.write(bytes, offset, bytes.size - offset)
+            }.getOrElse {
+                fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
+                return
+            }
+            if (generation.get() != expectedGeneration || !active.get()) return
+            when {
+                written < 0 || written > bytes.size - offset -> {
+                    fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
+                    return
+                }
+
+                written == 0 -> {
+                    if (elapsedMillis(lastProgress) >= writeStallDeadlineMillis) {
+                        fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
+                        return
+                    }
+                    sleepForPoll(expectedGeneration)
+                }
+
+                written % frameBytes != 0 -> {
+                    fail(AudioSinkFailureKind.InvalidFrameAlignment, expectedGeneration)
+                    return
+                }
+
+                else -> {
+                    if (!observeUnderruns(activeDriver, expectedGeneration)) return
+                    offset += written
+                    acceptedBytes.addAndGet(written.toLong())
+                    acceptedFrames.addAndGet((written / frameBytes).toLong())
+                    lastProgress = System.nanoTime()
+                }
+            }
+        }
+    }
+
+    private fun drainQueued(expectedGeneration: Long) {
+        if (generation.get() != expectedGeneration || !active.get() || failed.get()) return
+        val activeDriver = driver.get() ?: run {
+            fail(AudioSinkFailureKind.StartFailure, expectedGeneration)
+            return
+        }
+        val targetFrames = acceptedFrames.get()
+        if (targetFrames <= 0) {
+            fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
+            return
+        }
+        val startedAt = System.nanoTime()
+        var lastPosition = runCatching { activeDriver.playbackHeadFrames() }
+            .getOrElse {
+                fail(AudioSinkFailureKind.PlaybackStalled, expectedGeneration)
+                return
+            }
+        var lastProgress = startedAt
+        while (true) {
+            if (generation.get() != expectedGeneration || !active.get()) return
+            if (failed.get()) return
+            if (!observeUnderruns(activeDriver, expectedGeneration)) return
+            val position = runCatching { activeDriver.playbackHeadFrames() }
+                .getOrElse {
+                    fail(AudioSinkFailureKind.PlaybackStalled, expectedGeneration)
+                    return
+                }
+            if (position >= targetFrames) return
+            if (position > lastPosition) {
+                lastPosition = position
+                lastProgress = System.nanoTime()
+            }
+            val now = System.nanoTime()
+            if (elapsedMillis(lastProgress) >= drainStallDeadlineMillis) {
+                fail(AudioSinkFailureKind.PlaybackStalled, expectedGeneration)
+                return
+            }
+            if (elapsedMillis(startedAt) >= drainTimeoutMillis) {
+                fail(AudioSinkFailureKind.DrainTimeout, expectedGeneration)
+                return
+            }
+            sleepForPoll(expectedGeneration)
+        }
+    }
+
+    private fun observeUnderruns(
+        activeDriver: AudioTrackDriver,
+        expectedGeneration: Long,
+    ): Boolean {
+        if (generation.get() != expectedGeneration || !active.get()) return false
+        val current = runCatching { activeDriver.underrunCount() }
+            .getOrElse {
+                fail(AudioSinkFailureKind.Underrun, expectedGeneration)
+                return false
+            }
+            .coerceAtLeast(0)
+        val delta = (current - underrunBaseline.get()).coerceAtLeast(0)
+        underrunCount.set(delta)
+        if (current > underrunBaseline.get()) {
+            fail(AudioSinkFailureKind.Underrun, expectedGeneration)
+            return false
+        }
+        return true
+    }
+
+    private fun fail(kind: AudioSinkFailureKind, expectedGeneration: Long? = null) {
+        if (expectedGeneration != null && generation.get() != expectedGeneration) return
+        failed.set(true)
+        failureKind.compareAndSet(null, kind)
+    }
+
+    private fun releaseDriver(stop: Boolean) {
+        val current = driver.getAndSet(null) ?: return
+        if (stop) runCatching { current.stop() }
+        runCatching { current.release() }
+    }
+
+    private fun elapsedMillis(startNanos: Long): Long =
+        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos)
+
+    private fun sleepForPoll(expectedGeneration: Long? = null) {
+        try {
+            Thread.sleep(POLL_MILLIS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            fail(AudioSinkFailureKind.DrainTimeout, expectedGeneration)
+        }
     }
 
     private companion object {
         const val BUFFER_FACTOR = 4
-        const val BYTES_PER_SAMPLE = 2
-        const val DRAIN_POLL_MILLIS = 20L
-        const val DRAIN_GUARD_ITERATIONS = 1_500
-
-        // 500 ms of no playhead movement after stop(). Long enough not to cut
-        // off a track that is still draining, far short of the 30 s guard.
-        const val DRAIN_STALL_ITERATIONS = 25
-        const val WRITE_STALL_POLL_MILLIS = 5L
-        const val WRITE_STALL_ITERATIONS = 600
+        const val POLL_MILLIS = 5L
+        const val DEFAULT_WRITE_STALL_DEADLINE_MILLIS = 3_000L
+        const val DEFAULT_DRAIN_STALL_DEADLINE_MILLIS = 500L
+        const val DEFAULT_DRAIN_TIMEOUT_MILLIS = 30_000L
+        const val SAFE_FAILURE_MESSAGE = "Response audio playback failed."
     }
 }
 

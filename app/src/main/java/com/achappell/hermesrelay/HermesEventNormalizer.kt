@@ -35,7 +35,7 @@ internal class HermesEventNormalizer(
         val frame = runCatching { JSONObject(text) }.getOrNull()
             ?: return listOf(AndroidNormalizedEvent.Unknown(fallback, "malformed"))
 
-        val method = frame.optString("method")
+        val method = exactString(frame, "method")
         return when {
             method == "event" -> normalizeEndpointEvent(frame, fallback)
             method == AUDIO_METHOD -> normalizeEndpointAudio(frame, fallback)
@@ -60,15 +60,22 @@ internal class HermesEventNormalizer(
         }
         val params = frame.optJSONObject("params")
             ?: return listOf(AndroidNormalizedEvent.Unknown(fallback, "protocol_error"))
-        if (!params.has("schema") || params.optInt("schema", 0) != SCHEMA_VERSION) {
+        if (!hasExactInt(params, "schema", SCHEMA_VERSION)) {
             return listOf(AndroidNormalizedEvent.Unknown(fallback, "protocol_error"))
         }
-        val handle = params.optString("conversation_handle")
+        val handle = exactString(params, "conversation_handle")
+        if (handle == null) {
+            return listOf(AndroidNormalizedEvent.Unknown(fallback, "protocol_error"))
+        }
         if (handle.isBlank()) {
             return listOf(AndroidNormalizedEvent.Unknown(fallback, "missing_handle"))
         }
 
-        val turnId = params.optString("turn_id")
+        val turnIdValue = if (params.has("turn_id")) exactString(params, "turn_id") else null
+        if (params.has("turn_id") && turnIdValue == null) {
+            return listOf(AndroidNormalizedEvent.Unknown(fallback, "protocol_error"))
+        }
+        val turnId = turnIdValue.orEmpty()
         val binding = fallback.copy(
             conversationHandle = handle,
             turnId = turnId.ifBlank { fallback.turnId },
@@ -86,15 +93,21 @@ internal class HermesEventNormalizer(
         }
         val event = params.optJSONObject("event")
             ?: return listOf(AndroidNormalizedEvent.Unknown(binding, "protocol_error"))
-        val type = event.optString("type")
+        val type = exactString(event, "type")
+        if (type == null) {
+            return listOf(AndroidNormalizedEvent.Unknown(binding, "protocol_error"))
+        }
         if (type.isBlank()) {
             return listOf(AndroidNormalizedEvent.Unknown(binding, "protocol_error"))
         }
-        val payload = event.optJSONObject("payload") ?: JSONObject()
-        val correlationId = firstNonBlank(
+        val payload = if (event.has("payload")) event.optJSONObject("payload") else JSONObject()
+        if (payload == null) {
+            return listOf(AndroidNormalizedEvent.Unknown(binding, "protocol_error"))
+        }
+        val correlationId = firstExactNonBlank(
             params,
             "correlation_id",
-        ) ?: firstNonBlank(payload, "correlation_id", "request_id", "prompt_id", "id")
+        ) ?: firstExactNonBlank(payload, "correlation_id", "request_id", "prompt_id", "id")
 
         return standardEvents(type, payload, binding, correlationId)
     }
@@ -108,15 +121,18 @@ internal class HermesEventNormalizer(
         }
         val params = frame.optJSONObject("params")
             ?: return listOf(AndroidNormalizedEvent.Unknown(fallback, "protocol_error"))
-        if (!params.has("schema") || params.optInt("schema", 0) != SCHEMA_VERSION) {
+        if (!hasExactInt(params, "schema", SCHEMA_VERSION)) {
             return listOf(AndroidNormalizedEvent.Unknown(fallback, "protocol_error"))
         }
 
         val audioFrame = params.optJSONObject("frame")
             ?: return listOf(AndroidNormalizedEvent.Unknown(fallback, "protocol_error"))
 
-        val handle = params.optString("conversation_handle")
-        val turnId = params.optString("turn_id")
+        val handle = exactString(params, "conversation_handle")
+        val turnId = exactString(params, "turn_id")
+        if (handle == null || turnId == null) {
+            return listOf(AndroidNormalizedEvent.Unknown(fallback, "protocol_error"))
+        }
         val binding = fallback.copy(
             conversationHandle = handle.ifBlank { fallback.conversationHandle },
             turnId = turnId.ifBlank { fallback.turnId },
@@ -134,7 +150,7 @@ internal class HermesEventNormalizer(
             return listOf(AndroidNormalizedEvent.Unknown(binding, "turn_mismatch"))
         }
 
-        return when (audioFrame.optString("kind")) {
+        return when (exactString(audioFrame, "kind")) {
             "start" -> {
                 val format = endpointAudioFormat(audioFrame)
                 if (format == null) {
@@ -160,8 +176,8 @@ internal class HermesEventNormalizer(
                 listOf(
                     AndroidNormalizedEvent.AudioFailed(
                         binding,
-                        (firstNonBlank(audioFrame, "reason", "code")
-                            ?: firstNonBlank(params, "reason", "code"))
+                        (firstExactNonBlank(audioFrame, "reason", "code")
+                            ?: firstExactNonBlank(params, "reason", "code"))
                             ?.take(MAX_REASON_LENGTH)
                             ?: "Home could not provide response audio.",
                     ),
@@ -173,8 +189,8 @@ internal class HermesEventNormalizer(
     }
 
     private fun isHomeEnvelope(frame: JSONObject): Boolean =
-        frame.optInt("schema", 0) == SCHEMA_VERSION &&
-            frame.optString("jsonrpc") == "2.0"
+        hasExactInt(frame, "schema", SCHEMA_VERSION) &&
+            exactString(frame, "jsonrpc") == "2.0"
 
     private fun normalizeLegacyFrame(
         frame: JSONObject,
@@ -192,7 +208,7 @@ internal class HermesEventNormalizer(
                     payload.optString("reason").ifBlank { "already_processed" },
                 ),
             )
-            "status" -> statusEvent(binding, payload, frame)
+            "status", "status.update" -> statusEvent(binding, payload, frame)
             "text_delta" -> deltaEvents(
                 binding,
                 firstNonBlank(payload, "text", "delta", "rendered").orEmpty(),
@@ -245,15 +261,23 @@ internal class HermesEventNormalizer(
     ): List<AndroidNormalizedEvent> = when (type) {
         "gateway.ready", "status" -> statusEvent(binding, payload, JSONObject())
         "message.start" -> listOf(AndroidNormalizedEvent.Thinking(binding))
-        "message.delta", "message.interim", "text_delta" -> {
+        "message.delta", "message.interim", "text.delta", "text_delta" -> {
             val text = firstNonBlank(payload, "rendered", "text", "delta").orEmpty()
             val cumulative = payload.has("rendered") ||
                 payload.optBoolean("cumulative", false) ||
                 payload.optString("mode").equals("cumulative", ignoreCase = true)
             deltaEvents(binding, text, replace = cumulative)
         }
+        "text", "text_final" -> finalTextEvents(
+            binding,
+            firstNonBlank(payload, "rendered", "text").orEmpty(),
+        )
+        "thinking", "reasoning", "thinking.delta", "reasoning.delta", "reasoning.available" ->
+            listOf(AndroidNormalizedEvent.Thinking(binding))
         "message.complete" -> completeEvents(binding, payload)
-        "session.interrupted", "turn.interrupted", "turn.cancelled" -> listOf(
+        "turn_complete", "turn.complete", "turn.completed", "turn.end", "turn.ended",
+        "turn_end", "response.complete", "response.completed" -> completeEvents(binding, payload)
+        "session.interrupted", "turn_interrupted", "turn.interrupted", "turn.cancelled" -> listOf(
             AndroidNormalizedEvent.TurnInterrupted(
                 binding,
                 firstNonBlank(payload, "reason", "status") ?: "The turn was interrupted.",
@@ -301,24 +325,19 @@ internal class HermesEventNormalizer(
         if (finalText != null) {
             events += finalTextEvents(binding, finalText)
         }
-        val status = payload.optString("status").lowercase()
-        if (status in INTERRUPTED_STATUSES) {
+        val terminal = checkNotNull(canonicalTerminalTrace("message.complete", payload))
+        if (terminal.outcome == "interrupted") {
             events += AndroidNormalizedEvent.TurnInterrupted(
                 binding,
-                status,
+                payload.optString("status").lowercase(),
             )
-        } else if (status in FAILED_STATUSES) {
+        } else if (terminal.outcome == "failed") {
             events += AndroidNormalizedEvent.TurnFailed(
                 binding,
-                status,
+                payload.optString("status").lowercase(),
             )
-        } else if (status.isBlank() || status in COMPLETED_STATUSES) {
-            events += AndroidNormalizedEvent.TurnCompleted(binding)
         } else {
-            events += AndroidNormalizedEvent.TurnFailed(
-                binding,
-                "Unknown terminal status: $status",
-            )
+            events += AndroidNormalizedEvent.TurnCompleted(binding)
         }
         return events
     }
@@ -400,15 +419,15 @@ internal class HermesEventNormalizer(
     )
 
     private fun endpointAudioFormat(payload: JSONObject): AndroidAudioFormat? {
-        if (
-            !payload.has("sample_rate") ||
-            !payload.has("channels") ||
-            !payload.has("sample_width") ||
-            payload.optString("byte_order") != "little"
-        ) {
+        val sampleRate = exactInt(payload, "sample_rate")
+        val channels = exactInt(payload, "channels")
+        val sampleWidth = exactInt(payload, "sample_width")
+        val byteOrder = exactString(payload, "byte_order")
+        val encoding = if (payload.has("encoding")) exactString(payload, "encoding") else "pcm_s16le"
+        if (sampleRate == null || channels == null || sampleWidth == null || byteOrder != "little" || encoding == null) {
             return null
         }
-        val format = audioFormat(payload)
+        val format = AndroidAudioFormat(sampleRate, channels, sampleWidth, encoding)
         return format.takeIf { it.isSupported }
     }
 
@@ -442,11 +461,23 @@ internal class HermesEventNormalizer(
 
     private fun firstNonBlank(source: JSONObject, vararg keys: String): String? {
         keys.forEach { key ->
-            val value = source.optString(key)
+            val value = source.opt(key) as? String ?: return@forEach
             if (value.isNotBlank()) return value
         }
         return null
     }
+
+    private fun firstExactNonBlank(source: JSONObject, vararg keys: String): String? =
+        firstNonBlank(source, *keys)
+
+    private fun exactString(source: JSONObject, key: String): String? =
+        if (!source.has(key)) null else source.get(key) as? String
+
+    private fun exactInt(source: JSONObject, key: String): Int? =
+        if (!source.has(key)) null else source.get(key) as? Int
+
+    private fun hasExactInt(source: JSONObject, key: String, expected: Int): Boolean =
+        exactInt(source, key) == expected
 
     private companion object {
         const val SCHEMA_VERSION = 1
@@ -475,5 +506,41 @@ internal class HermesEventNormalizer(
             "timed-out",
         )
         val HIGH_SENSITIVITY = setOf("high", "secret", "sensitive")
+    }
+}
+
+/** The redacted terminal vocabulary shared by Android events and Home traces. */
+internal data class AndroidCanonicalTerminalTrace(
+    val method: String,
+    val outcome: String,
+)
+
+internal fun canonicalTerminalTrace(
+    type: String,
+    payload: JSONObject = JSONObject(),
+): AndroidCanonicalTerminalTrace? {
+    val status = payload.optString("status").lowercase()
+    return when (type) {
+        "message.complete" -> when {
+            status.isBlank() || status in setOf(
+                "complete",
+                "completed",
+                "done",
+                "success",
+                "succeeded",
+                "ok",
+            ) -> AndroidCanonicalTerminalTrace("turn.completed", "completed")
+
+            status in setOf("cancelled", "canceled", "interrupted", "aborted", "stopped") ->
+                AndroidCanonicalTerminalTrace("turn.interrupted", "interrupted")
+
+            else -> AndroidCanonicalTerminalTrace("turn.failed", "failed")
+        }
+
+        "session.interrupted", "turn.interrupted", "turn.cancelled" ->
+            AndroidCanonicalTerminalTrace("turn.interrupted", "interrupted")
+
+        "error", "turn.error" -> AndroidCanonicalTerminalTrace("turn.failed", "failed")
+        else -> null
     }
 }

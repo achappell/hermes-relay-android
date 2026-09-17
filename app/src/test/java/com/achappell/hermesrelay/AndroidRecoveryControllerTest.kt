@@ -87,7 +87,7 @@ class AndroidRecoveryControllerTest {
     }
 
     @Test
-    fun recovery_never_replays_an_uncertain_turn() {
+    fun reconnect_does_not_replay_an_uncertain_turn() {
         val port = FakeRecoveryPort(outcomes = listOf(AndroidReconnectOutcome.Connected("session-2")))
         val controller = AndroidRecoveryController(port)
 
@@ -97,6 +97,40 @@ class AndroidRecoveryControllerTest {
         assertEquals(AndroidConnectionState.Connected, state.connection)
         assertEquals(unconfirmed, state.unconfirmedTurn)
         assertEquals(0, port.requests.size)
+    }
+
+    @Test
+    fun reconnect_adopts_home_owned_turn_without_resubmitting_and_clears_on_terminal() {
+        val resumedBinding = AndroidTurnBinding(
+            profileId = profile.id,
+            conversationHandle = "opaque-home-conversation",
+            connectionId = "bridge-2",
+            turnId = "turn-resumed",
+        )
+        val port = FakeRecoveryPort(
+            outcomes = listOf(
+                AndroidReconnectOutcome.Connected(
+                    connectionId = "bridge-2",
+                    unresolvedTurn = true,
+                    unresolvedTurnId = resumedBinding.turnId,
+                    unresolvedTurnBinding = resumedBinding,
+                ),
+            ),
+        )
+        val controller = AndroidRecoveryController(port)
+
+        controller.transportLost("Transport closed.", unconfirmed)
+        val resumed = controller.recover()
+
+        assertEquals(AndroidConnectionState.Connected, resumed.connection)
+        assertTrue(resumed.unresolvedHomeTurn)
+        assertEquals(resumedBinding, resumed.resumedTurnBinding)
+        assertNull(resumed.unconfirmedTurn)
+        assertEquals(0, port.requests.size)
+
+        val terminal = controller.resolveHomeTurn()
+        assertEquals(false, terminal.unresolvedHomeTurn)
+        assertNull(terminal.resumedTurnBinding)
     }
 
     @Test
