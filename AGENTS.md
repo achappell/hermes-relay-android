@@ -47,6 +47,11 @@ story identity. The local story index, specification, validation record, and
 GitHub Project #3 is a mechanical mirror maintained through the coordinator
 procedure; mirror only accepted Android-owned records from this repository.
 
+After refreshing BMAD, restore this repository's issue workflow overrides with
+`scripts/apply_repo_issue_tracking_overrides.sh`. The tracked source copies live
+under `_bmad/custom/repo-issue-tracking/workflows/common/`; use `--check` to
+verify the runtime copies. See [`docs/issue-tracking.md`](docs/issue-tracking.md).
+
 ## Worktrees
 
 All linked feature and agent worktrees for this repository belong under
