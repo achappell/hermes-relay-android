@@ -53,6 +53,7 @@ internal sealed interface AndroidReconnectOutcome {
         val unresolvedTurn: Boolean = false,
         val unresolvedTurnId: String? = null,
         val unresolvedTurnBinding: AndroidTurnBinding? = null,
+        val unresolvedTurnWasBoolean: Boolean = false,
     ) : AndroidReconnectOutcome {
         /** Compatibility alias for pre-Home fakes; never a Hermes Session ID. */
         @Deprecated("Use connectionId; this value is local to the bridge connection.")

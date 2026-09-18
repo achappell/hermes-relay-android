@@ -138,8 +138,10 @@ stories:
     validation: _bmad-output/implementation-artifacts/validation-5-a-4-live-home-gate.md
     scope_note: >-
       Additive live-gate evidence only; the completed 5-A-4 migration record
-      remains the parent authority until a real Home deployment and device gate
-      pass.
+      remains the parent authority. The signed Pixel run
+      android-live-3899e128557f4471 passed all four live branches. Authority revision 8 accepts validated unresolved-turn records on
+      reconnect and advertised commands as metadata; safe
+      schema-3 evidence records only their count, with no command UI added.
   - id: ANDROID-HOME-01
     title: Add the Android Home pairing and configuration adapter
     kind: next-wave

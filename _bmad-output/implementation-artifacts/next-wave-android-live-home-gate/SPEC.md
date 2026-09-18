@@ -19,3 +19,7 @@ completed migration record. The live Home route, paired Device credential,
 opaque conversation handles, physical device, and Standard-backed Home
 deployment are external prerequisites; route reachability or a
 `hermes_unavailable` response is not a production pass.
+
+Authority revision 8 accepts advertised command metadata and validated structured
+unresolved-turn records on reconnect. The canonical specification remains the
+source of scope; the story projection must match its body and SHA-256.

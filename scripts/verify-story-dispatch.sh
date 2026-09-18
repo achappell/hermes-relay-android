@@ -52,7 +52,7 @@ def body(path):
 
 dispatch = frontmatter(dispatch_story)
 expected = hashlib.sha256(canonical.read_bytes()).hexdigest()
-if dispatch.get("authority_revision") != "5":
+if dispatch.get("authority_revision") != "8":
     raise SystemExit(1)
 if dispatch.get("canonical_spec_sha256") != expected:
     raise SystemExit(1)

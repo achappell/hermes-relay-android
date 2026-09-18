@@ -10,11 +10,15 @@ import sys
 from urllib.parse import urlsplit
 
 
-HANDLE_NAMES = (
-    "LIVE_HANDSHAKE_HANDLE",
-    "LIVE_TYPED_HANDLE",
-    "LIVE_INTERRUPT_HANDLE",
-    "LIVE_RECONNECT_HANDLE",
+CLAIM_NAMES = (
+    "LIVE_HOME_CLAIM_DEVICE_ID",
+    "LIVE_HOME_CLAIM_MAPPING_ID",
+    "LIVE_HOME_CLAIM_CONFIGURATION_REVISION",
+    "LIVE_HOME_CLAIM_SSH_TARGET",
+)
+HOOK_NAMES = (
+    "LIVE_HOME_HANDLE_PROVIDER",
+    "LIVE_HOME_TRACE_FETCH_HOOK",
 )
 PROMPT_NAMES = (
     "LIVE_TYPED_PROMPT",
@@ -22,16 +26,18 @@ PROMPT_NAMES = (
     "LIVE_RECONNECT_PROMPT",
 )
 MISSING_NAMES = (
+    "LIVE_HOME_PROFILE_ID",
     "LIVE_HOME_ROUTE",
     "LIVE_DEVICE_CREDENTIAL",
-    *HANDLE_NAMES,
+    *CLAIM_NAMES,
+    *HOOK_NAMES,
     *PROMPT_NAMES,
     "LIVE_HOME_RUN_ID",
-    "LIVE_HOME_CLOSE_HOOK",
 )
 BRIDGE_PATH = "/api/v1/bridge/ws"
 RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+IDENTIFIER = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
 
 
 def utf8_size(value: str):
@@ -98,21 +104,25 @@ def main() -> int:
     if not valid_route(values["LIVE_HOME_ROUTE"]):
         print("INPUTS=FAIL:INVALID_BINDING")
         return 20
+    if not IDENTIFIER.fullmatch(values["LIVE_HOME_PROFILE_ID"]):
+        print("INPUTS=FAIL:INVALID_BINDING")
+        return 20
     if not valid_credential(values["LIVE_DEVICE_CREDENTIAL"]):
         print("INPUTS=FAIL:INVALID_BINDING")
         return 20
-    handles = []
-    for name in HANDLE_NAMES:
-        value = values[name]
-        if (
-            not safe_text(value, 256)
-            or value.strip() != value
-            or any(character.isspace() for character in value)
-        ):
+    for name in ("LIVE_HOME_CLAIM_DEVICE_ID", "LIVE_HOME_CLAIM_MAPPING_ID"):
+        if not IDENTIFIER.fullmatch(values[name]):
             print("INPUTS=FAIL:INVALID_BINDING")
             return 20
-        handles.append(value.strip())
-    if len(set(handles)) != len(handles):
+    try:
+        revision = int(values["LIVE_HOME_CLAIM_CONFIGURATION_REVISION"])
+    except ValueError:
+        print("INPUTS=FAIL:INVALID_BINDING")
+        return 20
+    if revision < 0 or str(revision) != values["LIVE_HOME_CLAIM_CONFIGURATION_REVISION"]:
+        print("INPUTS=FAIL:INVALID_BINDING")
+        return 20
+    if not re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+", values["LIVE_HOME_CLAIM_SSH_TARGET"]):
         print("INPUTS=FAIL:INVALID_BINDING")
         return 20
     for name in PROMPT_NAMES:
@@ -122,14 +132,15 @@ def main() -> int:
     if not RUN_ID.fullmatch(values["LIVE_HOME_RUN_ID"]):
         print("INPUTS=FAIL:INVALID_BINDING")
         return 20
-    try:
-        mode = os.stat(values["LIVE_HOME_CLOSE_HOOK"]).st_mode
-    except OSError:
-        print("INPUTS=FAIL:INVALID_BINDING")
-        return 20
-    if not stat.S_ISREG(mode) or not os.access(values["LIVE_HOME_CLOSE_HOOK"], os.X_OK):
-        print("INPUTS=FAIL:INVALID_BINDING")
-        return 20
+    for name in HOOK_NAMES:
+        try:
+            mode = os.stat(values[name]).st_mode
+        except OSError:
+            print("INPUTS=FAIL:INVALID_BINDING")
+            return 20
+        if not stat.S_ISREG(mode) or not os.access(values[name], os.X_OK):
+            print("INPUTS=FAIL:INVALID_BINDING")
+            return 20
     print("INPUTS=PASS")
     return 0
 

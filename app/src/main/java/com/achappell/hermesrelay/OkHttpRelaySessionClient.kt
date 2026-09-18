@@ -24,6 +24,12 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.SSLException
 
+private data class ParsedUnresolvedTurnState(
+    val unresolved: Boolean,
+    val turnId: String?,
+    val wasBoolean: Boolean,
+)
+
 /**
  * Home bridge transport for the Android Client.
  *
@@ -106,6 +112,13 @@ internal class HomeProtocolException(
     val diagnostic: String = "PROTOCOL_ERROR",
 ) : IllegalArgumentException()
 
+/** Content-free correlation headers used only by the physical-device live gate. */
+internal data class AndroidLiveHomeGateTrace(
+    val runId: String,
+    val scenario: String,
+    val deviceSerialFingerprint: String,
+)
+
 internal class OkHttpRelaySessionClient(
     private val collection: () -> RelayProfileCollection,
     private val credentials: RelayCredentialStore,
@@ -115,6 +128,7 @@ internal class OkHttpRelaySessionClient(
     private val audioSink: AndroidAudioSink = RecordingAudioSink(),
     private val requestTelemetry: AndroidClientRequestTelemetry = AndroidClientRequestTelemetry(),
     private val interruptTelemetry: AndroidInterruptTelemetryState = AndroidInterruptTelemetryState(),
+    private val liveHomeGateTrace: AndroidLiveHomeGateTrace? = null,
 ) : AndroidClientPort {
 
     private val activeSocket = AtomicReference<WebSocket?>(null)
@@ -159,11 +173,14 @@ internal class OkHttpRelaySessionClient(
         val onEvent: (AndroidNormalizedEvent) -> Unit,
     )
 
-    private class PendingRpc {
+    private class PendingRpc(
+        private val beforeComplete: (JSONObject) -> Unit = {},
+    ) {
         private val settled = CountDownLatch(1)
         private val frame = AtomicReference<JSONObject?>(null)
 
         fun complete(response: JSONObject) {
+            beforeComplete(response)
             frame.set(response)
             settled.countDown()
         }
@@ -294,7 +311,24 @@ internal class OkHttpRelaySessionClient(
                 }
 
             val requestId = rpcId("prompt")
-            val response = PendingRpc()
+            val response = PendingRpc { frame ->
+                // Commit a validated acknowledgement on the WebSocket reader
+                // before it can deliver the next (identity-free) PCM frame.
+                val result = frame.optJSONObject("result")
+                val turnId = result?.let { exactString(it, "turn_id") }
+                if (isHomeEnvelope(frame) && !frame.has("error") && result != null &&
+                    hasExactInt(result, "schema", SCHEMA_VERSION) &&
+                    exactString(result, "status") == "submitted" &&
+                    exactString(result, "conversation_handle") == binding.conversationHandle &&
+                    !turnId.isNullOrBlank()
+                ) {
+                    synchronized(inboundLock) {
+                        activeTurn.set(AndroidTurnBinding(
+                            profile.id, binding.conversationHandle, localConnection, turnId,
+                        ))
+                    }
+                }
+            }
             pending[requestId] = response
             normalizer.get()?.beginTurn()
             audioActive.set(false)
@@ -483,10 +517,19 @@ internal class OkHttpRelaySessionClient(
         val settled = CountDownLatch(1)
 
         val request = runCatching {
-            Request.Builder()
+            val builder = Request.Builder()
                 .url(bridgeUrl(homeBinding.approvedRoute))
                 .header("Authorization", "Device $credential")
-                .build()
+            liveHomeGateTrace?.let { trace ->
+                builder
+                    .header("X-Hermes-Live-Run-Id", trace.runId)
+                    .header("X-Hermes-Live-Scenario", trace.scenario)
+                    .header(
+                        "X-Hermes-Live-Device-Fingerprint",
+                        trace.deviceSerialFingerprint,
+                    )
+            }
+            builder.build()
         }.getOrElse {
             return unavailable(
                 "The Home bridge route is malformed.",
@@ -618,6 +661,12 @@ internal class OkHttpRelaySessionClient(
                             t.message ?: "The Home bridge connection failed.",
                         )
                     }
+                }
+
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    // OkHttp requires the peer close to be acknowledged before
+                    // onClosed can report the disconnect to recovery observers.
+                    webSocket.close(if (code == 1005) NORMAL_CLOSURE else code, null)
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -759,6 +808,29 @@ internal class OkHttpRelaySessionClient(
 
     internal fun awaitInterruptAcknowledgement(timeoutMillis: Long): Boolean =
         interruptTelemetry.awaitAcknowledgement(timeoutMillis)
+
+    /** Release only an opted-in disposable live-gate conversation. */
+    internal fun closeLiveGateConversation(): Boolean {
+        if (liveHomeGateTrace == null || !ready.get()) return false
+        val socket = activeSocket.get() ?: return false
+        val handle = collection().selected?.homeBinding?.conversationHandle ?: return false
+        val requestId = rpcId("close")
+        val response = PendingRpc()
+        pending[requestId] = response
+        try {
+            if (!socket.send(rpcRequest(requestId, "conversation.close",
+                    JSONObject().put("conversation_handle", handle)).toString())) return false
+            val frame = response.await(requestTimeoutMillis) ?: return false
+            val result = frame.optJSONObject("result") ?: return false
+            return isHomeEnvelope(frame) && exactString(frame, "id") == requestId &&
+                hasExactInt(result, "schema", SCHEMA_VERSION) &&
+                exactString(result, "conversation_handle") == handle &&
+                exactString(result, "status") == "closed"
+        } finally {
+            pending.remove(requestId)
+            ready.set(false)
+        }
+    }
 
     override fun hasActiveTurn(): Boolean = activeTurn.get() != null
 
@@ -1274,20 +1346,21 @@ internal class OkHttpRelaySessionClient(
             connectionId = connectionId,
             route = AndroidRoute(routeClass, routeId),
             capabilities = parsedCapabilities,
-            unresolvedTurn = unresolvedValue.first,
-            unresolvedTurnId = unresolvedValue.second,
-            unresolvedTurnBinding = unresolvedValue.second?.let { turnId ->
+            unresolvedTurn = unresolvedValue.unresolved,
+            unresolvedTurnId = unresolvedValue.turnId,
+            unresolvedTurnBinding = unresolvedValue.turnId?.let { turnId ->
                 expectedProfileId?.let { profileId ->
                     AndroidTurnBinding(profileId, expectedHandle, connectionId, turnId)
                 }
             },
+            unresolvedTurnWasBoolean = unresolvedValue.wasBoolean,
         )
     }
 
     private fun readUnresolvedTurn(
         result: JSONObject,
         expectedHandle: String,
-    ): Pair<Boolean, String?>? {
+    ): ParsedUnresolvedTurnState? {
         if (!result.has("unresolved_turn")) return null
         val topLevelTurnId = if (result.has("turn_id")) {
             exactString(result, "turn_id") ?: return null
@@ -1297,7 +1370,11 @@ internal class OkHttpRelaySessionClient(
         return when (val value = result.get("unresolved_turn")) {
             is Boolean -> {
                 if (!value && topLevelTurnId != null) return null
-                value to topLevelTurnId
+                ParsedUnresolvedTurnState(
+                    unresolved = value,
+                    turnId = topLevelTurnId,
+                    wasBoolean = true,
+                )
             }
             is JSONObject -> {
                 if (!hasExactInt(value, "schema", SCHEMA_VERSION) ||
@@ -1307,7 +1384,11 @@ internal class OkHttpRelaySessionClient(
                 val turnId = exactString(value, "turn_id")?.takeIf(String::isNotBlank)
                     ?: return null
                 if (topLevelTurnId != null && topLevelTurnId != turnId) return null
-                true to turnId
+                ParsedUnresolvedTurnState(
+                    unresolved = true,
+                    turnId = turnId,
+                    wasBoolean = false,
+                )
             }
             else -> null
         }
@@ -1325,13 +1406,17 @@ internal class OkHttpRelaySessionClient(
         val timing = exactString(json, "timing") ?: invalid()
         if (heartbeat != true || timing != "absent") invalid()
         val commands = json.optJSONArray("commands") ?: invalid()
-        if (commands.length() != 0) invalid()
+        val commandNames = (0 until commands.length()).map { index ->
+            val name = commands.get(index) as? String ?: invalid()
+            if (name.isEmpty() || name != name.trim()) invalid()
+            name
+        }.toSet()
         val interrupt = exactBoolean(json, "interrupt") ?: invalid()
         val audio = exactBoolean(json, "audio") ?: invalid()
         return AndroidHomeCapabilities(
             heartbeat = heartbeat,
             timing = timing,
-            commands = emptySet(),
+            commands = commandNames,
             interrupt = interrupt,
             audio = audio,
         )

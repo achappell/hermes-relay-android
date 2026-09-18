@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Scan captured live-gate artifacts without printing their contents."""
 
+import base64
 import os
 import subprocess
 import sys
@@ -18,7 +19,7 @@ MARKERS = (
     b"Content-Disposition: attachment",
 )
 FORBIDDEN_SUFFIXES = {".pcm", ".raw", ".wav", ".pcap", ".har", ".jsonl"}
-ALLOWED_BINARY_NAMES = {"test-result.pb", "test-results.pb"}
+ALLOWED_BINARY_NAMES = {"device-info.pb", "test-result.pb", "test-results.pb"}
 
 
 def changed_paths(root: Path):
@@ -89,16 +90,14 @@ def main() -> int:
         os.environ[name].encode("utf-8")
         for name in (
             "LIVE_DEVICE_CREDENTIAL",
-            "LIVE_HANDSHAKE_HANDLE",
-            "LIVE_TYPED_HANDLE",
-            "LIVE_INTERRUPT_HANDLE",
-            "LIVE_RECONNECT_HANDLE",
             "LIVE_TYPED_PROMPT",
             "LIVE_INTERRUPT_PROMPT",
             "LIVE_RECONNECT_PROMPT",
         )
         if name in os.environ
     )
+    # Encoded instrumentation arguments are equally sensitive as plaintext.
+    values += tuple(base64.urlsafe_b64encode(value).rstrip(b"=") for value in values)
     try:
         captured = [path for path in run_dir.rglob("*") if path.is_file()]
     except OSError:
