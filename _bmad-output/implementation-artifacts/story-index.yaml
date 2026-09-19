@@ -143,7 +143,8 @@ stories:
   - id: ANDROID-HOME-01
     title: Add the Android Home pairing and configuration adapter
     kind: next-wave
-    spec: _bmad-output/implementation-artifacts/spec-android-home-pairing-adapter.md
+    spec: _bmad-output/implementation-artifacts/spec-android-home-01-pairing-and-configuration-adapter.md
+    validation: _bmad-output/implementation-artifacts/validation-android-home-01-pairing-and-configuration-adapter.md
     github_issue: https://github.com/achappell/hermes-relay-android/issues/33
     horizon: next
   - id: ANDROID-PERM-01

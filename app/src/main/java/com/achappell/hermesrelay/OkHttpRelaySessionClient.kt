@@ -196,6 +196,12 @@ internal class OkHttpRelaySessionClient(
         val profile = collection().selected
         val homeBinding = profile?.homeBinding
         val homeCredential = profile?.id?.let(credentials::readHomeCredential)
+        val homeAdministrationNotReady = profile?.homeAdministration?.let {
+            it.phase != RelayHomeAdministrationPhase.Ready ||
+                it.credentialExpiresAt?.let { expiresAt ->
+                    expiresAt <= System.currentTimeMillis() / 1000.0
+                } == true
+        } == true
         val recordedUnavailableReason = if (lastUnavailableProfileId.get() == profile?.id) {
             lastUnavailableReason.get()
         } else {
@@ -209,6 +215,7 @@ internal class OkHttpRelaySessionClient(
         val authorization = when {
             profile == null -> AndroidAuthorizationState.NotConfigured
             homeBinding == null -> AndroidAuthorizationState.NotConfigured
+            homeAdministrationNotReady -> AndroidAuthorizationState.Unavailable
             homeCredential == null -> AndroidAuthorizationState.Unavailable
             recordedUnavailableReason != null -> AndroidAuthorizationState.Unavailable
             isActive -> AndroidAuthorizationState.Verified
@@ -217,6 +224,7 @@ internal class OkHttpRelaySessionClient(
         val bindingUnavailableReason = when {
             profile?.homeBinding == null && profile != null ->
                 AndroidHomeUnavailableReason.MissingBinding
+            homeAdministrationNotReady -> AndroidHomeUnavailableReason.AuthorizationUnavailable
             profile != null && homeCredential == null ->
                 AndroidHomeUnavailableReason.InvalidCredential
             else -> null
@@ -423,6 +431,18 @@ internal class OkHttpRelaySessionClient(
                 "This Profile has not completed Home pairing.",
                 AndroidHomeUnavailableReason.MissingBinding,
             )
+        if (profile.homeAdministration?.let {
+                it.phase != RelayHomeAdministrationPhase.Ready ||
+                    it.credentialExpiresAt?.let { expiresAt ->
+                        expiresAt <= System.currentTimeMillis() / 1000.0
+                    } == true
+            } == true
+        ) {
+            return unavailable(
+                "Home Device configuration is not ready.",
+                AndroidHomeUnavailableReason.AuthorizationUnavailable,
+            )
+        }
         if (
             !RelayProfileValidator.isValidHomeConversationHandle(homeBinding.conversationHandle)
         ) {

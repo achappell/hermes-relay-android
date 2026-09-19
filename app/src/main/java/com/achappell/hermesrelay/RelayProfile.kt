@@ -19,6 +19,7 @@ internal data class RelayProfile(
     val deviceId: String,
     val displayName: String,
     val homeBinding: RelayHomeBinding? = null,
+    val homeAdministration: RelayHomeAdministration? = null,
 )
 
 /** Versioned, non-secret metadata issued by the Home pairing flow. */
@@ -29,6 +30,34 @@ internal data class RelayHomeBinding(
 ) {
     companion object {
         const val HOME_BINDING_SCHEMA_VERSION = 1
+    }
+}
+
+/** Non-secret lifecycle state for Home Device administration. */
+internal enum class RelayHomeAdministrationPhase {
+    Discovered,
+    PendingApproval,
+    Approved,
+    SetupPending,
+    StaleRevision,
+    Ready,
+    Unavailable,
+    Revoked,
+    Expired,
+}
+
+/** Persisted Home administration metadata; credential material stays in Keystore. */
+internal data class RelayHomeAdministration(
+    val phase: RelayHomeAdministrationPhase,
+    val deviceId: String? = null,
+    val generation: Int? = null,
+    val configurationRevision: Int? = null,
+    val requestId: String? = null,
+    val credentialExpiresAt: Double? = null,
+    val lastError: String? = null,
+) {
+    companion object {
+        const val SCHEMA_VERSION = 1
     }
 }
 
@@ -196,6 +225,20 @@ internal data class RelayProfileCollection(
                         .put("conversation_handle", binding.conversationHandle),
                 )
             }
+            profile.homeAdministration?.let { administration ->
+                item.put(
+                    "home_administration",
+                    JSONObject()
+                        .put("schema", RelayHomeAdministration.SCHEMA_VERSION)
+                        .put("phase", administration.phase.name)
+                        .putOpt("device_id", administration.deviceId)
+                        .putOpt("generation", administration.generation)
+                        .putOpt("configuration_revision", administration.configurationRevision)
+                        .putOpt("request_id", administration.requestId)
+                        .putOpt("credential_expires_at", administration.credentialExpiresAt)
+                        .putOpt("last_error", administration.lastError),
+                )
+            }
             array.put(item)
         }
         return JSONObject()
@@ -229,6 +272,37 @@ internal data class RelayProfileCollection(
                             null
                         }
                     } ?: legacyHomeBinding(item)
+                    val homeAdministration = item.optJSONObject("home_administration")
+                        ?.let { administration ->
+                            if (
+                                administration.optInt("schema", 0) ==
+                                    RelayHomeAdministration.SCHEMA_VERSION
+                            ) {
+                                runCatching {
+                                    RelayHomeAdministration(
+                                        phase = RelayHomeAdministrationPhase.valueOf(
+                                            administration.optString("phase"),
+                                        ),
+                                        deviceId = administration.optString("device_id")
+                                            .takeIf { it.isNotBlank() },
+                                        generation = administration.optInt("generation", -1)
+                                            .takeIf { it >= 0 },
+                                        configurationRevision = administration
+                                            .optInt("configuration_revision", -1)
+                                            .takeIf { it >= 0 },
+                                        requestId = administration.optString("request_id")
+                                            .takeIf { it.isNotBlank() },
+                                        credentialExpiresAt = administration
+                                            .optDouble("credential_expires_at", -1.0)
+                                            .takeIf { it.isFinite() && it > 0.0 },
+                                        lastError = administration.optString("last_error")
+                                            .takeIf { it.isNotBlank() },
+                                    )
+                                }.getOrNull()
+                            } else {
+                                null
+                            }
+                        }
                     RelayProfile(
                         id = id,
                         endpoint = item.optString("endpoint"),
@@ -236,6 +310,7 @@ internal data class RelayProfileCollection(
                         deviceId = item.optString("device_id"),
                         displayName = item.optString("display_name"),
                         homeBinding = homeBinding,
+                        homeAdministration = homeAdministration,
                     )
                 }
                 val selected = root.optString("selected_id").takeIf { it.isNotBlank() }

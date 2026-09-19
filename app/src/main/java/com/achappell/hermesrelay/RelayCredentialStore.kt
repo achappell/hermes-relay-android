@@ -13,9 +13,10 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * The two credential slots have different jobs and are never interchangeable.
- * The Home Device credential is the only credential the active transport reads;
- * the old bearer remains available solely for a deliberate rollback operation.
+ * The credential slots have different jobs and are never interchangeable. The
+ * Home Device credential is the only credential the active bridge reads; the
+ * Home admin credential is restricted to administrative HTTP; the old bearer
+ * remains available solely for a deliberate rollback operation.
  */
 internal interface RelayCredentialStore {
     /** Legacy API: writes the rollback-only credential slot. */
@@ -38,7 +39,18 @@ internal interface RelayCredentialStore {
         readHomeCredential(profileId) != null
 
     /** Used only to restore a failed replacement of the Home slot. */
-    fun deleteHomeCredential(profileId: String) = Unit
+    fun deleteHomeCredential(profileId: String): Boolean = true
+
+    /** Stores the Home administrative credential in its own secure slot. */
+    fun putHomeAdminCredential(profileId: String, credential: String): Boolean = false
+
+    /** Reads the Home administrative credential, or fails closed. */
+    fun readHomeAdminCredential(profileId: String): String? = null
+
+    fun hasReadableHomeAdminCredential(profileId: String): Boolean =
+        !readHomeAdminCredential(profileId).isNullOrBlank()
+
+    fun deleteHomeAdminCredential(profileId: String) = Unit
 
     /** Explicit names for the rollback slot used by migration code. */
     fun putRollbackCredential(profileId: String, credential: String): Boolean {
@@ -103,8 +115,17 @@ internal class KeystoreRelayCredentialStore(
     override fun readHomeCredential(profileId: String): String? =
         readSecret(homeKey(profileId))?.takeIf(HomeCredentialValidator::isValid)
 
-    override fun deleteHomeCredential(profileId: String) {
+    override fun deleteHomeCredential(profileId: String): Boolean =
         preferences.edit().remove(homeKey(profileId)).commit()
+
+    override fun putHomeAdminCredential(profileId: String, credential: String): Boolean =
+        credential.isNotBlank() && writeSecret(homeAdminKey(profileId), credential.trim())
+
+    override fun readHomeAdminCredential(profileId: String): String? =
+        readSecret(homeAdminKey(profileId))
+
+    override fun deleteHomeAdminCredential(profileId: String) {
+        preferences.edit().remove(homeAdminKey(profileId)).commit()
     }
 
     override fun putRollbackCredential(profileId: String, credential: String): Boolean =
@@ -121,6 +142,7 @@ internal class KeystoreRelayCredentialStore(
     override fun delete(profileId: String) {
         preferences.edit()
             .remove(homeKey(profileId))
+            .remove(homeAdminKey(profileId))
             .remove(rollbackKey(profileId))
             // Keep deletion compatible with profiles written before the slot
             // split, where the old bearer lived under token:<profile>.
@@ -160,6 +182,8 @@ internal class KeystoreRelayCredentialStore(
 
     private fun homeKey(profileId: String) = "home-device:$profileId"
 
+    private fun homeAdminKey(profileId: String) = "home-admin:$profileId"
+
     private fun rollbackKey(profileId: String) = "rollback:$profileId"
 
     private fun legacyTokenKey(profileId: String) = "token:$profileId"
@@ -196,9 +220,11 @@ internal class KeystoreRelayCredentialStore(
 internal class InMemoryRelayCredentialStore(
     initial: Map<String, String> = emptyMap(),
     homeCredentials: Map<String, String> = emptyMap(),
+    homeAdminCredentials: Map<String, String> = emptyMap(),
 ) : RelayCredentialStore {
     private val rollback = initial.toMutableMap()
     private val home = homeCredentials.toMutableMap()
+    private val homeAdmin = homeAdminCredentials.toMutableMap()
 
     override fun put(profileId: String, token: String): Boolean =
         putRollbackCredential(profileId, token)
@@ -217,8 +243,21 @@ internal class InMemoryRelayCredentialStore(
     override fun readHomeCredential(profileId: String): String? =
         home[profileId]?.takeIf(HomeCredentialValidator::isValid)
 
-    override fun deleteHomeCredential(profileId: String) {
+    override fun deleteHomeCredential(profileId: String): Boolean {
         home.remove(profileId)
+        return true
+    }
+
+    override fun putHomeAdminCredential(profileId: String, credential: String): Boolean {
+        if (credential.isBlank()) return false
+        homeAdmin[profileId] = credential.trim()
+        return true
+    }
+
+    override fun readHomeAdminCredential(profileId: String): String? = homeAdmin[profileId]
+
+    override fun deleteHomeAdminCredential(profileId: String) {
+        homeAdmin.remove(profileId)
     }
 
     override fun putRollbackCredential(profileId: String, credential: String): Boolean {
@@ -234,6 +273,7 @@ internal class InMemoryRelayCredentialStore(
 
     override fun delete(profileId: String) {
         home.remove(profileId)
+        homeAdmin.remove(profileId)
         rollback.remove(profileId)
     }
 }

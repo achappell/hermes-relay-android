@@ -129,6 +129,34 @@ class OkHttpRelaySessionClientTest {
         assertEquals(AndroidAuthorizationState.Verifying, configured.snapshot().authorizationState)
         assertEquals(PROFILE_ID, configured.snapshot().selectedProfile?.id)
         assertEquals(0, server.requestCount)
+
+        val pendingHome = OkHttpRelaySessionClient(
+            collection = {
+                collectionFor(
+                    homeAdministration = RelayHomeAdministration(
+                        phase = RelayHomeAdministrationPhase.SetupPending,
+                        deviceId = "device-1",
+                        generation = 1,
+                    ),
+                )
+            },
+            credentials = InMemoryRelayCredentialStore(
+                homeCredentials = mapOf(PROFILE_ID to VALID_HOME_CREDENTIAL),
+            ),
+        )
+        assertEquals(AndroidAuthorizationState.Unavailable, pendingHome.snapshot().authorizationState)
+        assertEquals(
+            AndroidHomeUnavailableReason.AuthorizationUnavailable,
+            pendingHome.snapshot().unavailableReason,
+        )
+        assertEquals(
+            AndroidReconnectOutcome.Unrecoverable(
+                "Home Device configuration is not ready.",
+                AndroidHomeUnavailableReason.AuthorizationUnavailable,
+            ),
+            pendingHome.reconnect(),
+        )
+        assertEquals(0, server.requestCount)
     }
 
     @Test
@@ -1106,10 +1134,13 @@ class OkHttpRelaySessionClientTest {
         audioSink = audioSink,
     )
 
-    private fun collectionFor(homeBinding: RelayHomeBinding? = RelayHomeBinding(
-        approvedRoute = bridgeRoute(),
-        conversationHandle = CONVERSATION_HANDLE,
-    )) = RelayProfileCollection(
+    private fun collectionFor(
+        homeBinding: RelayHomeBinding? = RelayHomeBinding(
+            approvedRoute = bridgeRoute(),
+            conversationHandle = CONVERSATION_HANDLE,
+        ),
+        homeAdministration: RelayHomeAdministration? = null,
+    ) = RelayProfileCollection(
         profiles = listOf(
             RelayProfile(
                 id = PROFILE_ID,
@@ -1118,6 +1149,7 @@ class OkHttpRelaySessionClientTest {
                 deviceId = "android",
                 displayName = "Amanda",
                 homeBinding = homeBinding,
+                homeAdministration = homeAdministration,
             ),
         ),
         selectedId = PROFILE_ID,

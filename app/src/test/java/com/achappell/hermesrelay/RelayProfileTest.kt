@@ -141,12 +141,14 @@ class RelayProfileTest {
         )
         val id = controller.collection.profiles.single().id
         assertTrue(credentials.hasToken(id))
+        assertTrue(credentials.putHomeAdminCredential(id, "home-admin-secret"))
 
         controller.delete(id)
 
         assertTrue(controller.collection.profiles.isEmpty())
         assertNull(controller.collection.selectedId)
         assertTrue("the credential outlived its profile", !credentials.hasToken(id))
+        assertNull(credentials.readHomeAdminCredential(id))
     }
 
     @Test
