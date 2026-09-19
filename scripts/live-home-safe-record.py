@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Maintain the allowlisted schema-2 aggregate for the live Home gate."""
+"""Maintain the allowlisted schema-3 aggregate for the live Home gate."""
 
 import argparse
 import json
@@ -85,7 +85,7 @@ def empty_branch():
 
 def empty_record(run_id):
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "status": "done-with-environment-limitation",
         "exit_code": 20,
         "run_id": run_id,
@@ -144,12 +144,12 @@ def validate_route(route):
 def validate_capabilities(caps):
     if caps is None:
         return
-    caps = exact_fields(caps, ("heartbeat", "timing", "commands", "interrupt", "audio"))
+    caps = exact_fields(caps, ("heartbeat", "timing", "command_count", "interrupt", "audio"))
     if (
         type(caps["heartbeat"]) is not bool
         or caps["timing"] != "absent"
-        or not isinstance(caps["commands"], list)
-        or caps["commands"]
+        or type(caps["command_count"]) is not int
+        or caps["command_count"] < 0
         or type(caps["interrupt"]) is not bool
         or type(caps["audio"]) is not bool
     ):
@@ -276,7 +276,7 @@ def passing_facts(scenario, facts):
 
 def validate_handoff(handoff, run_id, scenario):
     handoff = exact_fields(handoff, ("schema_version", "run_id", "scenario", "status", "reason", "evidence"))
-    if handoff["schema_version"] != 2 or handoff["run_id"] != run_id or handoff["scenario"] != scenario:
+    if handoff["schema_version"] != 3 or handoff["run_id"] != run_id or handoff["scenario"] != scenario:
         raise Invalid()
     if handoff["status"] not in STATUSES or (handoff["status"] == "pass") != (handoff["reason"] is None):
         raise Invalid()
@@ -305,7 +305,7 @@ def validate_record(record):
         "schema_version", "status", "exit_code", "run_id", "device", "provenance",
         "home", "branches", "commands", "overall_rule",
     ))
-    if record["schema_version"] != 2 or record["status"] not in {
+    if record["schema_version"] != 3 or record["status"] not in {
         "done-with-environment-limitation", "live-pass", "failed"
     }:
         raise Invalid()

@@ -4,9 +4,9 @@ type: 'chore'
 story_id: '5-A-4-LIVE-HOME-GATE'
 parent_story: '5-A-4'
 created: '2026-09-15'
-status: 'done-with-environment-limitation'
+status: 'done'
 review_loop_iteration: 9
-authority_revision: 5
+authority_revision: 8
 followup_review_recommended: true
 route: 'dispatch'
 warnings:
@@ -16,7 +16,7 @@ parent_spec: '_bmad-output/implementation-artifacts/spec-5-android-migration.md'
 validation: '_bmad-output/implementation-artifacts/validation-5-a-4-live-home-gate.md'
 canonical_spec: '_bmad-output/implementation-artifacts/spec-5-a-4-live-home-gate.md'
 dispatch_copy: '_bmad-output/implementation-artifacts/next-wave-android-live-home-gate/'
-canonical_spec_sha256: '33be6b4416a787032aa731436ee0d95751acbc59eb92f8b9ae564728c893a1cb'
+canonical_spec_sha256: 606f1f0fa2f33e7f9d0b270ffb638760dfc89ee01f303b0cd21cd03ffff84f8a
 context:
   - '{project-root}/AGENTS.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-5-context.md'
@@ -30,10 +30,9 @@ context:
 ## Authority and scope
 
 This root file is the one registered Android authority for the additive
-follow-up. Its implementation status is `done-with-environment-limitation`
-after the completed independent plan gate and local build validation;
-the delivery row remains
-`5-a-4-live-home-gate: backlog` until evidence passes. The story index points
+follow-up. Its delivery status is `done` after the all-pass, signed physical
+Pixel run `android-live-3899e128557f4471`; the delivery row is
+`5-a-4-live-home-gate: done`. The story index points
 here and to the companion validation record. The supervised stories-mode run
 materializes a working copy under
 `_bmad-output/implementation-artifacts/next-wave-android-live-home-gate/` for
@@ -49,17 +48,56 @@ The reviewer compares the dispatch body to this registered file; it never
 promotes a dispatch-only status or an unlinked copy. Before implementation,
 `scripts/verify-story-dispatch.sh` must compute the SHA-256 of this canonical
 file and compare it with the `canonical_spec_sha256` recorded in the dispatch
-frontmatter, as well as require `authority_revision: 5`. A missing child,
+frontmatter, as well as require `authority_revision: 8`. A missing child,
 mismatched body, missing hash, or stale revision blocks dispatch. The
 canonical file is the only source for the schema and proof contract; the
 dispatch copy is a generated projection and may vary only in engine-owned
 frontmatter. The completed parent story, parent validation, and `5-a-4: done`
 status remain unchanged.
 
-This work is an evidence gate, not a new product feature. It may add test-only
-telemetry or focused contract fixtures when those are needed to prove the
-existing adapter. It may not add pairing UI, route discovery, TLS deployment,
-Home runtime/factory code, or a direct Standard Hermes client.
+This work is an evidence gate, not a new product feature. The revision 6
+authority amendment below records the user's explicit approval to add signed
+Home provenance, ordered Home tracing, and a Home-controlled reconnect close
+for this live run. It does not authorize pairing UI, route discovery, TLS
+deployment, a direct Standard Hermes client, or persistent Android pairing.
+
+## Authority amendment — revision 6 (2026-09-17)
+
+The user approved bootstrapping signed Home provenance and ordered-turn
+tracing, issuing a fresh Device credential, and running the four live
+branches. The user also approved three disposable Home prompts, with no
+private information. This amendment supersedes only the revision 5 clauses
+that barred Home runtime tracing, required four pre-supplied handles, or
+required an external close-hook executable.
+
+- Home may write a signed Standard-backed deployment attestation and a
+  content-free, ordered trace. It records only scenario, method, outcome,
+  sequence, deployment and route identity, run ID, and a SHA-256 device-serial
+  fingerprint. It never records prompts, credentials, handles, responses,
+  turn IDs, raw messages, or audio.
+- The wrapper obtains one fresh opaque conversation handle immediately before
+  each branch through `LIVE_HOME_HANDLE_PROVIDER`. The provider creates one
+  explicit synthetic operator-test wake claim using the fresh Device
+  credential and the approved temporary mapping. It does not exercise wake
+  detection. The handle exists only in process memory and the instrumentation
+  argument; it is not written to artifacts.
+- A valid opt-in Home trace context for `scenario=reconnect` makes Home send
+  the accepted `prompt.submit` response and then close that peer. Home parks
+  the recoverable conversation for the existing `conversation.reconnect`
+  method. The external `LIVE_HOME_CLOSE_HOOK` requirement is superseded.
+- The three prompts are supplied only to their matching branches: a short
+  typed-turn prompt, a long-running non-tool interruption prompt, and a
+  non-tool reconnect-turn prompt. Prompt text stays out of source, test
+  reports, trace, and validation artifacts.
+- The Android live test constructs its profile and credential in
+  `InMemoryRelayCredentialStore`. This run proves a live Home turn with the
+  issued Device credential, but it does not prove persistent pairing in the
+  Android app or save a paired profile on the Pixel.
+
+Deployment provenance must verify before any Android Gradle/device work or
+live Home request. The parent story `5-A-4` remains complete and unchanged;
+the follow-up remains `backlog` until the four branch results and signed
+current-run trace pass and are recorded.
 
 ## Intent
 
@@ -92,14 +130,11 @@ Always:
   query strings and fragments are also rejected;
   `OkHttpRelaySessionClient.bridgeUrl` always emits the fixed bridge path
   rather than appending it to an arbitrary prefix.
-- Supply these four separate, disposable opaque conversation handles through
-  the exact instrumentation argument names
-  `handshakeConversationHandle`, `typedConversationHandle`,
-  `interruptConversationHandle`, and `reconnectConversationHandle`. Each live
-  test consumes only its named handle; the wrapper rejects blank or duplicate
-  handles before Gradle starts. The operator must reset or retire every handle
-  after a partial run and obtain fresh handles for the next run; Android never
-  resets Home state or retries with another handle.
+- Obtain one fresh, disposable conversation handle immediately before each
+  scenario using `LIVE_HOME_HANDLE_PROVIDER`; pass it only as
+  `homeConversationHandle` for that invocation. The provider creates a
+  synthetic `operator_test` wake claim and does not exercise wake detection.
+  Handles are never reset or reused after a partial run.
 - Supply three separate, ephemeral probe prompts through
   `LIVE_TYPED_PROMPT`, `LIVE_INTERRUPT_PROMPT`, and
   `LIVE_RECONNECT_PROMPT`. The wrapper maps them to `typedPrompt`,
@@ -113,7 +148,7 @@ Always:
 - Require a successful Home readiness result before any `prompt.submit` or
   `session.interrupt`. New-turn branches require an explicit
   `unresolved_turn=false`; the controlled reconnect branch requires
-  `unresolved_turn=true` and uses `assertReconnectReadiness` without creating a
+  `unresolved_turn=true` (or its validated turn record) and uses `assertReconnectReadiness` without creating a
   replacement turn. Any missing or context-incompatible value fails closed.
 - Preserve the parent migration record and leave the follow-up in `backlog`
   until every required live branch and its provenance evidence pass.
@@ -188,7 +223,7 @@ new file, so the implementer does not have to rediscover ownership.
   shape, audio-driver drain/underrun behavior, and no replay.
 - `scripts/run-live-home-gate.sh` -- owns argument validation, command
   isolation, device preflight, fresh device-cache binding,
-  `armCloseHook`/`stopCloseHook`, `adb` result retrieval, attestation ordering,
+  just-in-time claim creation, `adb` result retrieval, attestation ordering,
   branch aggregation, scans, atomic publication, and exit mapping.
 - `scripts/verify-story-dispatch.sh`,
   `scripts/verify-home-attestation.py`, and
@@ -215,8 +250,11 @@ not merely `Connected`:
    `result.conversation_handle` is the exact non-blank handle supplied for that
    scenario. A different, missing, or overlong handle is a protocol/binding
    failure.
-3. `result.unresolved_turn` is present and boolean for both handshake methods.
-   Missing or non-boolean values are `ProtocolError`. For the initial
+3. `result.unresolved_turn` is required. Initial readiness requires a boolean.
+   Reconnect also accepts a structured record after the parser validates schema,
+   exact conversation handle, nonblank turn ID and status, and binds that turn
+   to the expected profile and current connection. Missing, malformed, or
+   mismatched records are `ProtocolError`. For the initial
    `conversation.open` used by `HANDSHAKE`, `TYPED_AUDIO`, and `INTERRUPT`,
    `false` is required before a new turn and `true` is parsed as the ordinary
    recovery outcome `Connected(unresolvedTurn=true)`, then rejected by
@@ -224,7 +262,8 @@ not merely `Connected`:
    `AndroidReconnectOutcome.Unrecoverable` with
    `AndroidHomeUnavailableReason.UnresolvedTurn`; prompt and interrupt
    counters remain zero. For `conversation.reconnect`, the controlled-close
-   branch requires explicit `true`, because Home must still own the accepted
+   branch requires explicit `true` or that validated unresolved-turn record,
+   because Home must still own the accepted
    in-flight turn. `LiveHomeReadiness.assertReconnectReadiness` accepts that
    unresolved state without creating a turn, preserves
    `AndroidRecoveryState.unresolvedHomeTurn=true`, and proves no replacement
@@ -235,7 +274,7 @@ not merely `Connected`:
 4. `result.route` is present with `class` in exactly `home`, `tailscale`, or
    `public`, and a non-blank `id` no longer than 256 characters.
 5. `result.capabilities` is present with all of these fields: boolean
-   `heartbeat=true`, string `timing="absent"`, array `commands=[]`, and
+   `heartbeat=true`, string `timing="absent"`, array `commands` containing non-empty, trimmed strings (an empty array is valid), and
    boolean `interrupt` and `audio` fields. The parser accepts either boolean
    value for the two branch capabilities, but never accepts a missing or
    wrongly typed field. A missing field, wrong type, unknown timing value, or
@@ -274,14 +313,15 @@ than becoming a timeout.
 
 The opt-in wrapper performs these checks before Gradle starts the live class.
 The exact inputs are `LIVE_DEVICE_SERIAL`, `LIVE_HOME_ROUTE`,
-`LIVE_DEVICE_CREDENTIAL`, the four `LIVE_*_HANDLE` environment variables,
+`LIVE_DEVICE_CREDENTIAL`, `LIVE_HOME_HANDLE_PROVIDER`, the four
+`LIVE_HOME_CLAIM_*` bindings, `LIVE_HOME_TRACE_FETCH_HOOK`,
 `LIVE_TYPED_PROMPT`, `LIVE_INTERRUPT_PROMPT`, `LIVE_RECONNECT_PROMPT`,
-`LIVE_HOME_RUN_ID`, `LIVE_HOME_CLOSE_HOOK`, `LIVE_HOME_ATTESTATION_FILE`,
+`LIVE_HOME_RUN_ID`, `LIVE_HOME_ATTESTATION_FILE`,
 `LIVE_HOME_TRACE_ATTESTATION_FILE`,
 `LIVE_HOME_ATTESTATION_PUBLIC_KEY_FILE`, and
 `LIVE_HOME_ATTESTATION_KEY_ALLOWLIST_FILE`. The wrapper maps the three
-prompts and four handles to instrumentation argument names using an argv
-array; it never prints an expanded command or a value-bearing failure.
+prompts and one generated handle to instrumentation argument names using an
+argv array; it never prints an expanded command or a value-bearing failure.
 
 - `adb devices -l` resolves exactly one target selected by the explicit
   `ANDROID_SERIAL="$LIVE_DEVICE_SERIAL"`; the selected row must be in state
@@ -312,23 +352,20 @@ array; it never prints an expanded command or a value-bearing failure.
   This is only a physical-output preflight; the Home-announced format is
   checked later, after the handshake's `audio.frame` `start`, by
   `AudioTrackAudioSink.start(format)` and cannot be claimed in advance.
-- The approved route, Device credential, scenario-specific handles, three
-  probe prompts, and `LIVE_HOME_RUN_ID` are present and structurally valid.
-  Missing values are `NOT_RUN: MISSING_PAIRING`; malformed route, credential,
-  run id, or a non-executable close hook is `NOT_RUN: INVALID_BINDING`. A
-  handle is 1–256 UTF-8 bytes with no NUL, CR, LF, or whitespace; a Device
+- The approved route, Device credential, handle provider, claim bindings,
+  trace fetch hook, three probe prompts, and `LIVE_HOME_RUN_ID` are present
+  and structurally valid. Missing values are `NOT_RUN: MISSING_PAIRING`;
+  malformed route, credential, run ID, provider, claim binding, or fetch hook
+  is `NOT_RUN: INVALID_BINDING`. Each generated handle is checked as a
+  43-character base64url token before instrumentation; a Device
   credential must match the Android `HomeCredentialValidator` contract:
   exactly 43 characters from `[A-Za-z0-9_-]`, decoding as unpadded base64url
   to exactly 32 bytes. Each probe prompt is 1–4096 UTF-8 bytes with no NUL,
   CR, or LF; and the run id matches `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`.
-  Duplicate handles are invalid even when their spellings differ only by
-  surrounding whitespace. `scripts/validate-live-home-inputs.py` is the
-  single script-level implementation of these structural checks and its
-  tests include the Android credential boundary. No client is opened in
-  either branch. The wrapper starts the close hook only after these checks
-  and passes it `--run-id`, `--scenario reconnect`, `--after-method
-  prompt.submit`, and `--once` in an argv array; it never passes a handle or
-  prompt to the hook.
+  `scripts/validate-live-home-inputs.py` is the single script-level
+  implementation of these structural checks and its tests include the Android
+  credential boundary. No client is opened before signed deployment
+  provenance verifies.
 - `LIVE_HOME_RUN_ID` must be fresh for this invocation. The wrapper refuses an
   existing owner-only local run directory or an existing device-side
   `cache/hermes-live-home/<LIVE_HOME_RUN_ID>/` directory before the first live
@@ -353,9 +390,9 @@ The live test uses a small safe preflight result with an allowlisted reason
 code. It must skip/record a not-run branch without attempting Home traffic; it
 must not use a generic `require` whose failure text can contain an argument.
 Missing environment values, unavailable device/audio, missing attestation, or
-an unavailable close hook use named, constant-labelled branches such as
+an unavailable handle provider or trace fetch hook use named, constant-labelled branches such as
 `NOT_RUN: MISSING_PAIRING` and return exit code `20`. Malformed route,
-credential, run-id, hook, or duplicate handles are also recorded as
+credential, run ID, provider, claim binding, or trace fetch hook are also recorded as
 `NOT_RUN: INVALID_BINDING` with exit `20`; exit `64` is reserved for an
 extra/unsupported command-line argument or an invalid dispatch hash. A
 contract, assertion, replay, or artifact-scan defect returns `30`; an all-pass
@@ -474,8 +511,9 @@ passing trace.
 must equal it; the signed device fingerprint, route class, and route id must
 equal the wrapper's observed facts. The Android test receives the same run id
 as `liveRunId` and records it only as safe metadata; the wrapper rejects a
-trace from another run, device, or route. The close hook uses that run id, so
-`peer.close` cannot be attached from an unrelated Home session. The validation
+trace from another run, device, or route. The Home bridge binds that run ID to
+the opt-in reconnect close, so `peer.close` cannot be attached from an
+unrelated Home session. The validation
 record stores deployment metadata and the trace digest only after both
 attestations verify. A missing deployment attestation is
 `NOT_RUN: HOME_PROVENANCE` before traffic. A missing or invalid run-trace
@@ -489,7 +527,7 @@ it prevents live pass without pretending the branch was never attempted.
 | `HANDSHAKE` | One disposable handle | Exact readiness contract above; route is Home-only; `unresolved_turn=false`; safe route and typed capability fields | `NOT_RUN` for preflight; `FAIL` for contract/auth defects |
 | `TYPED_AUDIO` | A different disposable handle and `LIVE_TYPED_PROMPT` | `prompt.submit` accepted with the same opaque handle and non-blank Home turn ID; text reaches an authoritative terminal event; `audio=true`; supported `pcm_s16le` start; non-zero aligned PCM reaches the physical `AudioTrack`; no `AudioFailed`; sink drain callback; final reducer state is `Complete` + `Delivered` | Audio failure, missing terminal, or missing evidence is `FAIL`/`INCONCLUSIVE`, never pass |
 | `INTERRUPT` | A different disposable handle and `LIVE_INTERRUPT_PROMPT`, an approved long-running, non-tool probe | `interrupt=true`; observe a non-terminal `Thinking` or `Speaking` state before sending interrupt; `session.interrupt` is sent; both the acknowledgement and the matching handle/turn `TurnInterrupted` event are observed; no natural completion before the request | Terminal before the request is `inconclusive: NATURAL_COMPLETION_RACE`; after a request, failure to observe both acknowledgement and matching terminal by the fixed deadline is `fail: TERMINAL_TIMEOUT` |
-| `RECONNECT` | A different disposable handle, `LIVE_RECONNECT_PROMPT`, and an operator-controlled close hook | Home trace shows accepted prompt, peer close, explicit `conversation.reconnect`, same handle ready with `unresolved_turn=true`, and no replacement `prompt.submit`; `assertReconnectReadiness` preserves uncertainty and never replays | Missing controlled close or trace is `NOT_RUN: CONTROLLED_CLOSE`; any replay is `FAIL` |
+| `RECONNECT` | A different disposable handle and `LIVE_RECONNECT_PROMPT`; Home performs a trace-context-bound close after the accepted response | Home trace shows accepted prompt, peer close, explicit `conversation.reconnect`, same handle ready with `unresolved_turn=true` (or its validated turn record), and no replacement `prompt.submit`; `assertReconnectReadiness` preserves uncertainty and never replays | Missing close observation or signed trace is `INCONCLUSIVE: RECONNECT_TRACE`; any replay is `FAIL` |
 
 ### Typed response and real audio
 
@@ -592,19 +630,13 @@ counters at zero.
 
 ### Reconnect and no replay
 
-The Home deployment provides a documented controlled test hook executable at
-`LIVE_HOME_CLOSE_HOOK`. The wrapper starts it once, after preflight and
-immediately before the reconnect branch, with the exact argv
-`--run-id <LIVE_HOME_RUN_ID> --scenario reconnect --after-method prompt.submit
---once`; it must arm before the branch begins and return a content-free
-`HOOK_ARMED` token. Home closes the peer only after that branch's
-`prompt.submit` is accepted, then the hook exits `0` and its signed trace
-contains `peer.close:observed`. The Android test waits on its
-`observeConnection` latch for the fixed 15-second deadline, calls
-`client.reconnect()` exactly once after the latch, and requires a second
-10-second readiness deadline. A hook timeout, non-zero exit, missing latch, or
-missing signed event is `NOT_RUN: CONTROLLED_CLOSE` or
-`INCONCLUSIVE: RECONNECT_TRACE`, never a pass.
+With a valid opt-in Home trace context for `scenario=reconnect`, Home sends
+the accepted `prompt.submit` response and then closes that peer. Home parks the
+recoverable endpoint for the existing `conversation.reconnect` method. The
+Android test waits on its `observeConnection` latch for the fixed 15-second
+deadline, calls `client.reconnect()` exactly once after the latch, and
+requires a second 10-second readiness deadline. A missing close observation
+or signed event is `INCONCLUSIVE: RECONNECT_TRACE`, never a pass.
 
 `LiveRelayHandshakeTest.reconnect_reuses_the_same_home_conversation_without_replay`
 asserts that the trace sequence is `prompt.submit:accepted`,
@@ -614,7 +646,7 @@ asserts that the trace sequence is `prompt.submit:accepted`,
 attempts for that branch and requires exactly one total and zero after the
 accepted one. The plan does not invent a magic prompt, client timer, or
 undocumented close protocol; `LIVE_RECONNECT_PROMPT` is the explicit probe
-input and the close hook is Home-owned.
+input; the close is implemented by Home only for the valid reconnect trace.
 
 ## Deterministic contract coverage
 
@@ -674,16 +706,16 @@ The exact new or renamed deterministic test methods are
 and `AndroidAudioSinkFramesTest.delayed_drain_requires_playback_advancement`.
 The wrapper contract is covered by
 `scripts/run-live-home-gate-contract-test.sh`, which uses fake `adb`, Gradle,
-attestation, XML, and close-hook commands to exercise missing/duplicate
-inputs, invalid signatures, stale reports, no-echo behavior, protected-value
-and raw-content scans, clean marker definitions versus captured-marker
-fixtures, partial-run publication, no-arm and never-exit hook cleanup, mixed
+handle provider, trace fetch, attestation, and XML commands to exercise
+missing/invalid inputs, invalid signatures, stale reports, no-echo behavior,
+protected-value and raw-content scans, clean marker definitions versus
+captured-marker fixtures, partial-run publication,
 failure-then-limitation precedence, and exit codes 0/20/30/64.
 
 ## Implementation tasks
 
 1. **Safe live harness** — create
-   `scripts/verify-story-dispatch.sh` to enforce `authority_revision: 5` and
+   `scripts/verify-story-dispatch.sh` to enforce `authority_revision: 8` and
    compare the canonical spec SHA-256 with the dispatch frontmatter before
    any stories-mode implementation leg; the script emits only pass/fail.
    Create `scripts/verify-home-attestation.py` using the `cryptography`
@@ -692,7 +724,7 @@ failure-then-limitation precedence, and exit codes 0/20/30/64.
    that phase, and emits only `ATTESTATION=PASS` or an allowlisted failure.
    Create `scripts/validate-live-home-inputs.py` to enforce the exact
    `HomeCredentialValidator` 43-character/32-byte credential boundary,
-   route/handle/prompt/run-id shapes, and duplicate-handle rule without
+   route/provider/prompt/run-id shapes and claim-binding rules without
    printing a value. Create
    `scripts/run-live-home-gate.sh`,
    `scripts/run-live-home-gate-contract-test.sh`, and update
@@ -711,9 +743,9 @@ failure-then-limitation precedence, and exit codes 0/20/30/64.
    helpers `readLiveArguments`, `assertLiveHomeCapabilities`,
    `awaitNonTerminalTurnState`, `awaitInterruptAcknowledgement`,
    `awaitMatchingTurnInterrupted`, `resetRequestTelemetry`, and
-   `assertDefaultReportCounts`; use the four scenario-specific handles, three
-   explicit probe prompts, constant assertion labels, no prompt default, and
-   schema-2 device-cache result handoff, exact audio-preflight token/process
+   `assertDefaultReportCounts`; use one freshly generated handle per
+   invocation, three explicit probe prompts, constant assertion labels, no prompt default, and
+   schema-3 device-cache result handoff, exact audio-preflight token/process
    classification, and `try/finally` cleanup for
    observation/client/sink resources. Keep
    `LiveRelay.kt` and the Gradle default exclusion intact.
@@ -751,23 +783,23 @@ failure-then-limitation precedence, and exit codes 0/20/30/64.
 4. **Interrupt and reconnect evidence** — strengthen the live scenarios and
    their deterministic fixtures for non-terminal interrupt timing, matching
    terminal binding, separate acknowledgement telemetry,
-   operator-controlled peer close, reconnect ordering, and zero prompt replay.
+   Home-controlled peer close, reconnect ordering, and zero prompt replay.
    Add `AndroidClientRequestTelemetry` beside the client in
    `app/src/main/java/com/achappell/hermesrelay/OkHttpRelaySessionClient.kt`
    with atomic per-branch `promptSubmitCount` and `interruptRequestCount`,
    reset before each branch;
    require exactly one reconnect-branch submit and zero after acceptance. The
-   close hook protocol includes a five-second arm deadline, a ten-second
-   guarded-exit deadline, and the two-second `TERM` to `KILL` escalation; the
+   Home closes the peer after the accepted prompt response only when the
+   reconnect trace context is valid; there is no separate hook process. The
    Android observation/reconnect deadlines remain 15 seconds and 10 seconds.
-   Do not add Home close behavior to Android.
+   Do not add the close behavior to Android.
 5. **Safe validation record** — create/update
    `_bmad-output/implementation-artifacts/validation-5-a-4-live-home-gate.md`
-   with the schema-2 result below, exact commands, nullable device/command
+   with the schema-3 result below, exact commands, nullable device/command
    facts, two-phase provenance state, branch evidence, branch reasons,
    overall-rule mapping, and exit code. Never copy raw logs or value-bearing
 arguments into it; `writeSafeValidationRecord` is the only publishing seam.
-   `LiveHomeSafeResult.kt` writes the exact per-scenario schema-2 envelope,
+   `LiveHomeSafeResult.kt` writes the exact per-scenario schema-3 envelope,
    refuses to overwrite a device result, and the wrapper accepts it only after
    fresh-cache/run-id checks, exact schema validation, and safe projection.
    Keep environment-limited exit `20` distinct from started-operation
@@ -819,11 +851,11 @@ arguments into it; `writeSafeValidationRecord` is the only publishing seam.
   the acknowledgement and matching terminal event arrive before the deadline;
   a natural completion before the request is inconclusive, and a missing
   acknowledgement or terminal after the request is `fail: TERMINAL_TIMEOUT`.
-- Given the reconnect close hook reports the accepted prompt and peer close,
+- Given Home reports the accepted prompt and peer close in the signed trace,
   when Android reconnects, then it sends exactly one `conversation.reconnect`
   for the same opaque conversation and zero replacement `prompt.submit`
   requests, preserving uncertainty until the matching readiness result with
-  `unresolved_turn=true`.
+  `unresolved_turn=true` (or its validated turn record).
 - Given the selected device already contains a result under the requested run
   id, when the wrapper performs its cache preflight, then it rejects the run
   before any live scenario and never treats that file as evidence; each
@@ -845,15 +877,14 @@ arguments into it; `writeSafeValidationRecord` is the only publishing seam.
   any scanned artifact contains a protected value, then scanning fails with
   `HARNESS_FAILURE` and exit `30`.
 - Given a scenario invocation completes, when the wrapper retrieves its device
-  handoff, then the file has exactly the schema-2 per-scenario envelope below,
+  handoff, then the file has exactly the schema-3 per-scenario envelope below,
   binds the current run and scenario, and contributes only its allowlisted
   projection to the aggregate record.
-- Given the close hook does not arm within five seconds or does not exit within
-  its ten-second cleanup deadline, when the wrapper closes the run, then it
-  terminates the hook process group with `TERM`, waits two seconds, escalates
-  to `KILL`, publishes a safe bounded result, and never waits indefinitely.
+- Given Home does not close the reconnect peer within the Android observation
+  deadline, when the branch result is published, then the branch is
+  `inconclusive: RECONNECT_TRACE` and the run cannot pass.
 - Given an earlier branch or command has already recorded a failure, when a
-  later provenance or close-hook limitation occurs, then the wrapper preserves
+  later provenance or reconnect-trace limitation occurs, then the wrapper preserves
   the failure, publishes `status: failed`, and returns normalized exit `30`
   rather than downgrading the run to an environment limitation.
 - Given all four branch records pass, the deployment and run-trace envelopes
@@ -873,7 +904,7 @@ command facts, are still emitted for a partial run:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "status": "done-with-environment-limitation",
   "exit_code": 20,
   "run_id": "<non-secret identifier>",
@@ -963,7 +994,7 @@ exact branch-specific `facts` object. The exact projections are defined below:
 The only handshake keys are `connection_ready`, `response_id_matched`,
 `unresolved_turn`, `route`, and `capabilities`. `route` is either null or an
 object with exactly `class` and `id`; `capabilities` is either null or an
-object with exactly `heartbeat`, `timing`, `commands`, `interrupt`, and
+object with exactly `heartbeat`, `timing`, `command_count`, `interrupt`, and
 `audio`. A passing projection is equivalent to:
 
 ```json
@@ -975,7 +1006,7 @@ object with exactly `heartbeat`, `timing`, `commands`, `interrupt`, and
   "capabilities": {
     "heartbeat": true,
     "timing": "absent",
-    "commands": [],
+    "command_count": 271,
     "interrupt": false,
     "audio": false
   }
@@ -1086,12 +1117,13 @@ Rules are strict:
   condition that is known before an operation can produce untrustworthy
   evidence: missing pairing, wrong device, valid physical-output failure,
   missing deployment/run-trace provenance, Home 404/unreachable/unavailable,
-  a valid false capability, or a close hook that never arms before reconnect.
+  a valid false capability, or Home not closing the reconnect peer before the
+  observation deadline.
   These leave the follow-up `backlog`.
 - Harness exit `30` covers an operation that started but cannot be trusted:
   unexpected child-process failure, timeout, malformed/missing/duplicate
-  report or device handoff, invalid preflight output, an armed hook that will
-  not exit, cleanup/publication failure, or a protected-artifact scan hit.
+  report or device handoff, invalid preflight output, cleanup/publication
+  failure, or a protected-artifact scan hit.
   The affected branch may be `inconclusive: HARNESS_FAILURE`, but the
   top-level status is `failed` and the normalized exit is `30`.
 - An incomplete branch is `inconclusive`, not pass. A partial run never becomes
@@ -1138,10 +1170,10 @@ opt-in run. It must:
    or assertion output containing an argument. An `EXIT` trap removes its
    owner-only temporary argument/attestation copies after
    `writeSafeValidationRecord` publishes the safe partial result.
-2. Validate all required environment names, trust files, prompts, and the four
-   handles before any `adb`, Gradle, TLS, or Home operation. It rejects
-   duplicate handles and invalid route/credential shapes without displaying
-   their values. It verifies the deployment envelope and its key fingerprint
+2. Validate all required environment names, trust files, prompts, and the
+   just-in-time handle provider before any `adb`, Gradle, TLS, or Home
+   operation. It rejects invalid route, credential, provider, and claim
+   binding shapes without displaying their values. It verifies the deployment envelope and its key fingerprint
    with `scripts/verify-home-attestation.py --kind deployment`, then verifies
    the canonical dispatch hash before the live class is started. The run-trace
    envelope is intentionally not required at this point: it is verified with
@@ -1161,37 +1193,19 @@ opt-in run. It must:
    missing, unreadable, stale, or ambiguous report is `HARNESS_FAILURE`, not a
    zero count.
 4. Run `runDeviceAudioPreflight` after APK installation and before the
-   explicit live Gradle command. Start `LIVE_HOME_CLOSE_HOOK` only after all
-   preflight checks and immediately before the reconnect scenario. The
-   wrapper-owned `armCloseHook` captures the process group, accepts only the
-   content-free `HOOK_ARMED` token within five seconds, and records the PID in
-   owner-only run state. If it does not arm, the wrapper sends `TERM`, waits
-   two seconds, sends `KILL` if needed, records `NOT_RUN: CONTROLLED_CLOSE`,
-   publishes the safe partial result, and exits `20` only when no earlier
-   branch has recorded a failure. If an earlier branch failed, that failure
-   remains authoritative and the wrapper exits `30`. The wrapper-owned
-   `stopCloseHook` waits at most ten seconds for a guarded exit; on timeout it
-   sends `TERM`, waits two seconds, then sends `KILL`, records
-   `HARNESS_FAILURE` for an armed hook that will not exit; that harness
-   failure and exit `30` take precedence over earlier environment limitations,
-   and cleanup continues to publication. The `EXIT` trap always calls this bounded cleanup before
-   publishing, so hook cleanup can never block the safe result. The hook
-   receives only the run id, scenario, method, and once flag described above.
+   explicit live Gradle command. Home's valid reconnect trace context makes
+   the server close that branch's peer only after the accepted prompt
+   response. The wrapper has no close-hook process to start or clean up.
 5. `runLiveScenarios` runs the explicit command below four times, once each
    with `scenario=handshake`, `typed_audio`, `interrupt`, and `reconnect`.
-   Each invocation uses `notAnnotation=org.junit.Ignore`, the named class,
-   `liveRunId`; the test consumes only the handle/prompt pair selected by that
-   scenario (`handshakeConversationHandle`, `typedConversationHandle` plus
-   `typedPrompt`, `interruptConversationHandle` plus `interruptPrompt`, or
-   `reconnectConversationHandle` plus `reconnectPrompt`). The wrapper still
-   validates all four handles for uniqueness before starting and may pass the
-   full validated argv set shown below without allowing a test to consume a
-   different scenario's pair. It starts the
-   close hook immediately before the `scenario=reconnect` invocation, so the
-   operator-controlled close cannot race the other branches. All values are
-   passed through an argv array and are never echoed. Before launching each
+   Immediately before each invocation, the wrapper calls
+   `LIVE_HOME_HANDLE_PROVIDER --scenario <scenario> --run-id <run-id>` and
+   accepts only one 43-character Home handle. Each invocation uses
+   `notAnnotation=org.junit.Ignore`, the named class, `liveRunId`, and that
+   single handle. Only the selected scenario's prompt is passed. All values
+   are passed through an argv array and are never echoed. Before launching each
    scenario invocation, the wrapper proves that the exact scenario path is
-   absent. Only then does the test write exactly one schema-2 per-scenario
+   absent. Only then does the test write exactly one schema-3 per-scenario
    result to the target app cache at the fixed relative path
    `cache/hermes-live-home/<liveRunId>/<scenario>.json` through
    `LiveHomeSafeResult.kt`. The wrapper retrieves only that file with
@@ -1215,7 +1229,7 @@ additional keys, and contains no aggregate record:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "run_id": "<the validated LIVE_HOME_RUN_ID>",
   "scenario": "handshake",
   "status": "pass",
@@ -1235,7 +1249,7 @@ additional keys, and contains no aggregate record:
       "capabilities": {
         "heartbeat": true,
         "timing": "absent",
-        "commands": [],
+        "command_count": 271,
         "interrupt": false,
         "audio": false
       }
@@ -1340,60 +1354,37 @@ attestation metadata.
 
 ## Verification commands
 
-Run and record the outcomes separately:
-
-Every connected-device Gradle command below runs with
-`ANDROID_SERIAL="$LIVE_DEVICE_SERIAL"`; the wrapper supplies that environment
-without echoing it.
+After the signed deployment attestation has verified locally, set these
+inputs in the invoking process and use only the live-gate wrapper. It supplies
+the explicit Android serial to Gradle and ADB without echoing any value.
 
 ```text
-./gradlew testDebugUnitTest assembleDebug lintDebug --no-daemon
-scripts/check-apk-metadata.sh
-./gradlew compileDebugAndroidTestKotlin --no-daemon
-./gradlew connectedDebugAndroidTest --no-daemon
-# Repeat once per scenario; select only that scenario's handle and prompt.
-ANDROID_SERIAL="$LIVE_DEVICE_SERIAL" ./gradlew connectedDebugAndroidTest --no-daemon \
-  -Pandroid.testInstrumentationRunnerArguments.notAnnotation=org.junit.Ignore \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.achappell.hermesrelay.LiveRelayHandshakeTest \
-  -Pandroid.testInstrumentationRunnerArguments.scenario="$LIVE_SCENARIO" \
-  -Pandroid.testInstrumentationRunnerArguments.homeRoute="$LIVE_HOME_ROUTE" \
-  -Pandroid.testInstrumentationRunnerArguments.homeCredential="$LIVE_DEVICE_CREDENTIAL" \
-  -Pandroid.testInstrumentationRunnerArguments.handshakeConversationHandle="$LIVE_HANDSHAKE_HANDLE" \
-  -Pandroid.testInstrumentationRunnerArguments.typedConversationHandle="$LIVE_TYPED_HANDLE" \
-  -Pandroid.testInstrumentationRunnerArguments.interruptConversationHandle="$LIVE_INTERRUPT_HANDLE" \
-  -Pandroid.testInstrumentationRunnerArguments.reconnectConversationHandle="$LIVE_RECONNECT_HANDLE" \
-  -Pandroid.testInstrumentationRunnerArguments.typedPrompt="$LIVE_TYPED_PROMPT" \
-  -Pandroid.testInstrumentationRunnerArguments.interruptPrompt="$LIVE_INTERRUPT_PROMPT" \
-  -Pandroid.testInstrumentationRunnerArguments.reconnectPrompt="$LIVE_RECONNECT_PROMPT" \
-  -Pandroid.testInstrumentationRunnerArguments.liveRunId="$LIVE_HOME_RUN_ID"
 LIVE_DEVICE_SERIAL="$LIVE_DEVICE_SERIAL" \
 LIVE_HOME_ROUTE="$LIVE_HOME_ROUTE" \
 LIVE_DEVICE_CREDENTIAL="$LIVE_DEVICE_CREDENTIAL" \
-LIVE_HANDSHAKE_HANDLE="$LIVE_HANDSHAKE_HANDLE" \
-LIVE_TYPED_HANDLE="$LIVE_TYPED_HANDLE" \
-LIVE_INTERRUPT_HANDLE="$LIVE_INTERRUPT_HANDLE" \
-LIVE_RECONNECT_HANDLE="$LIVE_RECONNECT_HANDLE" \
+LIVE_HOME_HANDLE_PROVIDER="$LIVE_HOME_HANDLE_PROVIDER" \
+LIVE_HOME_CLAIM_DEVICE_ID="$LIVE_HOME_CLAIM_DEVICE_ID" \
+LIVE_HOME_CLAIM_MAPPING_ID="$LIVE_HOME_CLAIM_MAPPING_ID" \
+LIVE_HOME_CLAIM_CONFIGURATION_REVISION="$LIVE_HOME_CLAIM_CONFIGURATION_REVISION" \
+LIVE_HOME_CLAIM_SSH_TARGET="$LIVE_HOME_CLAIM_SSH_TARGET" \
 LIVE_TYPED_PROMPT="$LIVE_TYPED_PROMPT" \
 LIVE_INTERRUPT_PROMPT="$LIVE_INTERRUPT_PROMPT" \
 LIVE_RECONNECT_PROMPT="$LIVE_RECONNECT_PROMPT" \
 LIVE_HOME_RUN_ID="$LIVE_HOME_RUN_ID" \
-LIVE_HOME_CLOSE_HOOK="$LIVE_HOME_CLOSE_HOOK" \
+LIVE_HOME_TRACE_FETCH_HOOK="$LIVE_HOME_TRACE_FETCH_HOOK" \
 LIVE_HOME_ATTESTATION_FILE="$LIVE_HOME_ATTESTATION_FILE" \
 LIVE_HOME_TRACE_ATTESTATION_FILE="$LIVE_HOME_TRACE_ATTESTATION_FILE" \
 LIVE_HOME_ATTESTATION_PUBLIC_KEY_FILE="$LIVE_HOME_ATTESTATION_PUBLIC_KEY_FILE" \
 LIVE_HOME_ATTESTATION_KEY_ALLOWLIST_FILE="$LIVE_HOME_ATTESTATION_KEY_ALLOWLIST_FILE" \
 scripts/run-live-home-gate.sh
-git diff --check
 ```
 
-The final command is illustrative of the protected environment-variable
-injection contract; the wrapper owns the no-tracing/no-echo behavior and the
-operator supplies no values in source or committed shell history. The default
-connected run must prove non-zero non-live coverage and zero live cases before
-the explicit live command is considered. Live tests are not run on an
-emulator, a multi-device ADB selection, or a device without microphone/speaker
-capability; this gate does not claim Compose UI, microphone recognizer timing,
-or TalkBack coverage.
+The wrapper verifies signed deployment provenance before any Gradle, ADB, or
+Home claim request. It then runs the default isolation suite, physical output
+preflight, four live scenarios, and current-run trace verification. Live tests
+are not run on an emulator, a multi-device ADB selection, or a device without
+microphone/speaker capability; this gate does not claim Compose UI,
+microphone recognizer timing, or TalkBack coverage.
 
 ## Spec change log
 
@@ -1420,13 +1411,13 @@ or TalkBack coverage.
 - Iteration 5: split deployment and current-run provenance so the trace is not
   required before the run exists; aligned wrapper credential validation with
   `HomeCredentialValidator`; added explicit Given/When/Then acceptance
-  criteria, a schema-2 safe branch-evidence record with honest nulls, a fixed
+  criteria, a schema-3 safe branch-evidence record with honest nulls, a fixed
   Android-to-wrapper handoff, platform underrun telemetry, deterministic
   interrupt outcomes, concrete file ownership, and contiguous multi-entry
   trace-group cardinality. No Android source was changed.
 - Iteration 6: made reconnect's unresolved-turn contract context-specific;
   required fresh run/device-cache bindings; specified the exact per-scenario
-  schema-2 envelope and atomic handoff; bounded close-hook arm, exit, and
+  schema-3 envelope and atomic handoff; bounded close-hook arm, exit, and
   escalation behavior; and made failure precedence monotonic across later
   environment limitations. No Android source was changed.
 - Iteration 7: separated valid audio-preflight failure tokens from malformed or
@@ -1443,6 +1434,11 @@ or TalkBack coverage.
   `HermesEventNormalizer` mapping for `message.complete`, interruption, and
   failed terminal forms, with a deterministic mapper fixture. No Android
   source was changed.
+- Revision 6 (2026-09-17): incorporated the user's approval for signed Home
+  provenance and ordered tracing, one-at-a-time synthetic claims, and a
+  Home-controlled reconnect peer close. The gate uses three disposable
+  prompts and an in-memory Android profile; it does not claim persistent app
+  pairing.
 
 ## Review triage log
 
@@ -1469,7 +1465,7 @@ or TalkBack coverage.
   iteration resolves them as follows: provenance ordering in the two-phase
   attestation section; missing testability in `Acceptance Criteria`; credential
   drift in `Preflight and device binding`; missing branch evidence in the
-  schema-2 record; unspecified Android-to-wrapper handoff in the wrapper
+  schema-3 record; unspecified Android-to-wrapper handoff in the wrapper
   contract; missing platform-underrun observation in the audio driver seam;
   ambiguous interrupt status in the scenario matrix and status rules; phantom
   partial facts in the nullable record rules; unowned symbols in `Code Map`;
@@ -1570,7 +1566,7 @@ not become hidden claims of live proof.
 ## Auto Run Result
 
 Result: done-with-environment-limitation. The Android Home transport and audio
-hardening, safe schema-2 handoff, live scenario instrumentation, wrapper,
+hardening, safe schema-3 handoff, live scenario instrumentation, wrapper,
 attestation/scanning utilities, BMAD supervisor timeout handling, dispatch
 verification, focused tests, and delivery records are implemented.
 
@@ -1594,3 +1590,42 @@ Limits retained:
   live scenario was exercised. The follow-up delivery row remains backlog.
 - A future run must supply the owner-only provenance inputs and a passing
   default connected suite before the wrapper can produce live-pass.
+
+
+## Authority revision 7 — live command catalog correction (2026-09-17)
+
+Amanda explicitly approved accepting a valid advertised command list, without
+adding command UI, after caticornqueen returned ready with 271 commands.
+Android validates string entries and retains the catalog as capability metadata.
+All existing readiness, audio, interruption, reconnect, and signed-trace checks
+remain required. Safe handoffs and aggregate records advance to schema 3 and
+expose only non-negative integer `command_count`; command names are not evidence
+artifacts. Schema-2 records remain historical evidence and cannot pass the new gate.
+
+
+### Disposable conversation cleanup
+
+Each opted-in live scenario sends `conversation.close` during final cleanup
+before closing its socket. Ordinary app teardown continues to preserve Home
+conversation resumption. Socket cancellation alone does not release Home's
+active room claim; explicit conversation closure permits the next scenario's
+fresh handle. The final operator cleanup still revokes the temporary Device.
+
+
+### Prompt argument transport
+
+The wrapper passes each runtime prompt as URL-safe Base64 without padding via
+`typedPromptBase64`, `interruptPromptBase64`, or `reconnectPromptBase64`. The
+instrumentation test decodes the selected argument in memory before validating
+and submitting it. Encoding is transport escaping, not secrecy: the artifact
+scanner rejects both the original prompt and its encoded form. No prompt
+defaults, files, or persistent app state are introduced.
+
+
+## Authority revision 8 — validated reconnect state (2026-09-17)
+
+Amanda approved accepting Home's structured unresolved-turn record on reconnect.
+The parser already validates its schema, exact conversation handle, nonblank
+turn ID and status. The live recovery gate additionally requires a binding to
+the expected profile and current connection. Initial readiness still requires
+boolean false; recovery must preserve uncertainty and must not submit again.

@@ -15,6 +15,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -86,6 +87,7 @@ class OkHttpRelaySessionClientTest {
         assertNotNull(request)
         assertEquals("/api/v1/bridge/ws", request!!.path)
         assertEquals("Device $VALID_HOME_CREDENTIAL", request.getHeader("Authorization"))
+        assertNull(request.getHeader("X-Hermes-Live-Run-Id"))
 
         val open = JSONObject(openFrame.get()!!)
         assertEquals(1, open.getInt("schema"))
@@ -98,6 +100,90 @@ class OkHttpRelaySessionClientTest {
         assertFalse(open.toString().contains(PROFILE_ID))
         assertFalse(open.toString().contains(VALID_HOME_CREDENTIAL))
 
+        client.close()
+    }
+
+    @Test
+    fun peer_close_is_acknowledged_and_reported_without_waiting_for_timeout() {
+        val peer = java.util.concurrent.atomic.AtomicReference<WebSocket>()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                peer.set(webSocket)
+                val request = JSONObject(text)
+                webSocket.send(readyResponse(request.getString("id")))
+            }
+        }))
+        val client = client()
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val disconnected = CountDownLatch(1)
+        val observation = client.observeConnection { disconnected.countDown() }
+        peer.get().close(1000, "controlled test close")
+        assertTrue(disconnected.await(2, TimeUnit.SECONDS))
+        observation.cancel()
+        client.close()
+    }
+
+    @Test
+    fun live_gate_cleanup_closes_the_conversation_without_submitting_a_prompt() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val frame = JSONObject(text)
+                val method = frame.getString("method")
+                methods.add(method)
+                when (method) {
+                    "conversation.open" -> webSocket.send(readyResponse(frame.getString("id")))
+                    "conversation.close" -> webSocket.send(JSONObject()
+                        .put("schema", 1).put("jsonrpc", "2.0").put("id", frame.getString("id"))
+                        .put("result", JSONObject().put("schema", 1).put("status", "closed")
+                            .put("conversation_handle", CONVERSATION_HANDLE)).toString())
+                }
+            }
+        }))
+        val client = client(liveHomeGateTrace = AndroidLiveHomeGateTrace(
+            "run-cleanup-1", "handshake", "a".repeat(64)))
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertTrue(client.closeLiveGateConversation())
+        assertEquals(listOf("conversation.open", "conversation.close"), methods)
+        assertFalse(client.closeLiveGateConversation())
+        client.close()
+        val ordinaryClient = client()
+        assertFalse(ordinaryClient.closeLiveGateConversation())
+        ordinaryClient.close()
+    }
+
+    @Test
+    fun a_live_gate_sends_only_the_content_free_trace_identity_headers() {
+        val openSeen = CountDownLatch(1)
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        val frame = JSONObject(text)
+                        if (frame.optString("method") != "conversation.open") return
+                        webSocket.send(readyResponse(frame.getString("id")))
+                        openSeen.countDown()
+                    }
+                },
+            ),
+        )
+        val trace = AndroidLiveHomeGateTrace(
+            runId = "run-contract-1",
+            scenario = "typed_audio",
+            deviceSerialFingerprint = "a".repeat(64),
+        )
+
+        val client = client(liveHomeGateTrace = trace)
+        val outcome = client.reconnect()
+
+        assertTrue(openSeen.await(5, TimeUnit.SECONDS))
+        assertTrue(outcome is AndroidReconnectOutcome.Connected)
+        val request = server.takeRequest(5, TimeUnit.SECONDS)
+        assertNotNull(request)
+        assertEquals("Device $VALID_HOME_CREDENTIAL", request!!.getHeader("Authorization"))
+        assertEquals("run-contract-1", request.getHeader("X-Hermes-Live-Run-Id"))
+        assertEquals("typed_audio", request.getHeader("X-Hermes-Live-Scenario"))
+        assertEquals("a".repeat(64), request.getHeader("X-Hermes-Live-Device-Fingerprint"))
         client.close()
     }
 
@@ -209,6 +295,19 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun readiness_accepts_advertised_commands_without_enabling_a_turn() {
+        val client = client()
+        val frame = JSONObject(readyResponse("open-1"))
+        frame.getJSONObject("result").getJSONObject("capabilities")
+            .put("commands", JSONArray().put("help").put("status"))
+        val outcome = client.readOpenResult(frame, "open-1", CONVERSATION_HANDLE, "bridge-1")
+        assertTrue(outcome is AndroidReconnectOutcome.Connected)
+        assertEquals(setOf("help", "status"), (outcome as AndroidReconnectOutcome.Connected).capabilities.commands)
+        assertFalse(client.hasActiveTurn())
+        client.close()
+    }
+
+    @Test
     fun readiness_rejects_malformed_home_state_without_a_turn() {
         val malformed = listOf<(JSONObject) -> Unit>(
             { it.getJSONObject("result").remove("unresolved_turn") },
@@ -217,7 +316,7 @@ class OkHttpRelaySessionClientTest {
             { it.getJSONObject("result").getJSONObject("route").put("class", "private") },
             { it.getJSONObject("result").remove("capabilities") },
             { it.getJSONObject("result").getJSONObject("capabilities").put("timing", "wall") },
-            { it.getJSONObject("result").getJSONObject("capabilities").put("commands", JSONArray().put("shell")) },
+            { it.getJSONObject("result").getJSONObject("capabilities").put("commands", JSONArray().put(123)) },
         )
 
         malformed.forEach { mutate ->
@@ -275,6 +374,17 @@ class OkHttpRelaySessionClientTest {
         ) as AndroidReconnectOutcome.Connected
         assertTrue(resumedOutcome.unresolvedTurn)
         assertEquals("home-turn-resumed", resumedOutcome.unresolvedTurnId)
+        val strictNewTurn = LiveHomeReadiness.assertNewTurnReadiness(resumedOutcome)
+        assertEquals(AndroidHomeUnavailableReason.ProtocolError, strictNewTurn.reason)
+        val strictReconnect = LiveHomeReadiness.assertReconnectReadiness(resumedOutcome)
+        assertTrue(strictReconnect.accepted)
+        assertEquals(null, strictReconnect.reason)
+        assertTrue(strictReconnect.preservesUnresolvedTurn)
+        val unboundReconnect = LiveHomeReadiness.assertReconnectReadiness(
+            resumedOutcome.copy(unresolvedTurnBinding = null),
+        )
+        assertFalse(unboundReconnect.accepted)
+        assertEquals(AndroidHomeUnavailableReason.ProtocolError, unboundReconnect.reason)
         assertEquals(
             AndroidTurnBinding(
                 PROFILE_ID,
@@ -288,6 +398,7 @@ class OkHttpRelaySessionClientTest {
             0,
             resumedClient.snapshotRequestTelemetry().promptSubmitCount,
         )
+        assertEquals(0, resumedClient.snapshotRequestTelemetry().interruptRequestCount)
         resumedClient.close()
     }
 
@@ -1093,6 +1204,7 @@ class OkHttpRelaySessionClientTest {
         helloTimeoutMillis: Long = 5_000,
         requestTimeoutMillis: Long = 5_000,
         audioSink: AndroidAudioSink = RecordingAudioSink(),
+        liveHomeGateTrace: AndroidLiveHomeGateTrace? = null,
     ): OkHttpRelaySessionClient = OkHttpRelaySessionClient(
         collection = { collectionFor(homeBinding = homeBinding) },
         credentials = InMemoryRelayCredentialStore(
@@ -1104,6 +1216,7 @@ class OkHttpRelaySessionClientTest {
         helloTimeoutMillis = helloTimeoutMillis,
         requestTimeoutMillis = requestTimeoutMillis,
         audioSink = audioSink,
+        liveHomeGateTrace = liveHomeGateTrace,
     )
 
     private fun collectionFor(homeBinding: RelayHomeBinding? = RelayHomeBinding(

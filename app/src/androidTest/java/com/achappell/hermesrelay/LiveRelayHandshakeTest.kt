@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicReference
  * One-scenario live Home proof. The wrapper invokes this class four times and
  * supplies a different disposable handle/prompt pair for each invocation.
  *
- * No prompt has a source default. The test writes a content-free schema-2
+ * No prompt has a source default. The test writes a content-free schema-3
  * handoff to the private app cache; the host wrapper is the only component that
  * retrieves it. The class is excluded from the default instrumentation run by
  * [LiveRelay].
@@ -45,48 +45,70 @@ class LiveRelayHandshakeTest {
     /** Reads all instrumentation inputs without supplying secrets or prompt defaults. */
     private fun readLiveArguments(): LiveArguments {
         val arguments = InstrumentationRegistry.getArguments()
+        fun readPrompt(key: String): String {
+            val encoded = arguments.getString(key + "Base64") ?: return ""
+            if (!encoded.matches(Regex("[A-Za-z0-9_-]+"))) return ""
+            return runCatching {
+                String(java.util.Base64.getUrlDecoder().decode(encoded), Charsets.UTF_8)
+            }.getOrDefault("")
+        }
         val result = LiveArguments(
             scenario = arguments.getString("scenario").orEmpty(),
+            profileId = arguments.getString("homeProfileId").orEmpty(),
             route = arguments.getString("homeRoute").orEmpty(),
             credential = arguments.getString("homeCredential").orEmpty(),
-            handshakeHandle = arguments.getString("handshakeConversationHandle").orEmpty(),
-            typedHandle = arguments.getString("typedConversationHandle").orEmpty(),
-            interruptHandle = arguments.getString("interruptConversationHandle").orEmpty(),
-            reconnectHandle = arguments.getString("reconnectConversationHandle").orEmpty(),
-            typedPrompt = arguments.getString("typedPrompt").orEmpty(),
-            interruptPrompt = arguments.getString("interruptPrompt").orEmpty(),
-            reconnectPrompt = arguments.getString("reconnectPrompt").orEmpty(),
+            conversationHandle = arguments.getString("homeConversationHandle").orEmpty(),
+            typedPrompt = readPrompt("typedPrompt"),
+            interruptPrompt = readPrompt("interruptPrompt"),
+            reconnectPrompt = readPrompt("reconnectPrompt"),
             runId = arguments.getString("liveRunId").orEmpty(),
+            deviceSerialFingerprint = arguments.getString("liveDeviceSerialFingerprint").orEmpty(),
             clientId = arguments.getString("relayClientId") ?: DEFAULT_CLIENT_ID,
             deviceId = arguments.getString("relayDeviceId") ?: DEFAULT_DEVICE_ID,
         )
-        val handles = listOf(
-            result.handshakeHandle,
-            result.typedHandle,
-            result.interruptHandle,
-            result.reconnectHandle,
-        )
-        val prompts = listOf(
-            result.typedPrompt,
-            result.interruptPrompt,
-            result.reconnectPrompt,
-        )
+        val validPrompt = when (result.scenario) {
+            SCENARIO_HANDSHAKE -> result.typedPrompt.isEmpty() &&
+                result.interruptPrompt.isEmpty() && result.reconnectPrompt.isEmpty()
+            SCENARIO_TYPED_AUDIO -> isSafePrompt(result.typedPrompt) &&
+                result.interruptPrompt.isEmpty() && result.reconnectPrompt.isEmpty()
+            SCENARIO_INTERRUPT -> result.typedPrompt.isEmpty() &&
+                isSafePrompt(result.interruptPrompt) && result.reconnectPrompt.isEmpty()
+            SCENARIO_RECONNECT -> result.typedPrompt.isEmpty() &&
+                result.interruptPrompt.isEmpty() && isSafePrompt(result.reconnectPrompt)
+            else -> false
+        }
         val valid = result.scenario in SCENARIOS &&
+            result.profileId.matches(PROFILE_ID_PATTERN) &&
             RelayProfileValidator.validateApprovedHomeRoute(result.route) == null &&
             HomeCredentialValidator.isValid(result.credential) &&
-            handles.all(::isSafeHandle) &&
-            handles.toSet().size == handles.size &&
-            prompts.all(::isSafePrompt) &&
-            result.runId.matches(RUN_ID_PATTERN)
+            isSafeHandle(result.conversationHandle) &&
+            validPrompt &&
+            result.runId.matches(RUN_ID_PATTERN) &&
+            result.deviceSerialFingerprint.matches(DEVICE_FINGERPRINT_PATTERN)
         require(valid) { LABEL_ARGUMENTS }
         return result
     }
 
     private fun runHandshake(arguments: LiveArguments): LiveHomeScenarioResult {
-        val client = client(arguments, arguments.handshakeHandle, RecordingAudioSink())
+        val client = client(arguments, arguments.conversationHandle, RecordingAudioSink())
         return try {
             resetRequestTelemetry(client)
             val outcome = client.reconnect()
+            android.util.Log.i("LiveHomeDiagnostic", "READINESS=" + (outcome.reasonCode()?.name ?: "Connected"))
+            val message = when (outcome) {
+                is AndroidReconnectOutcome.Retryable -> outcome.reason
+                is AndroidReconnectOutcome.Unrecoverable -> outcome.reason
+                is AndroidReconnectOutcome.Connected -> ""
+            }
+            val transport = when (message) {
+                "The approved Home route could not be found." -> "DNS"
+                "The approved Home route's certificate could not be verified." -> "TLS"
+                "The approved Home route timed out." -> "TIMEOUT"
+                "The approved Home route is unreachable." -> "SOCKET"
+                "The approved Home bridge route was not found." -> "HTTP404"
+                else -> "OTHER"
+            }
+            android.util.Log.i("LiveHomeDiagnostic", "TRANSPORT=" + transport)
             val readiness = LiveHomeReadiness.assertNewTurnReadiness(outcome)
             val connected = readiness.connected
             if (connected == null) {
@@ -114,13 +136,14 @@ class LiveRelayHandshakeTest {
                 )
             }
         } finally {
+            client.closeLiveGateConversation()
             client.close()
         }
     }
 
     private fun runTypedAudio(arguments: LiveArguments): LiveHomeScenarioResult {
         val sink = AudioTrackAudioSink()
-        val client = client(arguments, arguments.typedHandle, sink)
+        val client = client(arguments, arguments.conversationHandle, sink)
         return try {
             resetRequestTelemetry(client)
             val outcome = client.reconnect()
@@ -152,6 +175,7 @@ class LiveRelayHandshakeTest {
                 ),
             )
             if (accepted !is AndroidInitiationResult.Accepted) {
+                android.util.Log.i("LiveHomeDiagnostic", "INITIATION=" + accepted.javaClass.simpleName + ";REASON=" + accepted.reasonCode()?.name)
                 return result(
                     arguments,
                     STATUS_FAIL,
@@ -165,6 +189,7 @@ class LiveRelayHandshakeTest {
             return try {
             val terminal = collector.terminal.await(TURN_DEADLINE_SECONDS, TimeUnit.SECONDS)
                 val telemetry = awaitAudioTelemetry(sink)
+                android.util.Log.i("LiveHomeDiagnostic", "AUDIO_FAILURE=" + telemetry.failureKind?.name)
                 val state = collector.state.get()
                 val facts = LiveHomeTypedAudioFacts(
                     format = collector.audioFormat.get(),
@@ -200,12 +225,13 @@ class LiveRelayHandshakeTest {
                 observation.cancel()
             }
         } finally {
+            client.closeLiveGateConversation()
             client.close()
         }
     }
 
     private fun runInterrupt(arguments: LiveArguments): LiveHomeScenarioResult {
-        val client = client(arguments, arguments.interruptHandle, RecordingAudioSink())
+        val client = client(arguments, arguments.conversationHandle, RecordingAudioSink())
         return try {
             resetRequestTelemetry(client)
             val outcome = client.reconnect()
@@ -237,6 +263,7 @@ class LiveRelayHandshakeTest {
                 ),
             )
             if (accepted !is AndroidInitiationResult.Accepted) {
+                android.util.Log.i("LiveHomeDiagnostic", "INITIATION=" + accepted.javaClass.simpleName + ";REASON=" + accepted.reasonCode()?.name)
                 return result(
                     arguments,
                     STATUS_FAIL,
@@ -298,12 +325,13 @@ class LiveRelayHandshakeTest {
                 observation.cancel()
             }
         } finally {
+            client.closeLiveGateConversation()
             client.close()
         }
     }
 
     private fun runReconnect(arguments: LiveArguments): LiveHomeScenarioResult {
-        val client = client(arguments, arguments.reconnectHandle, RecordingAudioSink())
+        val client = client(arguments, arguments.conversationHandle, RecordingAudioSink())
         val peerClosed = CountDownLatch(1)
         val disconnectedConnection = AtomicReference<String?>(null)
         val connectionObservation = client.observeConnection { event ->
@@ -329,6 +357,7 @@ class LiveRelayHandshakeTest {
                 ),
             )
             if (accepted !is AndroidInitiationResult.Accepted) {
+                android.util.Log.i("LiveHomeDiagnostic", "INITIATION=" + accepted.javaClass.simpleName + ";REASON=" + accepted.reasonCode()?.name)
                 return result(
                     arguments,
                     STATUS_FAIL,
@@ -360,6 +389,7 @@ class LiveRelayHandshakeTest {
                 )
             }
             val recovered = client.reconnect()
+            android.util.Log.i("LiveHomeDiagnostic", "READINESS=" + recovered.javaClass.simpleName + ";REASON=" + recovered.reasonCode()?.name)
             val reconnectReadiness = LiveHomeReadiness.assertReconnectReadiness(recovered)
             val recoveredConnected = reconnectReadiness.connected
             val counts = client.snapshotRequestTelemetry()
@@ -392,6 +422,7 @@ class LiveRelayHandshakeTest {
             )
         } finally {
             connectionObservation.cancel()
+            client.closeLiveGateConversation()
             client.close()
         }
     }
@@ -419,6 +450,11 @@ class LiveRelayHandshakeTest {
             helloTimeoutMillis = HOME_READY_TIMEOUT_MILLIS,
             requestTimeoutMillis = REQUEST_TIMEOUT_MILLIS,
             audioSink = sink,
+            liveHomeGateTrace = AndroidLiveHomeGateTrace(
+                runId = arguments.runId,
+                scenario = arguments.scenario,
+                deviceSerialFingerprint = arguments.deviceSerialFingerprint,
+            ),
         )
     }
 
@@ -601,12 +637,12 @@ class LiveRelayHandshakeTest {
                 is AndroidNormalizedEvent.AudioFailed -> audioFailed.set(true)
                 is AndroidNormalizedEvent.TurnInterrupted -> {
                     interruptedEvent.set(event)
-                    interrupted.countDown()
                 }
                 else -> Unit
             }
             val next = AndroidTurnStateReducer.reduce(state.get(), event)
             state.set(next)
+            if (event is AndroidNormalizedEvent.TurnInterrupted) interrupted.countDown()
             if (!next.isTerminal && next.phase in setOf(AndroidTurnPhase.Thinking, AndroidTurnPhase.Speaking)) {
                 nonTerminal.countDown()
             }
@@ -623,24 +659,23 @@ class LiveRelayHandshakeTest {
 
     private data class LiveArguments(
         val scenario: String,
+        val profileId: String,
         val route: String,
         val credential: String,
-        val handshakeHandle: String,
-        val typedHandle: String,
-        val interruptHandle: String,
-        val reconnectHandle: String,
+        val conversationHandle: String,
         val typedPrompt: String,
         val interruptPrompt: String,
         val reconnectPrompt: String,
         val runId: String,
+        val deviceSerialFingerprint: String,
         val clientId: String,
         val deviceId: String,
     ) {
-        val profileId: String = "live-gate"
         val displayName: String = "Android live gate"
     }
 
     private companion object {
+        val PROFILE_ID_PATTERN = Regex("[A-Za-z0-9._:-]{1,128}")
         const val SCENARIO_HANDSHAKE = "handshake"
         const val SCENARIO_TYPED_AUDIO = "typed_audio"
         const val SCENARIO_INTERRUPT = "interrupt"
@@ -652,6 +687,7 @@ class LiveRelayHandshakeTest {
         const val STATUS_NOT_RUN = "not-run"
         const val DEFAULT_CLIENT_ID = "android-live-gate"
         const val DEFAULT_DEVICE_ID = "android"
+        val DEVICE_FINGERPRINT_PATTERN = Regex("[0-9a-f]{64}")
         const val HOME_READY_TIMEOUT_MILLIS = 15_000L
         const val REQUEST_TIMEOUT_MILLIS = 15_000L
         const val INTERRUPT_ACK_DEADLINE_MILLIS = 10_000L

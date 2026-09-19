@@ -87,7 +87,7 @@ internal data class LiveHomeScenarioResult(
  * refuses to replace an existing scenario result.
  */
 internal object LiveHomeSafeResult {
-    const val SCHEMA_VERSION = 2
+    const val SCHEMA_VERSION = 3
     const val CACHE_DIRECTORY = "hermes-live-home"
 
     private val scenarios = setOf("handshake", "typed_audio", "interrupt", "reconnect")
@@ -269,7 +269,7 @@ internal object LiveHomeSafeResult {
         capabilities == null || (
             capabilities.heartbeat &&
                 capabilities.timing == "absent" &&
-                capabilities.commands.isEmpty()
+                capabilities.commands.all { it.isNotEmpty() && it == it.trim() }
             )
 
     private fun validateFormat(format: AndroidAudioFormat?, byteOrder: String): Boolean =
@@ -306,7 +306,7 @@ internal object LiveHomeSafeResult {
             JSONObject()
                 .put("heartbeat", it.heartbeat)
                 .put("timing", it.timing)
-                .put("commands", JSONArray(it.commands.toList().sorted()))
+                .put("command_count", it.commands.size)
                 .put("interrupt", it.interrupt)
                 .put("audio", it.audio)
         })
