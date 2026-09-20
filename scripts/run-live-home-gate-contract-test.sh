@@ -23,14 +23,57 @@ if ! bash "$project_root/scripts/verify-story-dispatch.sh" >"$dispatch_output" 2
 fi
 [[ "$(cat "$dispatch_output")" == "DISPATCH=PASS" ]] || fail DISPATCH_OUTPUT
 
-hook="$tmp_dir/hook"
-"$python_bin" - "$hook" <<'PY'
+# Schema 3 records counts, never command names; booleans are not counts.
+"$python_bin" -B - "$project_root/scripts/live-home-safe-record.py" <<'PYTEST'
+import runpy, sys
+module = runpy.run_path(sys.argv[1])
+validate = module["validate_capabilities"]
+invalid = module["Invalid"]
+base = {"heartbeat": True, "timing": "absent", "interrupt": True, "audio": True}
+for count in (0, 271):
+    validate({**base, "command_count": count})
+for count in (-1, True, 1.5, "271", None):
+    try:
+        validate({**base, "command_count": count})
+    except invalid:
+        pass
+    else:
+        raise AssertionError("INVALID_COMMAND_COUNT_ACCEPTED")
+try:
+    validate({**base, "command_count": 1, "commands": ["private-command"]})
+except invalid:
+    pass
+else:
+    raise AssertionError("COMMAND_NAMES_ACCEPTED_IN_SAFE_EVIDENCE")
+PYTEST
+
+provider="$tmp_dir/provider"
+provider_called="$tmp_dir/provider-called"
+"$python_bin" - "$provider" "$provider_called" <<'PY'
 import os
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1])
-path.write_text("#!/usr/bin/env python3\nprint('HOOK_ARMED', flush=True)\n", encoding="utf-8")
+sentinel = pathlib.Path(sys.argv[2])
+path.write_text(
+    "#!/usr/bin/env python3\n"
+    "import base64, pathlib, sys\n"
+    f"pathlib.Path({str(sentinel)!r}).write_text('called')\n"
+    "print(base64.urlsafe_b64encode(bytes(32)).decode().rstrip('='))\n",
+    encoding="utf-8",
+)
+os.chmod(path, 0o700)
+PY
+
+trace_fetch="$tmp_dir/trace-fetch"
+"$python_bin" - "$trace_fetch" <<'PY'
+import os
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text("#!/usr/bin/env python3\nraise SystemExit(0)\n", encoding="utf-8")
 os.chmod(path, 0o700)
 PY
 
@@ -40,19 +83,20 @@ print(base64.urlsafe_b64encode(bytes(32)).decode().rstrip('='))
 PY
 )"
 export LIVE_HOME_ROUTE='wss://home.example'
+export LIVE_HOME_PROFILE_ID='contract-profile'
 export LIVE_DEVICE_CREDENTIAL="$credential"
-handle_prefix='contract'
-export LIVE_HANDSHAKE_HANDLE="${handle_prefix}-handshake"
-export LIVE_TYPED_HANDLE="${handle_prefix}-typed"
-export LIVE_INTERRUPT_HANDLE="${handle_prefix}-interrupt"
-export LIVE_RECONNECT_HANDLE="${handle_prefix}-reconnect"
+export LIVE_HOME_HANDLE_PROVIDER="$provider"
+export LIVE_HOME_CLAIM_DEVICE_ID='android-live-device'
+export LIVE_HOME_CLAIM_MAPPING_ID='android-live-mapping'
+export LIVE_HOME_CLAIM_CONFIGURATION_REVISION='1'
+export LIVE_HOME_CLAIM_SSH_TARGET='tester@home'
 prompt_prefix='contract'
 prompt_suffix='probe'
 export LIVE_TYPED_PROMPT="${prompt_prefix} typed ${prompt_suffix}"
 export LIVE_INTERRUPT_PROMPT="${prompt_prefix} interrupt ${prompt_suffix}"
 export LIVE_RECONNECT_PROMPT="${prompt_prefix} reconnect ${prompt_suffix}"
 export LIVE_HOME_RUN_ID='contract-inputs'
-export LIVE_HOME_CLOSE_HOOK="$hook"
+export LIVE_HOME_TRACE_FETCH_HOOK="$trace_fetch"
 
 if ! "$python_bin" "$project_root/scripts/validate-live-home-inputs.py" \
     >"$tmp_dir/valid-inputs.out" 2>"$tmp_dir/valid-inputs.err"; then
@@ -60,12 +104,12 @@ if ! "$python_bin" "$project_root/scripts/validate-live-home-inputs.py" \
 fi
 [[ "$(cat "$tmp_dir/valid-inputs.out")" == "INPUTS=PASS" ]] || fail VALID_INPUT_OUTPUT
 
-if LIVE_TYPED_HANDLE="$LIVE_HANDSHAKE_HANDLE" \
+if LIVE_HOME_CLAIM_CONFIGURATION_REVISION='01' \
     "$python_bin" "$project_root/scripts/validate-live-home-inputs.py" \
-    >"$tmp_dir/duplicate.out" 2>"$tmp_dir/duplicate.err"; then
-    fail DUPLICATE_ACCEPTED
+    >"$tmp_dir/invalid-revision.out" 2>"$tmp_dir/invalid-revision.err"; then
+    fail INVALID_REVISION_ACCEPTED
 fi
-[[ "$(cat "$tmp_dir/duplicate.out")" == "INPUTS=FAIL:INVALID_BINDING" ]] || fail DUPLICATE_OUTPUT
+[[ "$(cat "$tmp_dir/invalid-revision.out")" == "INPUTS=FAIL:INVALID_BINDING" ]] || fail INVALID_REVISION_OUTPUT
 
 if LIVE_HOME_ROUTE='wss://home.example:notaport' \
     "$python_bin" "$project_root/scripts/validate-live-home-inputs.py" \
@@ -73,6 +117,34 @@ if LIVE_HOME_ROUTE='wss://home.example:notaport' \
     fail INVALID_PORT_ACCEPTED
 fi
 [[ "$(cat "$tmp_dir/invalid-port.out")" == "INPUTS=FAIL:INVALID_BINDING" ]] || fail INVALID_PORT_OUTPUT
+
+# Provider transport failures must remain diagnostic without echoing child output.
+"$python_bin" - "$project_root/scripts/issue-live-home-wake-claim.py" <<'PY_PROVIDER'
+import contextlib
+import importlib.util
+import io
+import subprocess
+import sys
+from unittest.mock import patch
+
+sys.dont_write_bytecode = True
+spec = importlib.util.spec_from_file_location("claim_provider", sys.argv[1])
+provider = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(provider)
+sys.argv = ["claim_provider", "--scenario", "handshake", "--run-id", "contract-inputs"]
+cases = [
+    ({"side_effect": subprocess.TimeoutExpired("ssh", 65)}, "SSH_TIMEOUT"),
+    ({"side_effect": OSError()}, "SSH_START"),
+    ({"return_value": subprocess.CompletedProcess([], 255, "private child output", "private error")}, "SSH_EXIT"),
+    ({"return_value": subprocess.CompletedProcess([], 0, "invalid child output", "private error")}, "INVALID_RESPONSE"),
+]
+for behavior, reason in cases:
+    output, error = io.StringIO(), io.StringIO()
+    with patch.object(provider.subprocess, "run", **behavior), contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+        code = provider.main()
+    assert code == 20 and output.getvalue() == ""
+    assert error.getvalue() == f"HANDLE_PROVIDER=FAIL:{reason}\n"
+PY_PROVIDER
 
 state="$tmp_dir/state.json"
 safe="$tmp_dir/safe-validation-record.json"
@@ -86,7 +158,7 @@ import pathlib
 import sys
 
 record = {
-    "schema_version": 2,
+    "schema_version": 3,
     "run_id": "contract-record",
     "scenario": "handshake",
     "status": "pass",
@@ -102,7 +174,7 @@ record = {
             "capabilities": {
                 "heartbeat": True,
                 "timing": "absent",
-                "commands": [],
+                "command_count": 271,
                 "interrupt": False,
                 "audio": False,
             },
@@ -158,6 +230,18 @@ if ! "$python_bin" "$project_root/scripts/scan-live-home-artifacts.py" \
     fail CLEAN_SCAN
 fi
 
+printf '\200\377' >"$clean_capture/device-info.pb"
+if ! "$python_bin" "$project_root/scripts/scan-live-home-artifacts.py" \
+    "$project_root" "$clean_capture" >"$tmp_dir/device-info-scan.out" 2>"$tmp_dir/device-info-scan.err"; then
+    fail DEVICE_INFO_METADATA_SCAN
+fi
+printf '\200\377%s' "$LIVE_TYPED_PROMPT" >"$clean_capture/device-info.pb"
+if "$python_bin" "$project_root/scripts/scan-live-home-artifacts.py" \
+    "$project_root" "$clean_capture" >"$tmp_dir/device-info-protected-scan.out" 2>"$tmp_dir/device-info-protected-scan.err"; then
+    fail DEVICE_INFO_PROTECTED_ACCEPTED
+fi
+rm -f "$clean_capture/device-info.pb"
+
 printf '%s\n' 'RAW_FRAME=' >"$clean_capture/marker.txt"
 if "$python_bin" "$project_root/scripts/scan-live-home-artifacts.py" \
     "$project_root" "$clean_capture" >"$tmp_dir/marker-scan.out" 2>"$tmp_dir/marker-scan.err"; then
@@ -170,6 +254,15 @@ if "$python_bin" "$project_root/scripts/scan-live-home-artifacts.py" \
     fail PROTECTED_ACCEPTED
 fi
 rm -f "$clean_capture/protected.txt"
+"$python_bin" - "$clean_capture/encoded.txt" <<'PYENCODE'
+import base64, os, pathlib, sys
+pathlib.Path(sys.argv[1]).write_bytes(base64.urlsafe_b64encode(os.environ["LIVE_TYPED_PROMPT"].encode()).rstrip(b"="))
+PYENCODE
+if "$python_bin" "$project_root/scripts/scan-live-home-artifacts.py" \
+    "$project_root" "$clean_capture" >"$tmp_dir/encoded-scan.out" 2>"$tmp_dir/encoded-scan.err"; then
+    fail ENCODED_PROMPT_ACCEPTED
+fi
+rm -f "$clean_capture/encoded.txt"
 printf '%s' 'binary' >"$clean_capture/capture.pcm"
 if "$python_bin" "$project_root/scripts/scan-live-home-artifacts.py" \
     "$project_root" "$clean_capture" >"$tmp_dir/media-scan.out" 2>"$tmp_dir/media-scan.err"; then
@@ -254,6 +347,7 @@ if "$project_root/scripts/run-live-home-gate.sh" >"$wrapper_output" 2>"$wrapper_
 fi
 [[ "$(cat "$wrapper_output")" == $'LIVE_HOME_GATE=NOT_RUN\nEXIT_CODE=20' ]] || fail WRAPPER_OUTPUT
 [[ ! -e "$tmp_dir/adb-called" ]] || fail ADB_STARTED_BEFORE_PROVENANCE
+[[ ! -e "$provider_called" ]] || fail HANDLE_ISSUED_BEFORE_PROVENANCE
 
 invalid_args_output="$tmp_dir/invalid-args.out"
 if "$project_root/scripts/run-live-home-gate.sh" unsupported \

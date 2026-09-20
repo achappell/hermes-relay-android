@@ -48,6 +48,29 @@ class AndroidAudioSinkFramesTest {
     }
 
     @Test
+    fun playback_waits_for_a_buffer_before_starting() {
+        val driver = FakeAudioTrackDriver(playbackHead = { 8_000 })
+        val sink = AudioTrackAudioSink(
+            driverFactory = AudioTrackDriverFactory { _, size ->
+                assertTrue(size >= 16_000)
+                driver
+            },
+            minBufferSizeProvider = { 4 },
+        )
+        val drained = CountDownLatch(1)
+        assertTrue(sink.start(AndroidAudioFormat(8_000, 1, 2, "pcm_s16le")))
+        assertEquals(0, driver.playCalls.get())
+        sink.write(ByteArray(8_000))
+        assertTrue(driver.firstWrite.await(1, TimeUnit.SECONDS))
+        assertEquals(0, driver.playCalls.get())
+        sink.write(ByteArray(8_000))
+        sink.finish(drained::countDown) { throw AssertionError("unexpected audio failure") }
+        assertTrue(drained.await(2, TimeUnit.SECONDS))
+        assertEquals(1, driver.playCalls.get())
+        sink.close()
+    }
+
+    @Test
     fun delayed_drain_requires_playback_advancement() {
         val driver = FakeAudioTrackDriver(playbackHead = { calls -> if (calls < 3) 0 else 2 })
         val sink = AudioTrackAudioSink(
@@ -68,6 +91,7 @@ class AndroidAudioSinkFramesTest {
         assertTrue(driver.playbackHeadCalls.get() >= 3)
         assertEquals(2, sink.snapshotTelemetry().acceptedFrames)
         assertTrue(sink.snapshotTelemetry().drained)
+        assertEquals(1, driver.playCalls.get())
         assertFalse(sink.snapshotTelemetry().failed)
         sink.close()
     }
@@ -121,19 +145,70 @@ class AndroidAudioSinkFramesTest {
         sink.close()
     }
 
+    @Test
+    fun final_response_frame_drains_before_the_stream_runs_empty() {
+        val queued = AtomicInteger(0)
+        val position = AtomicInteger(0)
+        val driver = object : AudioTrackDriver {
+            override fun state() = android.media.AudioTrack.STATE_INITIALIZED
+            override fun play() = Unit
+            override fun write(buffer: ByteArray, offset: Int, size: Int): Int {
+                queued.addAndGet(size / 2)
+                return size
+            }
+            override fun playbackHeadFrames(): Long {
+                position.set(2)
+                return 2
+            }
+            override fun underrunCount() = if (position.get() >= queued.get() && queued.get() > 0) 1 else 0
+            override fun stop() = Unit
+            override fun release() = Unit
+        }
+        val sink = AudioTrackAudioSink(
+            driverFactory = AudioTrackDriverFactory { _, _ -> driver },
+            minBufferSizeProvider = { 4 },
+        )
+        val drained = CountDownLatch(1)
+        val failed = CountDownLatch(1)
+        assertTrue(sink.start(AndroidAudioFormat(8_000, 1, 2, "pcm_s16le")))
+        sink.write(byteArrayOf(1, 0, 1, 0))
+        sink.finish(drained::countDown) { failed.countDown() }
+        assertTrue(drained.await(2, TimeUnit.SECONDS))
+        assertEquals(1L, failed.count)
+        assertEquals(4, sink.snapshotTelemetry().acceptedBytes)
+        assertEquals(2, sink.snapshotTelemetry().acceptedFrames)
+        assertEquals(0, sink.snapshotTelemetry().underrunCount)
+        sink.close()
+    }
+
     private class FakeAudioTrackDriver(
         private val playbackHead: (Int) -> Long = { 0 },
         private val underruns: () -> Int = { 0 },
     ) : AudioTrackDriver {
         val playbackHeadCalls = AtomicInteger(0)
+        val playCalls = AtomicInteger(0)
+        val firstWrite = CountDownLatch(1)
+        private val queuedFrames = AtomicInteger(0)
+        private var startThreshold = Int.MAX_VALUE
 
         override fun state(): Int = android.media.AudioTrack.STATE_INITIALIZED
 
-        override fun play() = Unit
+        override fun play() { playCalls.incrementAndGet() }
 
-        override fun write(buffer: ByteArray, offset: Int, size: Int): Int = size
+        override fun preparePlayback(queuedFrames: Int) { startThreshold = queuedFrames }
 
-        override fun playbackHeadFrames(): Long = playbackHead(playbackHeadCalls.incrementAndGet())
+        override fun write(buffer: ByteArray, offset: Int, size: Int): Int {
+            queuedFrames.addAndGet(size / 2)
+            firstWrite.countDown()
+            return size
+        }
+
+        override fun playbackHeadFrames(): Long =
+            if (playCalls.get() > 0 && queuedFrames.get() >= startThreshold) {
+                playbackHead(playbackHeadCalls.incrementAndGet())
+            } else {
+                0
+            }
 
         override fun underrunCount(): Int = underruns()
 

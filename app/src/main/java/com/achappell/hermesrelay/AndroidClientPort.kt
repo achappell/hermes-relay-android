@@ -81,10 +81,14 @@ internal data class LiveHomeReadinessResult(
 internal object LiveHomeReadiness {
     fun assertNewTurnReadiness(outcome: AndroidReconnectOutcome): LiveHomeReadinessResult =
         when (outcome) {
-            is AndroidReconnectOutcome.Connected -> if (outcome.unresolvedTurn) {
-                LiveHomeReadinessResult(reason = AndroidHomeUnavailableReason.UnresolvedTurn)
-            } else {
-                LiveHomeReadinessResult(connected = outcome)
+            is AndroidReconnectOutcome.Connected -> when {
+                !outcome.unresolvedTurnWasBoolean -> LiveHomeReadinessResult(
+                    reason = AndroidHomeUnavailableReason.ProtocolError,
+                )
+                outcome.unresolvedTurn -> LiveHomeReadinessResult(
+                    reason = AndroidHomeUnavailableReason.UnresolvedTurn,
+                )
+                else -> LiveHomeReadinessResult(connected = outcome)
             }
 
             is AndroidReconnectOutcome.Retryable -> LiveHomeReadinessResult(
@@ -98,13 +102,17 @@ internal object LiveHomeReadiness {
 
     fun assertReconnectReadiness(outcome: AndroidReconnectOutcome): LiveHomeReadinessResult =
         when (outcome) {
-            is AndroidReconnectOutcome.Connected -> if (outcome.unresolvedTurn) {
-                LiveHomeReadinessResult(
+            is AndroidReconnectOutcome.Connected -> when {
+                !outcome.unresolvedTurnWasBoolean && outcome.unresolvedTurnBinding == null -> LiveHomeReadinessResult(
+                    reason = AndroidHomeUnavailableReason.ProtocolError,
+                )
+                outcome.unresolvedTurn -> LiveHomeReadinessResult(
                     connected = outcome,
                     preservesUnresolvedTurn = true,
                 )
-            } else {
-                LiveHomeReadinessResult(reason = AndroidHomeUnavailableReason.ReconnectTrace)
+                else -> LiveHomeReadinessResult(
+                    reason = AndroidHomeUnavailableReason.ReconnectTrace,
+                )
             }
 
             is AndroidReconnectOutcome.Retryable -> LiveHomeReadinessResult(
@@ -120,6 +128,9 @@ internal object LiveHomeReadiness {
         outcome: AndroidReconnectOutcome.Connected,
         required: LiveHomeCapability,
     ): LiveHomeReadinessResult {
+        if (!outcome.unresolvedTurnWasBoolean) {
+            return LiveHomeReadinessResult(reason = AndroidHomeUnavailableReason.ProtocolError)
+        }
         val supported = when (required) {
             LiveHomeCapability.Audio -> outcome.capabilities.audio
             LiveHomeCapability.Interrupt -> outcome.capabilities.interrupt

@@ -4,6 +4,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -95,6 +96,8 @@ internal interface AudioTrackDriver {
 
     fun play()
 
+    fun preparePlayback(queuedFrames: Int) {}
+
     fun write(buffer: ByteArray, offset: Int, size: Int): Int
 
     fun playbackHeadFrames(): Long
@@ -114,6 +117,14 @@ private class PlatformAudioTrackDriver(
     private val track: AudioTrack,
 ) : AudioTrackDriver {
     override fun state(): Int = track.state
+
+    override fun preparePlayback(queuedFrames: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            check(track.setStartThresholdInFrames(queuedFrames.coerceAtLeast(1)) > 0)
+        } else {
+            check(track.setBufferSizeInFrames(queuedFrames.coerceAtLeast(1)) > 0)
+        }
+    }
 
     override fun play() = track.play()
 
@@ -193,6 +204,10 @@ internal class AudioTrackAudioSink(
     private val failureKind = AtomicReference<AudioSinkFailureKind?>(null)
     @Volatile
     private var frameBytes = bytesPerFrame(1)
+    @Volatile
+    private var startupFrames = 0L
+    @Volatile
+    private var drainPaddingBytes = 0
 
     internal fun snapshotTelemetry(): AndroidAudioSinkTelemetry = AndroidAudioSinkTelemetry(
         started = started.get(),
@@ -215,6 +230,8 @@ internal class AudioTrackAudioSink(
         underrunBaseline.set(0)
         failureKind.set(null)
         frameBytes = bytesPerFrame(format.channels)
+        startupFrames = format.sampleRate.toLong() * STARTUP_BUFFER_MILLIS / 1_000
+        drainPaddingBytes = format.sampleRate / 10 * frameBytes
         if (!format.isSupported) {
             fail(AudioSinkFailureKind.StartFailure)
             return false
@@ -226,7 +243,8 @@ internal class AudioTrackAudioSink(
                 fail(AudioSinkFailureKind.OutputUnavailable)
                 return@runCatching false
             }
-            val created = driverFactory.create(format, minBuffer * BUFFER_FACTOR)
+            val bufferBytes = maxOf(minBuffer * BUFFER_FACTOR, (startupFrames * frameBytes).toInt())
+            val created = driverFactory.create(format, bufferBytes)
             if (created.state() != AudioTrack.STATE_INITIALIZED) {
                 runCatching { created.release() }
                 fail(AudioSinkFailureKind.StartFailure)
@@ -236,9 +254,7 @@ internal class AudioTrackAudioSink(
             underrunBaseline.set(baselineUnderruns)
             underrunCount.set(0)
             driver.set(created)
-            created.play()
             active.set(true)
-            started.set(true)
             true
         }.getOrElse {
             fail(AudioSinkFailureKind.StartFailure)
@@ -317,7 +333,11 @@ internal class AudioTrackAudioSink(
         worker.shutdownNow()
     }
 
-    private fun writeQueued(bytes: ByteArray, expectedGeneration: Long) {
+    private fun writeQueued(
+        bytes: ByteArray,
+        expectedGeneration: Long,
+        responseAudio: Boolean = true,
+    ) {
         if (generation.get() != expectedGeneration || !active.get() || failed.get()) return
         val activeDriver = driver.get() ?: run {
             fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
@@ -342,6 +362,9 @@ internal class AudioTrackAudioSink(
                 }
 
                 written == 0 -> {
+                    // A platform buffer may fill below the requested threshold.
+                    if (!started.get() && acceptedFrames.get() > 0 &&
+                        !startPlayback(activeDriver, expectedGeneration)) return
                     if (elapsedMillis(lastProgress) >= writeStallDeadlineMillis) {
                         fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
                         return
@@ -357,11 +380,30 @@ internal class AudioTrackAudioSink(
                 else -> {
                     if (!observeUnderruns(activeDriver, expectedGeneration)) return
                     offset += written
-                    acceptedBytes.addAndGet(written.toLong())
-                    acceptedFrames.addAndGet((written / frameBytes).toLong())
+                    val frames = if (responseAudio) {
+                        acceptedBytes.addAndGet(written.toLong())
+                        acceptedFrames.addAndGet((written / frameBytes).toLong())
+                    } else {
+                        acceptedFrames.get()
+                    }
+                    if (frames >= startupFrames && !startPlayback(activeDriver, expectedGeneration)) return
                     lastProgress = System.nanoTime()
                 }
             }
+        }
+    }
+
+    private fun startPlayback(activeDriver: AudioTrackDriver, expectedGeneration: Long): Boolean {
+        if (generation.get() != expectedGeneration || !active.get() || failed.get()) return false
+        if (started.get()) return true
+        return runCatching {
+            activeDriver.preparePlayback(acceptedFrames.get().coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            activeDriver.play()
+            started.set(true)
+            true
+        }.getOrElse {
+            fail(AudioSinkFailureKind.StartFailure, expectedGeneration)
+            false
         }
     }
 
@@ -376,6 +418,13 @@ internal class AudioTrackAudioSink(
             fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
             return
         }
+        // Keep a short silent tail behind the final response frame so the
+        // polling watcher can stop playback before an empty stream underruns.
+        // This is not response PCM: exclude it from accepted counts and target.
+        writeQueued(ByteArray(drainPaddingBytes), expectedGeneration, responseAudio = false)
+        if (failed.get()) return
+        // Short replies can end before the startup threshold is filled.
+        if (!startPlayback(activeDriver, expectedGeneration)) return
         val startedAt = System.nanoTime()
         var lastPosition = runCatching { activeDriver.playbackHeadFrames() }
             .getOrElse {
@@ -456,6 +505,7 @@ internal class AudioTrackAudioSink(
 
     private companion object {
         const val BUFFER_FACTOR = 4
+        const val STARTUP_BUFFER_MILLIS = 1_000L
         const val POLL_MILLIS = 5L
         const val DEFAULT_WRITE_STALL_DEADLINE_MILLIS = 3_000L
         const val DEFAULT_DRAIN_STALL_DEADLINE_MILLIS = 500L

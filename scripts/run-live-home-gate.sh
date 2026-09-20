@@ -22,8 +22,6 @@ report_root="$project_root/app/build/outputs/androidTest-results/connected"
 
 requested_exit=20
 trap_active=true
-hook_pid=""
-hook_armed=false
 run_id="${LIVE_HOME_RUN_ID:-preflight-$(date +%s)-$$}"
 if [[ ! "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
     run_id="preflight-$(date +%s)-$$"
@@ -121,7 +119,8 @@ validateLiveArguments() {
     if [[ -z "${LIVE_HOME_ATTESTATION_FILE:-}" ||
         -z "${LIVE_HOME_TRACE_ATTESTATION_FILE:-}" ||
         -z "${LIVE_HOME_ATTESTATION_PUBLIC_KEY_FILE:-}" ||
-        -z "${LIVE_HOME_ATTESTATION_KEY_ALLOWLIST_FILE:-}" ]]; then
+        -z "${LIVE_HOME_ATTESTATION_KEY_ALLOWLIST_FILE:-}" ||
+        -z "${LIVE_HOME_TRACE_FETCH_HOOK:-}" ]]; then
         recordAllBranches not-started HOME_PROVENANCE
         return 20
     fi
@@ -147,6 +146,10 @@ validateLiveArguments() {
             return 20
         fi
     done
+    if [[ -e "$LIVE_HOME_TRACE_ATTESTATION_FILE" ]]; then
+        recordAllBranches not-started HOME_PROVENANCE
+        return 20
+    fi
     return 0
 }
 
@@ -346,7 +349,10 @@ runGradleCaptured() {
     shift
     local output="$capture_dir/gradle-$label.out"
     local error="$capture_dir/gradle-$label.err"
+    # Keep the app and test APK available for the direct audio preflight
+    # and run-as handoff collection after each connected test invocation.
     env ANDROID_SERIAL="$device_serial" "$gradle_bin" "$@" \
+        -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
         >"$output" 2>"$error"
 }
 
@@ -449,7 +455,7 @@ runDeviceAudioPreflight() {
     local output="$capture_dir/audio-preflight.out"
     local error="$capture_dir/audio-preflight.err"
     local status=0
-    if runInstrumentWithTimeout "$output" "$error" "$adb_bin" -s "$device_serial" shell am instrument -w \
+    if runInstrumentWithTimeout "$output" "$error" "$adb_bin" -s "$device_serial" shell am instrument -w -r \
         -e notAnnotation org.junit.Ignore \
         -e class "$preflight_class" \
         "$test_package/$test_runner"; then
@@ -558,81 +564,30 @@ collectHandoff() {
     return 0
 }
 
-armCloseHook() {
-    local output="$capture_dir/close-hook.out"
-    local error="$capture_dir/close-hook.err"
-    "$python_bin" - "$LIVE_HOME_CLOSE_HOOK" \
-        --run-id "$run_id" --scenario reconnect \
-        --after-method prompt.submit --once \
-        >"$output" 2>"$error" <<'PY' &
-import os
-import sys
-
-hook = sys.argv[1]
-os.setsid()
-os.execv(hook, sys.argv[1:])
-PY
-    hook_pid="$!"
-    local deadline=$((SECONDS + 5))
-    while (( SECONDS < deadline )); do
-        if [[ "$(grep -c '^HOOK_ARMED$' "$output" 2>/dev/null || true)" == 1 ]]; then
-            hook_armed=true
-            return 0
-        fi
-        if ! kill -0 "$hook_pid" 2>/dev/null; then
-            return 1
-        fi
-        sleep 0.1
-    done
-    return 1
-}
-
-stopCloseHook() {
-    if [[ -z "$hook_pid" ]]; then
-        return 0
-    fi
-    local deadline=$((SECONDS + 10))
-    while kill -0 "$hook_pid" 2>/dev/null && (( SECONDS < deadline )); do
-        sleep 0.1
-    done
-    if kill -0 "$hook_pid" 2>/dev/null; then
-        kill -TERM -- "-$hook_pid" 2>/dev/null || kill -TERM "$hook_pid" 2>/dev/null || true
-        local term_deadline=$((SECONDS + 2))
-        while kill -0 "$hook_pid" 2>/dev/null && (( SECONDS < term_deadline )); do
-            sleep 0.1
-        done
-    fi
-    if kill -0 "$hook_pid" 2>/dev/null; then
-        kill -KILL -- "-$hook_pid" 2>/dev/null || kill -KILL "$hook_pid" 2>/dev/null || true
-        recordBranchStatus reconnect started HARNESS_FAILURE
-        recordCommand live fail 30 "${live_report_count:-0}"
-        requested_exit=30
-        return 1
-    fi
-    local wait_status=0
-    wait "$hook_pid" 2>/dev/null || wait_status=$?
-    local was_armed="$hook_armed"
-    hook_pid=""
-    hook_armed=false
-    if [[ "$was_armed" == true && "$wait_status" != 0 ]]; then
-        recordBranchStatus reconnect started HARNESS_FAILURE
-        recordCommand live fail 30 "${live_report_count:-0}"
-        requested_exit=30
-        return 1
-    fi
-    return 0
+# Encode in memory so spaces and shell punctuation remain one ADB argument.
+encodedPrompt() {
+    "$python_bin" - "$1" <<'PYENCODE'
+import base64, os, sys
+print(base64.urlsafe_b64encode(os.environ[sys.argv[1]].encode("utf-8")).decode("ascii").rstrip("="))
+PYENCODE
 }
 
 runLiveScenario() {
     local scenario="$1"
     local handle_arg
-    case "$scenario" in
-        handshake) handle_arg="$LIVE_HANDSHAKE_HANDLE" ;;
-        typed_audio) handle_arg="$LIVE_TYPED_HANDLE" ;;
-        interrupt) handle_arg="$LIVE_INTERRUPT_HANDLE" ;;
-        reconnect) handle_arg="$LIVE_RECONNECT_HANDLE" ;;
-        *) markHarnessFailure "$scenario" 30; return 30 ;;
-    esac
+    if ! handle_arg="$("$LIVE_HOME_HANDLE_PROVIDER" --scenario "$scenario" --run-id "$run_id" \
+        2>"$capture_dir/handle-provider-$scenario.err")"; then
+        # Publish only the helper's fixed diagnostic tokens, never SSH output.
+        grep -E '^HANDLE_PROVIDER=FAIL:(SSH_TIMEOUT|SSH_START|SSH_EXIT|INVALID_RESPONSE)$' \
+            "$capture_dir/handle-provider-$scenario.err" \
+            >"$run_dir/handle-provider-$scenario.txt" || true
+        recordBranchStatus "$scenario" not-started HOME_UNAVAILABLE
+        return 20
+    fi
+    if [[ ! "$handle_arg" =~ ^[A-Za-z0-9_-]{43}$ ]]; then
+        recordBranchStatus "$scenario" not-started INVALID_BINDING
+        return 20
+    fi
     local relative_path
     relative_path="$(scenarioResultPath "$scenario")"
     if ! devicePathAbsent "$relative_path"; then
@@ -641,23 +596,30 @@ runLiveScenario() {
     fi
 
     local gradle_args=(
-        connectedDebugAndroidTest --no-daemon
+        connectedDebugAndroidTest --no-daemon --no-configuration-cache
         -Pandroid.testInstrumentationRunnerArguments.notAnnotation=org.junit.Ignore
         -Pandroid.testInstrumentationRunnerArguments.class="$live_class"
         -Pandroid.testInstrumentationRunnerArguments.scenario="$scenario"
+        -Pandroid.testInstrumentationRunnerArguments.homeProfileId="$LIVE_HOME_PROFILE_ID"
         -Pandroid.testInstrumentationRunnerArguments.homeRoute="$LIVE_HOME_ROUTE"
         -Pandroid.testInstrumentationRunnerArguments.homeCredential="$LIVE_DEVICE_CREDENTIAL"
-        -Pandroid.testInstrumentationRunnerArguments.handshakeConversationHandle="$LIVE_HANDSHAKE_HANDLE"
-        -Pandroid.testInstrumentationRunnerArguments.typedConversationHandle="$LIVE_TYPED_HANDLE"
-        -Pandroid.testInstrumentationRunnerArguments.interruptConversationHandle="$LIVE_INTERRUPT_HANDLE"
-        -Pandroid.testInstrumentationRunnerArguments.reconnectConversationHandle="$LIVE_RECONNECT_HANDLE"
-        -Pandroid.testInstrumentationRunnerArguments.typedPrompt="$LIVE_TYPED_PROMPT"
-        -Pandroid.testInstrumentationRunnerArguments.interruptPrompt="$LIVE_INTERRUPT_PROMPT"
-        -Pandroid.testInstrumentationRunnerArguments.reconnectPrompt="$LIVE_RECONNECT_PROMPT"
+        -Pandroid.testInstrumentationRunnerArguments.homeConversationHandle="$handle_arg"
         -Pandroid.testInstrumentationRunnerArguments.liveRunId="$run_id"
+        -Pandroid.testInstrumentationRunnerArguments.liveDeviceSerialFingerprint="$serial_fingerprint"
         -Pandroid.testInstrumentationRunnerArguments.relayClientId="android-live-gate"
         -Pandroid.testInstrumentationRunnerArguments.relayDeviceId="android-live-device"
     )
+    case "$scenario" in
+        typed_audio)
+            gradle_args+=("-Pandroid.testInstrumentationRunnerArguments.typedPromptBase64=$(encodedPrompt LIVE_TYPED_PROMPT)")
+            ;;
+        interrupt)
+            gradle_args+=("-Pandroid.testInstrumentationRunnerArguments.interruptPromptBase64=$(encodedPrompt LIVE_INTERRUPT_PROMPT)")
+            ;;
+        reconnect)
+            gradle_args+=("-Pandroid.testInstrumentationRunnerArguments.reconnectPromptBase64=$(encodedPrompt LIVE_RECONNECT_PROMPT)")
+            ;;
+    esac
     local status=0
     if runGradleCaptured "live-$scenario" "${gradle_args[@]}"; then
         status=0
@@ -715,25 +677,23 @@ runLiveScenarios() {
         return 20
     fi
     local scenario
-    for scenario in handshake typed_audio interrupt; do
-        if ! runLiveScenario "$scenario"; then
-            return 30
+    local status
+    for scenario in handshake typed_audio interrupt reconnect; do
+        if runLiveScenario "$scenario"; then
+            :
+        else
+            status="$?"
+            return "$status"
         fi
     done
-    if ! armCloseHook; then
-        recordBranchStatus reconnect not-started CONTROLLED_CLOSE
-        requested_exit=20
-        return 20
-    fi
-    if ! runLiveScenario reconnect; then
-        stopCloseHook || true
-        return 30
-    fi
-    if ! stopCloseHook; then
-        return 30
-    fi
     recordCommand live pass 0 "$live_report_count"
     return 0
+}
+
+fetchRunTrace() {
+    "$LIVE_HOME_TRACE_FETCH_HOOK" --run-id "$run_id" \
+        --output "$LIVE_HOME_TRACE_ATTESTATION_FILE" \
+        >"$capture_dir/trace-fetch.out" 2>"$capture_dir/trace-fetch.err"
 }
 
 verifyRunTrace() {
@@ -834,11 +794,6 @@ onExit() {
         exit "$status"
     fi
     trap_active=false
-    if [[ -n "$hook_pid" ]]; then
-        if ! stopCloseHook; then
-            requested_exit=30
-        fi
-    fi
     if [[ -n "$capture_dir" && -d "$capture_dir" ]]; then
         if ! scanProtectedArtifacts; then
             requested_exit=30
@@ -938,6 +893,15 @@ main() {
     else
         requested_exit=$?
         return "$requested_exit"
+    fi
+
+    if ! fetchRunTrace; then
+        local scenario
+        for scenario in "${scenario_names[@]}"; do
+            recordBranchStatus "$scenario" started HOME_PROVENANCE
+        done
+        requested_exit=20
+        return 20
     fi
 
     if ! verifyRunTrace; then
