@@ -197,6 +197,7 @@ internal class RelayConfigurationController(
         credential: String,
         generation: Int,
         requestId: String?,
+        credentialScope: HomeCredentialScope? = null,
         credentialExpiresAt: Double? = null,
     ): Boolean {
         val current = collection.profiles.firstOrNull { it.id == profileId } ?: return false
@@ -218,6 +219,7 @@ internal class RelayConfigurationController(
                     deviceId = deviceId.trim(),
                     generation = generation,
                     requestId = requestId,
+                    credentialScope = credentialScope,
                     credentialExpiresAt = credentialExpiresAt,
                 ),
             ),
@@ -251,6 +253,7 @@ internal class RelayConfigurationController(
                     ?: RelayHomeAdministration(phase = phase)).copy(
                     phase = phase,
                     credentialExpiresAt = null,
+                    credentialScope = null,
                 ),
             ),
         )

@@ -54,6 +54,7 @@ internal data class RelayHomeAdministration(
     val configurationRevision: Int? = null,
     val requestId: String? = null,
     val credentialExpiresAt: Double? = null,
+    val credentialScope: HomeCredentialScope? = null,
     val lastError: String? = null,
 ) {
     companion object {
@@ -236,6 +237,7 @@ internal data class RelayProfileCollection(
                         .putOpt("configuration_revision", administration.configurationRevision)
                         .putOpt("request_id", administration.requestId)
                         .putOpt("credential_expires_at", administration.credentialExpiresAt)
+                        .putOpt("scope", administration.credentialScope?.toJson())
                         .putOpt("last_error", administration.lastError),
                 )
             }
@@ -273,36 +275,7 @@ internal data class RelayProfileCollection(
                         }
                     } ?: legacyHomeBinding(item)
                     val homeAdministration = item.optJSONObject("home_administration")
-                        ?.let { administration ->
-                            if (
-                                administration.optInt("schema", 0) ==
-                                    RelayHomeAdministration.SCHEMA_VERSION
-                            ) {
-                                runCatching {
-                                    RelayHomeAdministration(
-                                        phase = RelayHomeAdministrationPhase.valueOf(
-                                            administration.optString("phase"),
-                                        ),
-                                        deviceId = administration.optString("device_id")
-                                            .takeIf { it.isNotBlank() },
-                                        generation = administration.optInt("generation", -1)
-                                            .takeIf { it >= 0 },
-                                        configurationRevision = administration
-                                            .optInt("configuration_revision", -1)
-                                            .takeIf { it >= 0 },
-                                        requestId = administration.optString("request_id")
-                                            .takeIf { it.isNotBlank() },
-                                        credentialExpiresAt = administration
-                                            .optDouble("credential_expires_at", -1.0)
-                                            .takeIf { it.isFinite() && it > 0.0 },
-                                        lastError = administration.optString("last_error")
-                                            .takeIf { it.isNotBlank() },
-                                    )
-                                }.getOrNull()
-                            } else {
-                                null
-                            }
-                        }
+                        ?.let(::parseHomeAdministration)
                     RelayProfile(
                         id = id,
                         endpoint = item.optString("endpoint"),
@@ -320,6 +293,67 @@ internal data class RelayProfileCollection(
                 )
             }.getOrElse { RelayProfileCollection() }
         }
+
+        private fun parseHomeAdministration(administration: JSONObject): RelayHomeAdministration {
+            if (
+                administration.optInt("schema", 0) !=
+                    RelayHomeAdministration.SCHEMA_VERSION
+            ) {
+                return invalidHomeAdministration()
+            }
+            return runCatching {
+                RelayHomeAdministration(
+                    phase = RelayHomeAdministrationPhase.valueOf(
+                        administration.getString("phase"),
+                    ),
+                    deviceId = optionalText(administration, "device_id"),
+                    generation = optionalNonNegativeInt(administration, "generation"),
+                    configurationRevision = optionalNonNegativeInt(
+                        administration,
+                        "configuration_revision",
+                    ),
+                    requestId = optionalText(administration, "request_id"),
+                    credentialExpiresAt = optionalPositiveDouble(
+                        administration,
+                        "credential_expires_at",
+                    ),
+                    credentialScope = if (
+                        !administration.has("scope") ||
+                        administration.isNull("scope")
+                    ) {
+                        null
+                    } else {
+                        administration.getJSONObject("scope").toHomeCredentialScope()
+                    },
+                    lastError = optionalText(administration, "last_error"),
+                )
+            }.getOrElse { invalidHomeAdministration() }
+        }
+
+        private fun optionalText(administration: JSONObject, name: String): String? {
+            if (!administration.has(name) || administration.isNull(name)) return null
+            return administration.getString(name).trim().takeIf { it.isNotEmpty() }
+                ?: throw IllegalArgumentException("blank $name")
+        }
+
+        private fun optionalNonNegativeInt(administration: JSONObject, name: String): Int? {
+            if (!administration.has(name) || administration.isNull(name)) return null
+            return administration.getInt(name).also {
+                require(it >= 0) { "negative $name" }
+            }
+        }
+
+        private fun optionalPositiveDouble(administration: JSONObject, name: String): Double? {
+            if (!administration.has(name) || administration.isNull(name)) return null
+            return administration.getDouble(name).also {
+                require(it.isFinite() && it > 0.0) { "invalid $name" }
+            }
+        }
+
+        private fun invalidHomeAdministration() = RelayHomeAdministration(
+            phase = RelayHomeAdministrationPhase.Unavailable,
+            lastError = HomeAdministrationError.InvalidResponse.name,
+        )
 
         private fun legacyHomeBinding(item: JSONObject): RelayHomeBinding? {
             val route = item.optString("home_route").trim()

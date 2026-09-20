@@ -197,10 +197,11 @@ internal class OkHttpRelaySessionClient(
         val homeBinding = profile?.homeBinding
         val homeCredential = profile?.id?.let(credentials::readHomeCredential)
         val homeAdministrationNotReady = profile?.homeAdministration?.let {
+            val expiresAt = it.credentialExpiresAt
             it.phase != RelayHomeAdministrationPhase.Ready ||
-                it.credentialExpiresAt?.let { expiresAt ->
-                    expiresAt <= System.currentTimeMillis() / 1000.0
-                } == true
+                expiresAt == null ||
+                !expiresAt.isFinite() ||
+                expiresAt <= System.currentTimeMillis() / 1000.0
         } == true
         val recordedUnavailableReason = if (lastUnavailableProfileId.get() == profile?.id) {
             lastUnavailableReason.get()
@@ -432,10 +433,11 @@ internal class OkHttpRelaySessionClient(
                 AndroidHomeUnavailableReason.MissingBinding,
             )
         if (profile.homeAdministration?.let {
+                val expiresAt = it.credentialExpiresAt
                 it.phase != RelayHomeAdministrationPhase.Ready ||
-                    it.credentialExpiresAt?.let { expiresAt ->
-                        expiresAt <= System.currentTimeMillis() / 1000.0
-                    } == true
+                    expiresAt == null ||
+                    !expiresAt.isFinite() ||
+                    expiresAt <= System.currentTimeMillis() / 1000.0
             } == true
         ) {
             return unavailable(

@@ -27,6 +27,16 @@ spec: '_bmad-output/implementation-artifacts/spec-android-home-01-pairing-and-co
   drives manual discovery without creating a Home client or writing a Device
   credential.
 
+## Review patch verification — 2026-09-20
+
+- `./gradlew testDebugUnitTest --no-daemon` — passed; 209 tests, zero failures
+  and zero errors.
+- `./gradlew assembleDebug lintDebug compileDebugAndroidTestKotlin --no-daemon`
+  — passed.
+- `scripts/check-apk-metadata.sh` — passed; min SDK 26, version 0.3.1 / code
+  301; signing was skipped because no expected signer was configured.
+- `git diff --check` — passed after all review patches.
+
 ## Environment limitation
 
 `./gradlew connectedDebugAndroidTest --no-daemon` was attempted on the connected

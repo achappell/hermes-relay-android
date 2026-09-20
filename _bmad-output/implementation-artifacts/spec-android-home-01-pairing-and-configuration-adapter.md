@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-09-19'
 status: 'done'
 route: 'dispatch'
-review_loop_iteration: 0
+review_loop_iteration: 1
 baseline_commit: 'b7cce51f26dfd7d689b42dc3c70fbf29f06803cf'
 validation: '_bmad-output/implementation-artifacts/validation-android-home-01-pairing-and-configuration-adapter.md'
 context:
@@ -133,5 +133,60 @@ The two credential authorities are intentional: the Home admin Bearer can publis
 
 **Manual checks (if no CLI):**
 - Walk the ordered Compose flow and confirm discovery, approval, configuration, conflict, revocation, and re-enrollment states are visible without displaying secret values.
+
+### Review Findings
+
+#### Core lifecycle chunk — 2026-09-20
+
+##### Decision needed
+
+- [x] [Review][Decision] Decide whether a configuration fetch may take a Ready bridge offline — `HomeDeviceAdministration.kt:814-825` changes a Ready Profile to `SetupPending` on a read-only fetch. **Decision (2026-09-20):** preserve Ready for an unchanged read-only refresh; enter `SetupPending` only when the fetched candidate differs from the last verified configuration or the user begins an edit.
+- [x] [Review][Decision] Define which administrative errors change the persisted lifecycle phase — `HomeDeviceAdministration.kt:1006-1019` persists `Unavailable` for local input errors, missing credentials, and transport failures as well as Home authorization failures. **Decision (2026-09-20):** preserve the last-known-good lifecycle phase for local validation, transport, and service failures; transition the phase only for evidence that the credential or lifecycle is invalid, such as expiry, revocation, authorization failure, or a missing local credential.
+- [x] [Review][Decision] Define recovery for a consumed one-time credential when local secure storage or Profile persistence fails — `HomeDeviceAdministration.kt:782-811` consumes remotely before `enrollHomeDevice` can complete. **Decision (2026-09-20):** require an idempotent Home consume or reissue/recovery contract so Android can retry safely after local storage or persistence failure instead of permanently losing the enrollment.
+
+##### Patch
+
+- [x] [Review][Patch] Redact enrollment confirmation codes from generated representations [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:217-257] — `HomeEnrollmentRequest` and `HomeEnrollmentSubmission` now override `toString()` with the confirmation code redacted.
+- [x] [Review][Patch] Bind approved and replacement credential material to the requested device, approved scope, and generation [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:757-810,924-948] — approval scope is bounded locally, material scope is persisted and checked, and replacements must retain the Home device ID and advance generation. Home's generated device ID remains distinct from the endpoint ID by contract.
+- [x] [Review][Patch] Resolve default request IDs after profile synchronization [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:757-786] — approval and consume resolve nullable defaults inside `runAdmin` after synchronization.
+- [x] [Review][Patch] Reject blank Room and Profile names in candidate snapshots [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:101-137] — `requireValid()` now rejects blank editable names.
+- [x] [Review][Patch] Require an enrolled setup phase before publishing configuration [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:828-843] — publication is limited to `SetupPending` or `Ready` with a readable Device credential.
+- [x] [Review][Patch] Re-check persisted Device-credential expiry immediately before publishing [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:828-843] — publication rejects missing, non-finite, or expired persisted expiry values at the mutation boundary.
+- [x] [Review][Patch] Require complete Device wake-mapping equality before Ready [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:845-852] — verification now compares the complete authorized active mapping set, accounting for Home's scoped Device response.
+- [x] [Review][Patch] Fail closed on malformed Home administration metadata and missing Ready expiry [app/src/main/java/com/achappell/hermesrelay/RelayProfile.kt:275-305; app/src/main/java/com/achappell/hermesrelay/OkHttpRelaySessionClient.kt:195-204] — malformed records become explicit `Unavailable` metadata, and Ready requires a finite persisted expiry at both snapshot and reconnect gates.
+- [x] [Review][Patch] Make the default Home credential deletion fail closed [app/src/main/java/com/achappell/hermesrelay/RelayCredentialStore.kt:41-43] — an implementation must prove deletion instead of inheriting a successful no-op.
+- [x] [Review][Patch] Map an unqualified HTTP 409 to `Conflict`, not `RevisionConflict` [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:585-607] — only the explicit `revision_conflict` code enters stale-revision recovery.
+- [x] [Review][Patch] Add an expired persisted-Ready bridge regression test [app/src/test/java/com/achappell/hermesrelay/OkHttpRelaySessionClientTest.kt:105-175] — expired, missing, and non-finite persisted Ready expiry fixtures now open no socket.
+- [x] [Review][Patch] Add equal and older publish-revision regression tests [app/src/test/java/com/achappell/hermesrelay/HomeDeviceAdministrationTest.kt:276-363] — production transport tests cover both non-advancing response cases.
+- [x] [Review][Patch] Add a generic-409 transport-to-controller regression test [app/src/test/java/com/achappell/hermesrelay/HomeDeviceAdministrationTest.kt:170-214] — an unqualified HTTP 409 now maps to `Conflict` and preserves Ready.
+- [x] [Review][Patch] Verify production Profile deletion removes the Home admin slot [app/src/test/java/com/achappell/hermesrelay/RelayProfileTest.kt:132-152] — an instrumentation test deletes a Profile through production Keystore-backed credentials and verifies the admin slot is gone.
+- [x] [Review][Patch] Add malformed-snapshot and incomplete-device verification fixtures [app/src/test/java/com/achappell/hermesrelay/HomeDeviceAdministrationTest.kt:276-363,507-513] — tests cover blank labels, duplicate mappings, omitted authorized mappings, and scoped Home mappings.
+- [x] [Review][Patch] Validate enrollment scope identifiers before transport [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:356-419] — blank room, capability, profile-mapping, and wake-mapping identifiers fail before a request is sent.
+
+##### Deferred pending contract evidence
+
+- [x] [Review][Defer] Confirm the Home-issued credential shape and generation invariant [app/src/main/java/com/achappell/hermesrelay/RelayCredentialStore.kt:74-85; app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:1085-1095] — deferred: the Android spec says only that the credential is opaque and does not establish whether 43 URL-safe characters or generation zero are valid; settle against the Home issuer contract before changing validation.
+- [x] [Review][Defer] Decide whether an admin credential must be bound to the approved route [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:964-973] — deferred: route-change semantics and credential scope are not specified in the Android artifact, so the security requirement belongs in the shared Home contract first.
+- [x] [Review][Defer] Add an idempotent remote-consume/recovery contract if Home cannot reissue consumed material [app/src/main/java/com/achappell/hermesrelay/HomeDeviceAdministration.kt:422-437] — deferred: the failure is real but the correct repair crosses the Home API boundary and cannot be chosen from Android code alone.
+
+##### Rejected findings
+
+- `false` — HTTPS downgrade: approved Home routes are validated as `wss://`; `HomeRoute` therefore maps the accepted scheme to HTTPS.
+- `false` — Approved-route path loss: the validator deliberately accepts only the Home host/root or exact bridge path, and REST administration routes are rebuilt from the authority by contract.
+- `false` — Missing discovery attestation: manual discovery is explicitly local and side-effect free; attestation is not an acceptance condition for this adapter.
+- `false` — Saved-instance secret leakage: the admin credential and offer code use `remember`, while only non-secret fields use `rememberSaveable`.
+- `false` — Plain enrollment-code display: the offer-code field is masked.
+- `false` — Approval response ignored: the controller checks request ID, approved status, and non-null approved scope.
+- `false` — Duplicate wake-mapping and Device IDs are unvalidated: `requireValid()` rejects both duplicate sets.
+- `false` — 204 revoke body failure: successful 204 responses are converted to an empty schema response before parsing.
+- `false` — Non-advancing response accepted: the production client rejects returned revisions less than or equal to the expected revision; the remaining issue is test coverage.
+- `false` — New controller is unwired: `MainActivity` keys and passes `HomeDeviceAdministrationController` into the mounted screen.
+- `false` — Blocking network call on the UI thread: the Compose actions invoke the controller through `Dispatchers.IO`.
+- `false` — Re-enrollment must use a fresh offer/request flow: the approved lifecycle explicitly permits a current request/generation renewal or rotation path.
+- `false` — Repeated consume remains enabled: the mounted consume button disables after a Device ID exists and clears the one-time code.
+- `false` — Generic 409 is already typed as `Conflict`: the explicit `conflict` code maps correctly; only the unqualified status fallback remains a patch finding.
+- `false` — The controller remains bound across Profile changes: `MainActivity` keys it by `selectedProfileId`, and the controller also synchronizes the selected ID.
+- `low` — Blank device IDs at the raw revoke endpoint: normal controller state and parsed Home material require a nonblank device ID; adding a direct-client guard is not worth another public branch without evidence of that call path.
+- `maybe-false` — Same-ID Profile replacement necessarily redirects an in-flight operation: the diff does not establish that the Profile collection can replace contents under an unchanged selected ID during an operation; the selected-ID race is covered separately above.
 
 ---

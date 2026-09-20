@@ -160,6 +160,53 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun an_expired_persisted_ready_profile_cannot_open_a_socket() {
+        val client = client(
+            homeAdministration = RelayHomeAdministration(
+                phase = RelayHomeAdministrationPhase.Ready,
+                deviceId = "device-1",
+                generation = 1,
+                credentialExpiresAt = 999.0,
+                requestId = "request-1",
+            ),
+        )
+
+        val outcome = client.reconnect()
+
+        assertEquals(
+            AndroidReconnectOutcome.Unrecoverable(
+                "Home Device configuration is not ready.",
+                AndroidHomeUnavailableReason.AuthorizationUnavailable,
+            ),
+            outcome,
+        )
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun a_ready_profile_requires_a_finite_persisted_expiry() {
+        val expiries: List<Double?> = listOf(null, Double.POSITIVE_INFINITY, Double.NaN)
+
+        expiries.forEach { expiry ->
+            val client = client(
+                homeAdministration = RelayHomeAdministration(
+                    phase = RelayHomeAdministrationPhase.Ready,
+                    deviceId = "device-1",
+                    generation = 1,
+                    credentialExpiresAt = expiry,
+                    requestId = "request-1",
+                ),
+            )
+
+            val outcome = client.reconnect()
+
+            assertEquals(AndroidHomeUnavailableReason.AuthorizationUnavailable, (outcome as AndroidReconnectOutcome.Unrecoverable).reasonCode)
+            client.close()
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
     fun malformed_home_credentials_fail_closed_without_opening_a_socket() {
         val client = OkHttpRelaySessionClient(
             collection = { collectionFor() },
@@ -1117,12 +1164,18 @@ class OkHttpRelaySessionClientTest {
             approvedRoute = bridgeRoute(),
             conversationHandle = CONVERSATION_HANDLE,
         ),
+        homeAdministration: RelayHomeAdministration? = null,
         credential: String = VALID_HOME_CREDENTIAL,
         helloTimeoutMillis: Long = 5_000,
         requestTimeoutMillis: Long = 5_000,
         audioSink: AndroidAudioSink = RecordingAudioSink(),
     ): OkHttpRelaySessionClient = OkHttpRelaySessionClient(
-        collection = { collectionFor(homeBinding = homeBinding) },
+        collection = {
+            collectionFor(
+                homeBinding = homeBinding,
+                homeAdministration = homeAdministration,
+            )
+        },
         credentials = InMemoryRelayCredentialStore(
             homeCredentials = mapOf(PROFILE_ID to credential),
         ),

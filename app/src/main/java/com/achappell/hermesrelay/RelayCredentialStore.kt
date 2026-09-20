@@ -39,7 +39,7 @@ internal interface RelayCredentialStore {
         readHomeCredential(profileId) != null
 
     /** Used only to restore a failed replacement of the Home slot. */
-    fun deleteHomeCredential(profileId: String): Boolean = true
+    fun deleteHomeCredential(profileId: String): Boolean = false
 
     /** Stores the Home administrative credential in its own secure slot. */
     fun putHomeAdminCredential(profileId: String, credential: String): Boolean = false

@@ -108,7 +108,9 @@ internal data class HomeConfigurationSnapshot(
         val deviceIds = devices.map { it.id }
         if (
             roomIds.any(String::isBlank) || roomIds.size != roomIds.toSet().size ||
+            rooms.any { it.name.isBlank() } ||
             profileIds.any(String::isBlank) || profileIds.size != profileIds.toSet().size ||
+            profiles.any { it.name.isBlank() } ||
             wakeMappingIds.any(String::isBlank) ||
             wakeMappingIds.size != wakeMappingIds.toSet().size ||
             deviceIds.any(String::isBlank) || deviceIds.size != deviceIds.toSet().size
@@ -210,7 +212,33 @@ internal data class HomeCredentialScope(
     val rooms: List<String>,
     val capabilities: List<String>,
     val wakeMappings: List<String> = emptyList(),
-)
+) {
+    fun isSubsetOf(grant: HomeCredentialScope): Boolean =
+        rooms.toSet().let { it.all(grant.rooms.toSet()::contains) } &&
+            capabilities.toSet().let { it.all(grant.capabilities.toSet()::contains) } &&
+            wakeMappings.toSet().let { it.all(grant.wakeMappings.toSet()::contains) }
+
+    fun isRoomCapabilitySubsetOf(request: HomeCredentialScope): Boolean =
+        rooms.toSet().let { it.all(request.rooms.toSet()::contains) } &&
+            capabilities.toSet().let { it.all(request.capabilities.toSet()::contains) }
+}
+
+internal fun HomeCredentialScope.requireValid(
+    error: HomeAdministrationError = HomeAdministrationError.InvalidRequest,
+) {
+    val fields = listOf(rooms, capabilities, wakeMappings)
+    if (
+        fields.any { values -> values.any(String::isBlank) } ||
+        fields.any { values -> values.size != values.toSet().size }
+    ) {
+        throw HomeAdministrationException(error)
+    }
+}
+
+internal fun HomeCredentialScope.toJson(): JSONObject = JSONObject()
+    .put("rooms", JSONArray(rooms))
+    .put("capabilities", JSONArray(capabilities))
+    .put("wake_mappings", JSONArray(wakeMappings))
 
 internal data class HomeProfileMapping(val profileId: String, val label: String)
 
@@ -227,7 +255,11 @@ internal data class HomeEnrollmentRequest(
     val expiresAt: Double,
     val status: String,
     val approvedScope: HomeCredentialScope? = null,
-)
+) {
+    override fun toString() =
+        "HomeEnrollmentRequest(requestId=$requestId, offerId=$offerId, endpointId=$endpointId, " +
+            "status=$status, confirmationCode=<redacted>)"
+}
 
 /** Enrollment codes are secret material for one transition and are redacted in logs. */
 internal class HomeEnrollmentOffer(
@@ -254,7 +286,10 @@ internal data class HomeEnrollmentSubmission(
     val requestId: String,
     val confirmationCode: String,
     val expiresAt: Double,
-)
+) {
+    override fun toString() =
+        "HomeEnrollmentSubmission(requestId=$requestId, confirmationCode=<redacted>)"
+}
 
 internal interface HomeDeviceAdministrationClient {
     fun createOffer(expiresInSeconds: Int = 300): HomeEnrollmentOffer
@@ -361,6 +396,15 @@ internal class OkHttpHomeDeviceAdministration(
         requestedProfileMappings: List<HomeProfileMapping>,
     ): HomeEnrollmentSubmission {
         if (offerCode.isBlank()) invalidRequest()
+        if (
+            requestedRooms.any(String::isBlank) ||
+            requestedCapabilities.any(String::isBlank) ||
+            requestedProfileMappings.any {
+                it.profileId.isBlank() || it.label.isBlank()
+            }
+        ) {
+            invalidRequest()
+        }
         val mappings = JSONArray().apply {
             requestedProfileMappings.forEach { mapping ->
                 put(JSONObject().put("profile_id", mapping.profileId).put("label", mapping.label))
@@ -398,6 +442,7 @@ internal class OkHttpHomeDeviceAdministration(
         scope: HomeCredentialScope,
     ): HomeEnrollmentRequest {
         if (requestId.isBlank()) invalidRequest()
+        scope.requireValid()
         val grant = JSONObject()
             .put("mode", "selected")
             .put("ids", JSONArray(scope.wakeMappings))
@@ -479,7 +524,7 @@ internal class OkHttpHomeDeviceAdministration(
         auth: Auth,
         action: String,
     ): HomeDeviceCredentialMaterial {
-        if (generation < 0 || requestId.isBlank()) invalidRequest()
+        if (deviceId.isBlank() || generation < 0 || requestId.isBlank()) invalidRequest()
         val body = JSONObject()
             .put("schema", 1)
             .put("request_id", requestId)
@@ -600,7 +645,7 @@ internal class OkHttpHomeDeviceAdministration(
                 401 -> HomeAdministrationError.Unauthorized
                 403 -> HomeAdministrationError.Forbidden
                 404 -> HomeAdministrationError.NotFound
-                409 -> HomeAdministrationError.RevisionConflict
+                409 -> HomeAdministrationError.Conflict
                 410 -> HomeAdministrationError.Expired
                 400, 422 -> HomeAdministrationError.InvalidRequest
                 408, 429, 500, 502, 503, 504 -> HomeAdministrationError.ServiceUnavailable
@@ -634,6 +679,7 @@ internal data class HomeAdministrationState(
     val deviceId: String? = null,
     val generation: Int? = null,
     val credentialExpiresAt: Double? = null,
+    val credentialScope: HomeCredentialScope? = null,
     val configuration: HomeConfigurationSnapshot? = null,
     val error: HomeAdministrationError? = null,
 )
@@ -668,12 +714,16 @@ internal class HomeDeviceAdministrationController(
     private fun initialState(): HomeAdministrationState {
         val profile = relayConfiguration.collection.selected ?: return HomeAdministrationState()
         val administration = profile.homeAdministration ?: return HomeAdministrationState()
-        val expired = administration.credentialExpiresAt?.let { it <= nowEpochSeconds() } == true
+        val expiresAt = administration.credentialExpiresAt
+        val expired = expiresAt?.let { it.isFinite() && it <= nowEpochSeconds() } == true
+        val invalidReadyExpiry = administration.phase == RelayHomeAdministrationPhase.Ready &&
+            (expiresAt == null || !expiresAt.isFinite())
         val missingDeviceCredential = administration.phase == RelayHomeAdministrationPhase.Ready &&
             !credentials.hasReadableHomeCredential(profile.id)
         val phase = when {
             expired -> RelayHomeAdministrationPhase.Expired
             missingDeviceCredential -> RelayHomeAdministrationPhase.Unavailable
+            invalidReadyExpiry -> RelayHomeAdministrationPhase.Unavailable
             else -> administration.phase
         }
         return HomeAdministrationState(
@@ -682,9 +732,11 @@ internal class HomeDeviceAdministrationController(
             deviceId = administration.deviceId,
             generation = administration.generation,
             credentialExpiresAt = administration.credentialExpiresAt,
+            credentialScope = administration.credentialScope,
             error = when {
                 expired -> HomeAdministrationError.Expired
                 missingDeviceCredential -> HomeAdministrationError.SecureStorageUnavailable
+                invalidReadyExpiry -> HomeAdministrationError.InvalidResponse
                 else -> administration.lastError?.let { name ->
                     runCatching { HomeAdministrationError.valueOf(name) }.getOrNull()
                 }
@@ -703,6 +755,7 @@ internal class HomeDeviceAdministrationController(
             deviceId = null,
             generation = null,
             credentialExpiresAt = null,
+            credentialScope = null,
             configuration = null,
             error = null,
         )
@@ -755,36 +808,59 @@ internal class HomeDeviceAdministrationController(
     }
 
     fun approveEnrollmentRequest(
-        requestId: String = state.requestId
-            ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest),
+        requestId: String? = null,
         scope: HomeCredentialScope,
     ): HomeEnrollmentRequest = runAdmin {
-        client().approveEnrollmentRequest(requestId, scope).also { approved ->
+        val resolvedRequestId = requestId ?: state.requestId
+            ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
+        scope.requireValid()
+        client().approveEnrollmentRequest(resolvedRequestId, scope).also { approved ->
+            val approvedScope = approved.approvedScope
             if (
-                approved.requestId != requestId ||
+                approved.requestId != resolvedRequestId ||
                 approved.status.lowercase() != "approved" ||
-                approved.approvedScope == null
+                approvedScope == null ||
+                state.discoveredDevice?.endpointId?.let { it != approved.endpointId } == true ||
+                !scope.isRoomCapabilitySubsetOf(approved.requestedScope)
             ) {
+                throw HomeAdministrationException(HomeAdministrationError.InvalidResponse)
+            }
+            approved.requestedScope.requireValid(HomeAdministrationError.InvalidResponse)
+            approvedScope.requireValid(HomeAdministrationError.InvalidResponse)
+            if (!approvedScope.isSubsetOf(scope)) {
                 throw HomeAdministrationException(HomeAdministrationError.InvalidResponse)
             }
             state = state.copy(
                 phase = RelayHomeAdministrationPhase.Approved,
-                requestId = requestId,
+                requestId = resolvedRequestId,
+                credentialScope = approvedScope,
                 error = null,
             )
             persist(
                 phase = RelayHomeAdministrationPhase.Approved,
-                requestId = requestId,
+                requestId = resolvedRequestId,
             )
         }
     }
 
     fun consumeEnrollment(
         offerCode: String,
-        requestId: String = state.requestId
-            ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest),
+        requestId: String? = null,
     ): HomeDeviceCredentialMaterial = runAdmin {
-        val material = client().consumeEnrollment(requestId, offerCode)
+        val resolvedRequestId = requestId ?: state.requestId
+            ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
+        val approvedScope = state.credentialScope
+            ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
+        val material = client().consumeEnrollment(resolvedRequestId, offerCode)
+        material.scope.requireValid(HomeAdministrationError.InvalidResponse)
+        if (
+            material.deviceId.isBlank() ||
+            (state.deviceId != null && material.deviceId != state.deviceId) ||
+            !material.scope.isSubsetOf(approvedScope) ||
+            material.generation < 0
+        ) {
+            throw HomeAdministrationException(HomeAdministrationError.InvalidResponse)
+        }
         requireUsableCredentialMaterial(material)
         val profile = selectedProfile()
             ?: throw HomeAdministrationException(HomeAdministrationError.MissingProfile)
@@ -794,7 +870,8 @@ internal class HomeDeviceAdministrationController(
                 deviceId = material.deviceId,
                 credential = material.credential,
                 generation = material.generation,
-                requestId = requestId,
+                requestId = resolvedRequestId,
+                credentialScope = material.scope,
                 credentialExpiresAt = material.expiresAt,
             )
         ) {
@@ -802,24 +879,36 @@ internal class HomeDeviceAdministrationController(
         }
         state = state.copy(
             phase = RelayHomeAdministrationPhase.Approved,
-            requestId = requestId,
+            requestId = resolvedRequestId,
             deviceId = material.deviceId,
             generation = material.generation,
             credentialExpiresAt = material.expiresAt,
+            credentialScope = material.scope,
             error = null,
         )
         material
     }
 
     fun fetchConfiguration(): HomeConfigurationSnapshot = runAdmin {
+        val profile = selectedProfile()
+            ?: throw HomeAdministrationException(HomeAdministrationError.MissingProfile)
         client().fetchConfiguration().also { snapshot ->
+            val knownRevision = state.configuration?.revision
+                ?: profile.homeAdministration?.configurationRevision
+            val keepReady = state.phase == RelayHomeAdministrationPhase.Ready &&
+                knownRevision == snapshot.revision
+            val phase = if (keepReady) {
+                RelayHomeAdministrationPhase.Ready
+            } else {
+                RelayHomeAdministrationPhase.SetupPending
+            }
             state = state.copy(
-                phase = RelayHomeAdministrationPhase.SetupPending,
+                phase = phase,
                 configuration = snapshot,
                 error = null,
             )
             persist(
-                phase = RelayHomeAdministrationPhase.SetupPending,
+                phase = phase,
                 revision = snapshot.revision,
             )
         }
@@ -832,22 +921,36 @@ internal class HomeDeviceAdministrationController(
             val administration = profile.homeAdministration
                 ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
             if (
-                state.phase == RelayHomeAdministrationPhase.Revoked ||
-                state.phase == RelayHomeAdministrationPhase.Expired ||
+                state.phase !in setOf(
+                    RelayHomeAdministrationPhase.SetupPending,
+                    RelayHomeAdministrationPhase.Ready,
+                ) ||
                 !credentials.hasReadableHomeCredential(profile.id)
             ) {
                 throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
             }
+            val credentialExpiresAt = administration.credentialExpiresAt
+            when {
+                credentialExpiresAt == null || !credentialExpiresAt.isFinite() ->
+                    throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
+                credentialExpiresAt <= nowEpochSeconds() ->
+                    throw HomeAdministrationException(HomeAdministrationError.Expired)
+            }
             val deviceId = administration.deviceId
+                ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
+            val credentialScope = administration.credentialScope ?: state.credentialScope
                 ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
             val published = client().publishConfiguration(snapshot, snapshot.revision)
             val verified = client().fetchDeviceConfiguration(deviceId)
+            val expectedMappings = published.wakeMappings
+                .filter { it.active && it.id in credentialScope.wakeMappings }
+                .map { it.id to it.phrase }
+                .toSet()
+            val verifiedMappings = verified.wakeMappings.map { it.id to it.phrase }.toSet()
             if (
                 verified.revision != published.revision ||
-                verified.wakeMappings.any { mapping ->
-                    published.wakeMappings.firstOrNull { it.id == mapping.id }?.phrase != mapping.phrase
-                } ||
-                verified.wakeMappings.map { it.id }.size != verified.wakeMappings.map { it.id }.toSet().size
+                verified.wakeMappings.size != verifiedMappings.size ||
+                verifiedMappings != expectedMappings
             ) {
                 throw HomeAdministrationException(HomeAdministrationError.RevisionConflict)
             }
@@ -925,13 +1028,30 @@ internal class HomeDeviceAdministrationController(
         requireUsableCredentialMaterial(material)
         val profile = selectedProfile()
             ?: throw HomeAdministrationException(HomeAdministrationError.MissingProfile)
+        val administration = profile.homeAdministration
+            ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
+        val previousDeviceId = administration.deviceId
+            ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
+        val previousGeneration = administration.generation
+            ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
+        val previousScope = administration.credentialScope ?: state.credentialScope
+            ?: throw HomeAdministrationException(HomeAdministrationError.InvalidRequest)
+        material.scope.requireValid(HomeAdministrationError.InvalidResponse)
+        if (
+            material.deviceId != previousDeviceId ||
+            material.generation <= previousGeneration ||
+            !material.scope.isSubsetOf(previousScope)
+        ) {
+            throw HomeAdministrationException(HomeAdministrationError.InvalidResponse)
+        }
         if (
             !relayConfiguration.enrollHomeDevice(
                 profile.id,
                 material.deviceId,
                 material.credential,
                 material.generation,
-                profile.homeAdministration?.requestId,
+                administration.requestId,
+                material.scope,
                 material.expiresAt,
             )
         ) {
@@ -942,6 +1062,7 @@ internal class HomeDeviceAdministrationController(
             deviceId = material.deviceId,
             generation = material.generation,
             credentialExpiresAt = material.expiresAt,
+            credentialScope = material.scope,
             error = null,
         )
         persist(RelayHomeAdministrationPhase.SetupPending)
@@ -989,6 +1110,7 @@ internal class HomeDeviceAdministrationController(
                 configurationRevision = revision,
                 requestId = requestId,
                 credentialExpiresAt = state.credentialExpiresAt ?: current?.credentialExpiresAt,
+                credentialScope = state.credentialScope ?: current?.credentialScope,
                 lastError = state.error?.name,
             ),
         )) {
@@ -1012,10 +1134,16 @@ internal class HomeDeviceAdministrationController(
                 HomeAdministrationError.Expired -> RelayHomeAdministrationPhase.Expired
                 HomeAdministrationError.Revoked -> RelayHomeAdministrationPhase.Revoked
                 HomeAdministrationError.RevisionConflict -> RelayHomeAdministrationPhase.StaleRevision
-                else -> RelayHomeAdministrationPhase.Unavailable
+                HomeAdministrationError.Unauthorized,
+                HomeAdministrationError.Forbidden,
+                HomeAdministrationError.InvalidEndpoint,
+                HomeAdministrationError.MissingCredential,
+                HomeAdministrationError.SecureStorageUnavailable,
+                -> RelayHomeAdministrationPhase.Unavailable
+                else -> state.phase
             }
             state = state.copy(phase = phase, error = error.reason)
-            runCatching { persist(phase) }
+            phase?.let { runCatching { persist(it) } }
             throw error
         }
     }
@@ -1058,11 +1186,15 @@ private fun <T> JSONObject.objectArray(name: String, parse: (JSONObject) -> T): 
 }
 
 private fun JSONObject.toCredentialScope(): HomeCredentialScope {
+    return toHomeCredentialScope()
+}
+
+internal fun JSONObject.toHomeCredentialScope(): HomeCredentialScope {
     return HomeCredentialScope(
         rooms = stringArray("rooms"),
         capabilities = stringArray("capabilities"),
         wakeMappings = stringArray("wake_mappings"),
-    )
+    ).also { it.requireValid(HomeAdministrationError.InvalidResponse) }
 }
 
 private fun JSONObject.toEnrollmentRequest(): HomeEnrollmentRequest = HomeEnrollmentRequest(

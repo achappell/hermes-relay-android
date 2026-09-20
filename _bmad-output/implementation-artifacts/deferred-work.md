@@ -22,3 +22,9 @@
   was available for post-turn focus restoration.
 - **Reopen when:** the audience expands, an accessibility requirement is added,
   or a TalkBack user becomes a target.
+
+## Deferred from: code review of spec-android-home-01-pairing-and-configuration-adapter.md (2026-09-20)
+
+- Confirm the Home-issued credential shape and generation invariant against the Home issuer contract before changing Android validation.
+- Decide whether an administrative credential must be bound to the approved Home route; the Android artifact does not define route-change semantics.
+- Define an idempotent remote-consume or recovery contract for a one-time credential consumed before local secure storage succeeds; this crosses the Home API boundary.

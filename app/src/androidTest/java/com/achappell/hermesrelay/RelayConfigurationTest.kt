@@ -114,6 +114,28 @@ class RelayConfigurationTest {
     }
 
     @Test
+    fun deleting_a_profile_removes_the_home_admin_slot_from_production_storage() {
+        val profile = RelayProfile(
+            id = "profile-1",
+            endpoint = "wss://relay.example/voice-session",
+            clientId = "android-client",
+            deviceId = "android",
+            displayName = "Amanda",
+        )
+        val relay = RelayConfigurationController(
+            profiles = InMemoryRelayProfileStore(
+                RelayProfileCollection(listOf(profile), selectedId = profile.id),
+            ),
+            credentials = credentials,
+        )
+        assertTrue(credentials.putHomeAdminCredential(profile.id, "admin-secret"))
+
+        relay.delete(profile.id)
+
+        assertNull(credentials.readHomeAdminCredential(profile.id))
+    }
+
+    @Test
     fun the_home_administration_surface_is_mounted_and_discovery_is_not_authorization() {
         val profile = RelayProfile(
             id = "profile-1",
