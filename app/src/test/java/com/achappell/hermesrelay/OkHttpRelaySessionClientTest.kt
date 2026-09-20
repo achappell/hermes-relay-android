@@ -215,6 +215,81 @@ class OkHttpRelaySessionClientTest {
         assertEquals(AndroidAuthorizationState.Verifying, configured.snapshot().authorizationState)
         assertEquals(PROFILE_ID, configured.snapshot().selectedProfile?.id)
         assertEquals(0, server.requestCount)
+
+        val pendingHome = OkHttpRelaySessionClient(
+            collection = {
+                collectionFor(
+                    homeAdministration = RelayHomeAdministration(
+                        phase = RelayHomeAdministrationPhase.SetupPending,
+                        deviceId = "device-1",
+                        generation = 1,
+                    ),
+                )
+            },
+            credentials = InMemoryRelayCredentialStore(
+                homeCredentials = mapOf(PROFILE_ID to VALID_HOME_CREDENTIAL),
+            ),
+        )
+        assertEquals(AndroidAuthorizationState.Unavailable, pendingHome.snapshot().authorizationState)
+        assertEquals(
+            AndroidHomeUnavailableReason.AuthorizationUnavailable,
+            pendingHome.snapshot().unavailableReason,
+        )
+        assertEquals(
+            AndroidReconnectOutcome.Unrecoverable(
+                "Home Device configuration is not ready.",
+                AndroidHomeUnavailableReason.AuthorizationUnavailable,
+            ),
+            pendingHome.reconnect(),
+        )
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun an_expired_persisted_ready_profile_cannot_open_a_socket() {
+        val client = client(
+            homeAdministration = RelayHomeAdministration(
+                phase = RelayHomeAdministrationPhase.Ready,
+                deviceId = "device-1",
+                generation = 1,
+                credentialExpiresAt = 999.0,
+                requestId = "request-1",
+            ),
+        )
+
+        val outcome = client.reconnect()
+
+        assertEquals(
+            AndroidReconnectOutcome.Unrecoverable(
+                "Home Device configuration is not ready.",
+                AndroidHomeUnavailableReason.AuthorizationUnavailable,
+            ),
+            outcome,
+        )
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun a_ready_profile_requires_a_finite_persisted_expiry() {
+        val expiries: List<Double?> = listOf(null, Double.POSITIVE_INFINITY, Double.NaN)
+
+        expiries.forEach { expiry ->
+            val client = client(
+                homeAdministration = RelayHomeAdministration(
+                    phase = RelayHomeAdministrationPhase.Ready,
+                    deviceId = "device-1",
+                    generation = 1,
+                    credentialExpiresAt = expiry,
+                    requestId = "request-1",
+                ),
+            )
+
+            val outcome = client.reconnect()
+
+            assertEquals(AndroidHomeUnavailableReason.AuthorizationUnavailable, (outcome as AndroidReconnectOutcome.Unrecoverable).reasonCode)
+            client.close()
+        }
+        assertEquals(0, server.requestCount)
     }
 
     @Test
@@ -1200,13 +1275,19 @@ class OkHttpRelaySessionClientTest {
             approvedRoute = bridgeRoute(),
             conversationHandle = CONVERSATION_HANDLE,
         ),
+        homeAdministration: RelayHomeAdministration? = null,
         credential: String = VALID_HOME_CREDENTIAL,
         helloTimeoutMillis: Long = 5_000,
         requestTimeoutMillis: Long = 5_000,
         audioSink: AndroidAudioSink = RecordingAudioSink(),
         liveHomeGateTrace: AndroidLiveHomeGateTrace? = null,
     ): OkHttpRelaySessionClient = OkHttpRelaySessionClient(
-        collection = { collectionFor(homeBinding = homeBinding) },
+        collection = {
+            collectionFor(
+                homeBinding = homeBinding,
+                homeAdministration = homeAdministration,
+            )
+        },
         credentials = InMemoryRelayCredentialStore(
             homeCredentials = mapOf(PROFILE_ID to credential),
         ),
@@ -1219,10 +1300,13 @@ class OkHttpRelaySessionClientTest {
         liveHomeGateTrace = liveHomeGateTrace,
     )
 
-    private fun collectionFor(homeBinding: RelayHomeBinding? = RelayHomeBinding(
-        approvedRoute = bridgeRoute(),
-        conversationHandle = CONVERSATION_HANDLE,
-    )) = RelayProfileCollection(
+    private fun collectionFor(
+        homeBinding: RelayHomeBinding? = RelayHomeBinding(
+            approvedRoute = bridgeRoute(),
+            conversationHandle = CONVERSATION_HANDLE,
+        ),
+        homeAdministration: RelayHomeAdministration? = null,
+    ) = RelayProfileCollection(
         profiles = listOf(
             RelayProfile(
                 id = PROFILE_ID,
@@ -1231,6 +1315,7 @@ class OkHttpRelaySessionClientTest {
                 deviceId = "android",
                 displayName = "Amanda",
                 homeBinding = homeBinding,
+                homeAdministration = homeAdministration,
             ),
         ),
         selectedId = PROFILE_ID,

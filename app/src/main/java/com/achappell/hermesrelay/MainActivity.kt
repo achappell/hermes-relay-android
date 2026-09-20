@@ -71,10 +71,15 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val speechInput = remember { PlatformSpeechInput(applicationContext) }
+            val selectedProfileId = configuration.collection.selectedId
+            val homeAdministration = remember(selectedProfileId) {
+                HomeDeviceAdministrationController(configuration, credentials)
+            }
             HermesRelayTheme {
                 AndroidClientScreen(
                     clientPort = clientPort,
                     configuration = configuration,
+                    homeAdministration = homeAdministration,
                     speechInput = speechInput,
                     historyStore = historyStore,
                 )
@@ -88,6 +93,7 @@ class MainActivity : ComponentActivity() {
 internal fun AndroidClientScreen(
     clientPort: AndroidClientPort,
     configuration: RelayConfigurationController? = null,
+    homeAdministration: HomeDeviceAdministrationController? = null,
     speechInput: AndroidSpeechInput? = null,
     historyStore: AndroidHistoryStore? = null,
 ) {
@@ -592,6 +598,12 @@ internal fun AndroidClientScreen(
                     ) {
                         RelayConfigurationScreen(
                             controller = configurationController,
+                            homeAdministration = homeAdministration,
+                            onHomeAdministrationChanged = { configurationRevision += 1 },
+                            onHomeCredentialChanged = {
+                                clientPort.close()
+                                configurationRevision += 1
+                            },
                             onChanged = {
                                 configurationRevision += 1
                                 if (configurationController.collection.selectedId != null) {

@@ -1,6 +1,7 @@
 package com.achappell.hermesrelay
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -141,12 +142,14 @@ class RelayProfileTest {
         )
         val id = controller.collection.profiles.single().id
         assertTrue(credentials.hasToken(id))
+        assertTrue(credentials.putHomeAdminCredential(id, "home-admin-secret"))
 
         controller.delete(id)
 
         assertTrue(controller.collection.profiles.isEmpty())
         assertNull(controller.collection.selectedId)
         assertTrue("the credential outlived its profile", !credentials.hasToken(id))
+        assertNull(credentials.readHomeAdminCredential(id))
     }
 
     @Test
@@ -172,6 +175,36 @@ class RelayProfileTest {
     }
 
     @Test
+    fun malformed_home_administration_metadata_stays_explicitly_unavailable() {
+        val restored = RelayProfileCollection.fromJson(
+            """
+            {
+              "profiles": [
+                {
+                  "id": "p1",
+                  "endpoint": "wss://relay.example/voice-session",
+                  "client_id": "android-client",
+                  "device_id": "android",
+                  "display_name": "Amanda",
+                  "home_administration": {"schema": 99, "phase": "Ready"}
+                }
+              ],
+              "selected_id": "p1"
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            RelayHomeAdministrationPhase.Unavailable,
+            restored.selected?.homeAdministration?.phase,
+        )
+        assertEquals(
+            HomeAdministrationError.InvalidResponse.name,
+            restored.selected?.homeAdministration?.lastError,
+        )
+    }
+
+    @Test
     fun a_selected_id_naming_a_missing_profile_is_dropped_on_load() {
         val restored = RelayProfileCollection.fromJson(
             """{"profiles":[],"selected_id":"ghost"}""",
@@ -186,6 +219,11 @@ class RelayProfileTest {
         assertTrue(!HomeCredentialValidator.isValid("A".repeat(42)))
         assertTrue(!HomeCredentialValidator.isValid("A".repeat(43) + "="))
         assertTrue(!HomeCredentialValidator.isValid("old-hermes-bearer"))
+    }
+
+    @Test
+    fun an_unimplemented_home_credential_delete_fails_closed() {
+        assertFalse(HomeWriteFailureCredentialStore().deleteHomeCredential("profile-1"))
     }
 
     @Test

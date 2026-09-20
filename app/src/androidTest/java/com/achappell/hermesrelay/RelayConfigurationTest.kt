@@ -98,6 +98,97 @@ class RelayConfigurationTest {
     }
 
     @Test
+    fun the_home_admin_credential_has_a_distinct_keystore_slot() {
+        assertTrue(credentials.putHomeAdminCredential("profile-1", "admin-secret"))
+        assertTrue(credentials.hasReadableHomeAdminCredential("profile-1"))
+        assertEquals("admin-secret", credentials.readHomeAdminCredential("profile-1"))
+        assertNull(credentials.readHomeCredential("profile-1"))
+
+        val stored = InstrumentationRegistry.getInstrumentation().targetContext
+            .getSharedPreferences("hermes_relay_credentials", 0)
+            .getString("home-admin:profile-1", null)
+        assertTrue(stored != null && !stored!!.contains("admin-secret"))
+
+        credentials.deleteHomeAdminCredential("profile-1")
+        assertNull(credentials.readHomeAdminCredential("profile-1"))
+    }
+
+    @Test
+    fun deleting_a_profile_removes_the_home_admin_slot_from_production_storage() {
+        val profile = RelayProfile(
+            id = "profile-1",
+            endpoint = "wss://relay.example/voice-session",
+            clientId = "android-client",
+            deviceId = "android",
+            displayName = "Amanda",
+        )
+        val relay = RelayConfigurationController(
+            profiles = InMemoryRelayProfileStore(
+                RelayProfileCollection(listOf(profile), selectedId = profile.id),
+            ),
+            credentials = credentials,
+        )
+        assertTrue(credentials.putHomeAdminCredential(profile.id, "admin-secret"))
+
+        relay.delete(profile.id)
+
+        assertNull(credentials.readHomeAdminCredential(profile.id))
+    }
+
+    @Test
+    fun the_home_administration_surface_is_mounted_and_discovery_is_not_authorization() {
+        val profile = RelayProfile(
+            id = "profile-1",
+            endpoint = "wss://home.example",
+            clientId = "amanda-phone",
+            deviceId = "android-1",
+            displayName = "Amanda",
+            homeBinding = RelayHomeBinding(
+                approvedRoute = "wss://home.example/api/v1/bridge/ws",
+                conversationHandle = "conversation-1",
+            ),
+        )
+        val relay = RelayConfigurationController(
+            profiles = InMemoryRelayProfileStore(RelayProfileCollection(listOf(profile), profile.id)),
+            credentials = credentials,
+        )
+        val home = HomeDeviceAdministrationController(
+            relayConfiguration = relay,
+            credentials = credentials,
+            clientFactory = { _, _, _ -> error("discovery must not create a Home client") },
+        )
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    RelayConfigurationScreen(
+                        controller = relay,
+                        homeAdministration = home,
+                        onChanged = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("android_home_device_id")
+            .performScrollTo()
+            .performTextInput("android-1")
+        composeRule.onNodeWithTag("android_home_device_label")
+            .performScrollTo()
+            .performTextInput("Kitchen phone")
+        composeRule.onNodeWithTag("android_home_discover")
+            .performScrollTo()
+            .performClick()
+        composeRule.waitUntil(5_000) {
+            home.state.phase == RelayHomeAdministrationPhase.Discovered
+        }
+
+        assertNull(credentials.readHomeCredential("profile-1"))
+        assertEquals(RelayHomeAdministrationPhase.Discovered, home.state.phase)
+        composeRule.onNodeWithTag("android_home_administration").assertIsDisplayed()
+    }
+
+    @Test
     fun corrupt_home_device_ciphertext_fails_closed() {
         InstrumentationRegistry.getInstrumentation().targetContext
             .getSharedPreferences("hermes_relay_credentials", 0)

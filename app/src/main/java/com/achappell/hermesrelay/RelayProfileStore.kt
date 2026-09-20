@@ -186,6 +186,84 @@ internal class RelayConfigurationController(
         return RelayHomeMigrationResult.Migrated(migrated)
     }
 
+    /**
+     * Stores a newly issued Home Device credential without inventing a
+     * conversation handle. Enrollment and bridge conversation binding are
+     * separate Home-owned transitions.
+     */
+    fun enrollHomeDevice(
+        profileId: String,
+        deviceId: String,
+        credential: String,
+        generation: Int,
+        requestId: String?,
+        credentialScope: HomeCredentialScope? = null,
+        credentialExpiresAt: Double? = null,
+    ): Boolean {
+        val current = collection.profiles.firstOrNull { it.id == profileId } ?: return false
+        if (
+            !HomeCredentialValidator.isValid(credential) ||
+            deviceId.isBlank() ||
+            generation < 0 ||
+            credentialExpiresAt?.let { !it.isFinite() || it <= 0.0 } == true
+        ) {
+            return false
+        }
+        val previousCredential = credentials.readHomeCredential(profileId)
+        if (!credentials.putHomeCredential(profileId, credential)) return false
+
+        val next = collection.upsert(
+            current.copy(
+                homeAdministration = RelayHomeAdministration(
+                    phase = RelayHomeAdministrationPhase.Approved,
+                    deviceId = deviceId.trim(),
+                    generation = generation,
+                    requestId = requestId,
+                    credentialScope = credentialScope,
+                    credentialExpiresAt = credentialExpiresAt,
+                ),
+            ),
+        )
+        if (!profiles.save(next)) {
+            val rollbackSucceeded = credentials.deleteHomeCredential(profileId) &&
+                (previousCredential == null || credentials.putHomeCredential(profileId, previousCredential))
+            if (!rollbackSucceeded) return false
+            return false
+        }
+        collection = next
+        return true
+    }
+
+    /** Updates only non-secret Home administration metadata. */
+    fun updateHomeAdministration(
+        profileId: String,
+        administration: RelayHomeAdministration,
+    ): Boolean {
+        val current = collection.profiles.firstOrNull { it.id == profileId } ?: return false
+        return update(collection.upsert(current.copy(homeAdministration = administration)))
+    }
+
+    /** Revocation removes the active Device secret before publishing state. */
+    fun revokeHomeDevice(profileId: String, phase: RelayHomeAdministrationPhase): Boolean {
+        val current = collection.profiles.firstOrNull { it.id == profileId } ?: return false
+        if (!credentials.deleteHomeCredential(profileId)) return false
+        val next = collection.upsert(
+            current.copy(
+                homeAdministration = (current.homeAdministration
+                    ?: RelayHomeAdministration(phase = phase)).copy(
+                    phase = phase,
+                    credentialExpiresAt = null,
+                    credentialScope = null,
+                ),
+            ),
+        )
+        if (!profiles.save(next)) {
+            return false
+        }
+        collection = next
+        return true
+    }
+
     fun delete(id: String) {
         if (update(collection.remove(id))) {
             credentials.delete(id)
