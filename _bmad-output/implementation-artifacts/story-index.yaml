@@ -2,341 +2,341 @@ schema_version: 1
 repository: hermes-relay-android
 surface: A
 stories:
-- id: 1-A-1
-  product_epic: 1
-  title: Start an authorized typed or tap-to-speak Hermes turn
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-a-1-authorized-initiation.md
-  validation: _bmad-output/implementation-artifacts/validation-a-1-authorized-initiation.md
-  tracker_key: 1-a-1
-  historical_product_epic: 1
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 1-A-2
-  product_epic: 1
-  title: Render honest phases with response text and audio delivery
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-a-2-honest-phases.md
-  validation: _bmad-output/implementation-artifacts/validation-a-2-honest-phases.md
-  tracker_key: 1-a-2
-  historical_product_epic: 1
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 1-A-3
-  product_epic: 1
-  title: Recover without replaying an uncertain turn
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-a-3-fresh-recovery.md
-  validation: _bmad-output/implementation-artifacts/validation-a-3-fresh-recovery.md
-  tracker_key: 1-a-3
-  historical_product_epic: 1
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 1-A-4
-  product_epic: 1
-  title: Configure the relay with Keystore credentials and live transport
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-a-4-relay-configuration.md
-  validation: _bmad-output/implementation-artifacts/validation-a-4-relay-configuration.md
-  tracker_key: 1-a-4
-  historical_product_epic: 1
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 1-A-5
-  product_epic: 1
-  title: Interrupt an active Android turn
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-a-5-interrupt.md
-  validation: _bmad-output/implementation-artifacts/validation-a-5-interrupt.md
-  tracker_key: 1-a-5
-  historical_product_epic: 1
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 1-A-6
-  product_epic: 1
-  title: Continue hands-free capture with echo-safe barge-in
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-a-6-hands-free.md
-  validation: _bmad-output/implementation-artifacts/validation-a-6-hands-free.md
-  tracker_key: 1-a-6
-  historical_product_epic: 1
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 1-A-7
-  product_epic: 1
-  title: Deliver typed turns through normalized events
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-a-7-live-turns.md
-  validation: _bmad-output/implementation-artifacts/validation-a-7-live-turns.md
-  tracker_key: 1-a-7
-  historical_product_epic: 1
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 1-A-8
-  product_epic: 1
-  title: Play streamed response audio
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-a-8-response-audio-playback.md
-  validation: _bmad-output/implementation-artifacts/validation-a-8-response-audio-playback.md
-  tracker_key: 1-a-8
-  historical_product_epic: 1
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 1-A-9
-  product_epic: 1
-  title: Capture microphone input and transcribe on device
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-a-9-microphone-capture.md
-  validation: _bmad-output/implementation-artifacts/validation-a-9-microphone-capture.md
-  tracker_key: 1-a-9
-  historical_product_epic: 1
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 2-A-1
-  product_epic: 1
-  title: Show Android capture acknowledgement and live transcription
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-2-a-1-live-transcription.md
-  validation: _bmad-output/implementation-artifacts/validation-2-a-1-live-transcription.md
-  tracker_key: 2-a-1
-  historical_product_epic: 2
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 2-A-2
-  product_epic: 1
-  title: Show honest Android disconnected or unavailable state
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-2-a-2-disconnected-state.md
-  validation: _bmad-output/implementation-artifacts/validation-2-a-2-disconnected-state.md
-  tracker_key: 2-a-2
-  historical_product_epic: 2
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 5-A-1
-  product_epic: 1
-  title: Use Android as an independent conversation doorway
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-5-a-1-independent-doorway.md
-  validation: _bmad-output/implementation-artifacts/validation-5-a-1-independent-doorway.md
-  tracker_key: 5-a-1
-  historical_product_epic: 5
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 5-A-2
-  product_epic: 1
-  title: Preserve accessibility order and focus restoration
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-5-a-2-accessibility.md
-  validation: _bmad-output/implementation-artifacts/validation-5-a-2-accessibility.md
-  tracker_key: 5-a-2
-  historical_product_epic: 5
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 5-A-3
-  product_epic: 1
-  title: Apply the Night Console visual language as a Material 3 adaptation
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-5-a-3-night-console-validation.md
-  validation: _bmad-output/implementation-artifacts/validation-5-a-3-visual-design-pass.md
-  github_issue: https://github.com/achappell/hermes-relay-android/issues/31
-  scope_note: Manual TalkBack spoken traversal and selected/live-turn focus restoration are intentionally deferred for the current family-only audience; see _bmad-output/implementation-artifacts/deferred-work.md.
-  tracker_key: 5-a-3
-  historical_product_epic: 5
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 5-A-4
-  product_epic: 1
-  source_story: 5
-  title: Migrate Android from the fork route to the Home bridge
-  kind: surface
-  spec: _bmad-output/implementation-artifacts/spec-5-android-migration.md
-  validation: _bmad-output/implementation-artifacts/validation-5-a-4-home-bridge-migration.md
-  github_issue: https://github.com/achappell/hermes-relay-android/issues/32
-  tracker_key: 5-a-4
-  historical_product_epic: 5
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 5-A-4-LIVE-HOME-GATE
-  parent_story: 5-A-4
-  product_epic: 1
-  title: Prove Android against the live Home bridge
-  kind: follow-up
-  spec: _bmad-output/implementation-artifacts/spec-5-a-4-live-home-gate.md
-  validation: _bmad-output/implementation-artifacts/validation-5-a-4-live-home-gate.md
-  scope_note: Additive live-gate evidence only; the completed 5-A-4 migration record remains the parent authority. The signed Pixel run android-live-3899e128557f4471 passed all four live branches. Authority revision 8 accepts validated unresolved-turn records on reconnect and advertised commands as metadata; safe schema-3 evidence records only their count, with no command UI added.
-  tracker_key: 5-a-4-live-home-gate
-  historical_product_epic: 5
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: ANDROID-HOME-02
-  title: Pair the Android personal client with Home and manage sessions
-  kind: course-correction
-  product_epic: 1
-  owner: hermes-relay-android
-  tracker_key: android-home-02
-  release_scope: migration
-  spec: _bmad-output/implementation-artifacts/spec-android-home-02.md
-  depends_on:
-  - home:HOME-NW-17
-  github_issue: https://github.com/achappell/hermes-relay-android/issues/52
-- id: ANDROID-STD-01
-  title: Offer explicit Standard-only Android setup
-  kind: course-correction
-  product_epic: 2
-  owner: hermes-relay-android
-  tracker_key: android-std-01
-  release_scope: migration
-  spec: _bmad-output/implementation-artifacts/spec-android-std-01.md
-  depends_on:
-  - android:ANDROID-HOME-02
-  github_issue: https://github.com/achappell/hermes-relay-android/issues/53
-- id: 3-A-1
-  product_epic: 3
-  title: Discover and connect an unconfigured Device
-  kind: surface
-  spec: null
-  tracker_key: 3-a-1
-  historical_product_epic: 3
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 3-A-2
-  product_epic: 3
-  title: Approve and configure a Device
-  kind: surface
-  spec: null
-  tracker_key: 3-a-2
-  historical_product_epic: 3
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 3-A-3
-  product_epic: 3
-  title: Validate unique Wake Mappings and Profile-specific publish state
-  kind: surface
-  spec: null
-  tracker_key: 3-a-3
-  historical_product_epic: 3
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 3-A-4
-  product_epic: 3
-  title: Configure and expose deterministic single-Device wake arbitration
-  kind: surface
-  spec: null
-  tracker_key: 3-a-4
-  historical_product_epic: 3
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 3-A-5
-  product_epic: 3
-  title: Fail closed for unavailable or revoked Device identities
-  kind: surface
-  spec: null
-  tracker_key: 3-a-5
-  historical_product_epic: 3
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: 3-A-6
-  product_epic: 3
-  title: Revoke access and require verified re-enrollment
-  kind: surface
-  spec: null
-  tracker_key: 3-a-6
-  historical_product_epic: 3
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-- id: ANDROID-HOME-01
-  title: Add the Android Home pairing and configuration adapter
-  kind: next-wave
-  spec: _bmad-output/implementation-artifacts/spec-android-home-01-pairing-and-configuration-adapter.md
-  validation: _bmad-output/implementation-artifacts/validation-android-home-01-pairing-and-configuration-adapter.md
-  github_issue: https://github.com/achappell/hermes-relay-android/issues/33
-  tracker_key: android-home-01
-  product_epic: 3
-  owner: hermes-relay-android
-  release_scope: migration
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-  historical_horizon: next
-- id: ANDROID-RETIRE-01
-  title: Remove legacy Android pairing and fork integration
-  kind: course-correction
-  product_epic: 4
-  owner: hermes-relay-android
-  tracker_key: android-retire-01
-  release_scope: migration
-  spec: _bmad-output/implementation-artifacts/spec-android-retire-01.md
-  depends_on:
-  - android:ANDROID-HOME-02
-  - android:ANDROID-STD-01
-  github_issue: https://github.com/achappell/hermes-relay-android/issues/54
-- id: ANDROID-PERM-01
-  title: Enforce Android endpoint permissions and masked Sensitive Entry
-  kind: next-wave
-  spec: _bmad-output/implementation-artifacts/spec-android-permissions-sensitive-entry.md
-  github_issue: https://github.com/achappell/hermes-relay-android/issues/34
-  tracker_key: android-perm-01
-  product_epic: 7
-  owner: hermes-relay-android
-  release_scope: later
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-  historical_horizon: later
-- id: ANDROID-NOTIFY-01
-  title: Add opt-in Android notifications and quiet hours
-  kind: next-wave
-  spec: _bmad-output/implementation-artifacts/spec-android-notifications.md
-  github_issue: https://github.com/achappell/hermes-relay-android/issues/35
-  tracker_key: android-notify-01
-  product_epic: 8
-  owner: hermes-relay-android
-  release_scope: later
-  depends_on: []
-  acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
-  historical_horizon: later
+  - id: 1-A-1
+    product_epic: 1
+    title: Start an authorized typed or tap-to-speak Hermes turn
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-1-authorized-initiation.md
+    validation: _bmad-output/implementation-artifacts/validation-a-1-authorized-initiation.md
+    tracker_key: 1-a-1
+    historical_product_epic: 1
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 1-A-2
+    product_epic: 1
+    title: Render honest phases with response text and audio delivery
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-2-honest-phases.md
+    validation: _bmad-output/implementation-artifacts/validation-a-2-honest-phases.md
+    tracker_key: 1-a-2
+    historical_product_epic: 1
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 1-A-3
+    product_epic: 1
+    title: Recover without replaying an uncertain turn
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-3-fresh-recovery.md
+    validation: _bmad-output/implementation-artifacts/validation-a-3-fresh-recovery.md
+    tracker_key: 1-a-3
+    historical_product_epic: 1
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 1-A-4
+    product_epic: 1
+    title: Configure the relay with Keystore credentials and live transport
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-4-relay-configuration.md
+    validation: _bmad-output/implementation-artifacts/validation-a-4-relay-configuration.md
+    tracker_key: 1-a-4
+    historical_product_epic: 1
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 1-A-5
+    product_epic: 1
+    title: Interrupt an active Android turn
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-5-interrupt.md
+    validation: _bmad-output/implementation-artifacts/validation-a-5-interrupt.md
+    tracker_key: 1-a-5
+    historical_product_epic: 1
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 1-A-6
+    product_epic: 1
+    title: Continue hands-free capture with echo-safe barge-in
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-6-hands-free.md
+    validation: _bmad-output/implementation-artifacts/validation-a-6-hands-free.md
+    tracker_key: 1-a-6
+    historical_product_epic: 1
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 1-A-7
+    product_epic: 1
+    title: Deliver typed turns through normalized events
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-7-live-turns.md
+    validation: _bmad-output/implementation-artifacts/validation-a-7-live-turns.md
+    tracker_key: 1-a-7
+    historical_product_epic: 1
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 1-A-8
+    product_epic: 1
+    title: Play streamed response audio
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-8-response-audio-playback.md
+    validation: _bmad-output/implementation-artifacts/validation-a-8-response-audio-playback.md
+    tracker_key: 1-a-8
+    historical_product_epic: 1
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 1-A-9
+    product_epic: 1
+    title: Capture microphone input and transcribe on device
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-a-9-microphone-capture.md
+    validation: _bmad-output/implementation-artifacts/validation-a-9-microphone-capture.md
+    tracker_key: 1-a-9
+    historical_product_epic: 1
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 2-A-1
+    product_epic: 1
+    title: Show Android capture acknowledgement and live transcription
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-2-a-1-live-transcription.md
+    validation: _bmad-output/implementation-artifacts/validation-2-a-1-live-transcription.md
+    tracker_key: 2-a-1
+    historical_product_epic: 2
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 2-A-2
+    product_epic: 1
+    title: Show honest Android disconnected or unavailable state
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-2-a-2-disconnected-state.md
+    validation: _bmad-output/implementation-artifacts/validation-2-a-2-disconnected-state.md
+    tracker_key: 2-a-2
+    historical_product_epic: 2
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 5-A-1
+    product_epic: 1
+    title: Use Android as an independent conversation doorway
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-5-a-1-independent-doorway.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-1-independent-doorway.md
+    tracker_key: 5-a-1
+    historical_product_epic: 5
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 5-A-2
+    product_epic: 1
+    title: Preserve accessibility order and focus restoration
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-5-a-2-accessibility.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-2-accessibility.md
+    tracker_key: 5-a-2
+    historical_product_epic: 5
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 5-A-3
+    product_epic: 1
+    title: Apply the Night Console visual language as a Material 3 adaptation
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-5-a-3-night-console-validation.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-3-visual-design-pass.md
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/31
+    scope_note: Manual TalkBack spoken traversal and selected/live-turn focus restoration are intentionally deferred for the current family-only audience; see _bmad-output/implementation-artifacts/deferred-work.md.
+    tracker_key: 5-a-3
+    historical_product_epic: 5
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 5-A-4
+    product_epic: 1
+    source_story: 5
+    title: Migrate Android from the fork route to the Home bridge
+    kind: surface
+    spec: _bmad-output/implementation-artifacts/spec-5-android-migration.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-4-home-bridge-migration.md
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/32
+    tracker_key: 5-a-4
+    historical_product_epic: 5
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 5-A-4-LIVE-HOME-GATE
+    parent_story: 5-A-4
+    product_epic: 1
+    title: Prove Android against the live Home bridge
+    kind: follow-up
+    spec: _bmad-output/implementation-artifacts/spec-5-a-4-live-home-gate.md
+    validation: _bmad-output/implementation-artifacts/validation-5-a-4-live-home-gate.md
+    scope_note: Additive live-gate evidence only; the completed 5-A-4 migration record remains the parent authority. The signed Pixel run android-live-3899e128557f4471 passed all four live branches. Authority revision 8 accepts validated unresolved-turn records on reconnect and advertised commands as metadata; safe schema-3 evidence records only their count, with no command UI added.
+    tracker_key: 5-a-4-live-home-gate
+    historical_product_epic: 5
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: ANDROID-HOME-02
+    title: Pair the Android personal client with Home and manage sessions
+    kind: course-correction
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-02
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-02.md
+    depends_on:
+      - home:HOME-NW-17
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/52
+  - id: ANDROID-STD-01
+    title: Offer explicit Standard-only Android setup
+    kind: course-correction
+    product_epic: 2
+    owner: hermes-relay-android
+    tracker_key: android-std-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-std-01.md
+    depends_on:
+      - android:ANDROID-HOME-02
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/53
+  - id: 3-A-1
+    product_epic: 3
+    title: Discover and connect an unconfigured Device
+    kind: surface
+    spec: null
+    tracker_key: 3-a-1
+    historical_product_epic: 3
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 3-A-2
+    product_epic: 3
+    title: Approve and configure a Device
+    kind: surface
+    spec: null
+    tracker_key: 3-a-2
+    historical_product_epic: 3
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 3-A-3
+    product_epic: 3
+    title: Validate unique Wake Mappings and Profile-specific publish state
+    kind: surface
+    spec: null
+    tracker_key: 3-a-3
+    historical_product_epic: 3
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 3-A-4
+    product_epic: 3
+    title: Configure and expose deterministic single-Device wake arbitration
+    kind: surface
+    spec: null
+    tracker_key: 3-a-4
+    historical_product_epic: 3
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 3-A-5
+    product_epic: 3
+    title: Fail closed for unavailable or revoked Device identities
+    kind: surface
+    spec: null
+    tracker_key: 3-a-5
+    historical_product_epic: 3
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: 3-A-6
+    product_epic: 3
+    title: Revoke access and require verified re-enrollment
+    kind: surface
+    spec: null
+    tracker_key: 3-a-6
+    historical_product_epic: 3
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+  - id: ANDROID-HOME-01
+    title: Add the Android Home pairing and configuration adapter
+    kind: next-wave
+    spec: _bmad-output/implementation-artifacts/spec-android-home-01-pairing-and-configuration-adapter.md
+    validation: _bmad-output/implementation-artifacts/validation-android-home-01-pairing-and-configuration-adapter.md
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/33
+    tracker_key: android-home-01
+    product_epic: 3
+    owner: hermes-relay-android
+    release_scope: migration
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+    historical_horizon: next
+  - id: ANDROID-RETIRE-01
+    title: Remove legacy Android pairing and fork integration
+    kind: course-correction
+    product_epic: 4
+    owner: hermes-relay-android
+    tracker_key: android-retire-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-retire-01.md
+    depends_on:
+      - android:ANDROID-HOME-02
+      - android:ANDROID-STD-01
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/54
+  - id: ANDROID-PERM-01
+    title: Enforce Android endpoint permissions and masked Sensitive Entry
+    kind: next-wave
+    spec: _bmad-output/implementation-artifacts/spec-android-permissions-sensitive-entry.md
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/34
+    tracker_key: android-perm-01
+    product_epic: 7
+    owner: hermes-relay-android
+    release_scope: later
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+    historical_horizon: later
+  - id: ANDROID-NOTIFY-01
+    title: Add opt-in Android notifications and quiet hours
+    kind: next-wave
+    spec: _bmad-output/implementation-artifacts/spec-android-notifications.md
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/35
+    tracker_key: android-notify-01
+    product_epic: 8
+    owner: hermes-relay-android
+    release_scope: later
+    depends_on: []
+    acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
+    historical_horizon: later
 epic_scheme: hermes-home-2026-09-23
 epics:
   1: Connect personal clients through HomeBridge
