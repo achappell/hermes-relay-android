@@ -2,8 +2,8 @@ schema_version: 1
 repository: hermes-relay-android
 planning: bmad
 surfaces:
-  - id: A
-    name: Android Client
+- id: A
+  name: Android Client
 status_tracker: _bmad-output/implementation-artifacts/sprint-status.yaml
 story_index: _bmad-output/implementation-artifacts/story-index.yaml
 coordination_authority: product-hub
@@ -11,3 +11,28 @@ story_aliases:
   android-home-01: ANDROID-HOME-01
   android-perm-01: ANDROID-PERM-01
   android-notify-01: ANDROID-NOTIFY-01
+  1-a-1: 1-A-1
+  1-a-2: 1-A-2
+  1-a-3: 1-A-3
+  1-a-4: 1-A-4
+  1-a-5: 1-A-5
+  1-a-6: 1-A-6
+  1-a-7: 1-A-7
+  1-a-8: 1-A-8
+  1-a-9: 1-A-9
+  2-a-1: 2-A-1
+  2-a-2: 2-A-2
+  3-a-1: 3-A-1
+  3-a-2: 3-A-2
+  3-a-3: 3-A-3
+  3-a-4: 3-A-4
+  3-a-5: 3-A-5
+  3-a-6: 3-A-6
+  5-a-1: 5-A-1
+  5-a-2: 5-A-2
+  5-a-3: 5-A-3
+  5-a-4: 5-A-4
+  5-a-4-live-home-gate: 5-A-4-LIVE-HOME-GATE
+  android-home-02: ANDROID-HOME-02
+  android-std-01: ANDROID-STD-01
+  android-retire-01: ANDROID-RETIRE-01
