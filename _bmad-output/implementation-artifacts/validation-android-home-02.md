@@ -117,9 +117,16 @@ Spec: `spec-android-home-02-approvals.md`.
 All three slices are merged: #56 and #57 (pairing and the QR scanner), #58 (conversations; Home #60), and #59 (owner approvals). Amanda marked ANDROID-HOME-02 done with these gaps recorded, not closed:
 
 - A physical Pixel pass was waived. All live evidence comes from the `hermes-relay-api36` emulator against the deployed Home.
-- A live owner approve or decline, the banner for a real request, and a confirmed removal were not exercised.
+- ~~A live owner approve or decline, the banner for a real request, and a confirmed removal were not exercised.~~ Exercised on 2026-09-25; see below.
 - A live camera scan was not exercised; decoding is covered by unit tests.
 - A spoken turn after pairing was not explicitly confirmed; response audio playback was.
 
 Android Epic 1 stays in progress until a short emulator pass covers the voice and approval gaps.
+
+### Live owner approval and voice attempt — 2026-09-25
+
+- **Owner approval, end to end:** a throwaway "Approval test device" (type `tui`) enrolled with a code from the pairing page. Amanda approved it with Amanda ticked, and Home reported its grant as `pending_owner`. When the emulator returned to the foreground the banner appeared ("A device is asking to use one of your Profiles."). Review showed "Approval test device wants to use Amanda". Approve reported "Approved.", and the test device's own configuration then showed Amanda `active`.
+- **Removal:** Remove opened "Remove Approval test device from Amanda?"; confirming reported "Removed.", and the test device's configuration then listed no grants. Its credential was deleted locally. The device record still exists on Home without grants and can be revoked from the pairing page.
+- **Voice not exercised:** tap-to-speak with the Mac speaking into the host microphone failed with the recognizer's `LANGUAGE_PACK_ERROR` (13). The emulator has no English on-device speech pack. It was requested (English (US), 93 MB) but Google's background downloader had not fetched it, even with charging simulated and its jobs forced. The app's "Speech capture failed, so no turn was sent." is the correct handling. Response audio playback remains verified.
+- Found while testing and fixed in PR #61: the reconnect after Android cuts a background app's network, and recovery once Home's reconnect grace has closed the held claim.
 
