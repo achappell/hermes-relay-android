@@ -1270,6 +1270,200 @@ class OkHttpRelaySessionClientTest {
         client.close()
     }
 
+    @Test
+    fun a_paired_profile_claims_a_handle_then_opens_it_with_the_pairing_credential() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        val closed = CountDownLatch(1)
+        repeat(2) {
+            server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, closed)))
+        }
+        val paired = pairedClient()
+
+        assertEquals(AndroidAuthorizationState.Verifying, paired.client.snapshot().authorizationState)
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertEquals(1, paired.claims.get())
+        assertEquals("conversation.open", methods.single())
+        assertEquals(CONVERSATION_HANDLE, handles.single())
+        val request = server.takeRequest(5, TimeUnit.SECONDS)!!
+        assertEquals("/api/v1/bridge/ws", request.path)
+        assertEquals("Device $PAIRED_CREDENTIAL", request.getHeader("Authorization"))
+        assertEquals("route-home", paired.store.load().records.single().routeId)
+
+        // A transport reconnect keeps the claim: no second claim, no new session.
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertEquals(1, paired.claims.get())
+        assertEquals(listOf("conversation.open", "conversation.reconnect"), methods.toList())
+
+        paired.client.close()
+        assertTrue(closed.await(5, TimeUnit.SECONDS))
+        assertEquals(CONVERSATION_HANDLE, handles.last())
+    }
+
+    @Test
+    fun a_paired_profile_refuses_a_bridge_route_other_than_the_pinned_one() {
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                pairedBridge(
+                    Collections.synchronizedList(mutableListOf()),
+                    Collections.synchronizedList(mutableListOf()),
+                    CountDownLatch(1),
+                ),
+            ),
+        )
+        val paired = pairedClient(pinnedRoute = "route-elsewhere")
+
+        val outcome = paired.client.reconnect()
+
+        assertTrue(outcome is AndroidReconnectOutcome.Unrecoverable)
+        assertEquals(
+            AndroidHomeUnavailableReason.ConversationMismatch,
+            (outcome as AndroidReconnectOutcome.Unrecoverable).reasonCode,
+        )
+        paired.client.close()
+    }
+
+    @Test
+    fun a_denied_claim_never_opens_the_bridge() {
+        val paired = pairedClient(claimResult = HomeClientClaimResult.Denied("grant_pending"))
+
+        val outcome = paired.client.reconnect()
+
+        assertTrue(outcome is AndroidReconnectOutcome.Unrecoverable)
+        assertEquals(
+            AndroidHomeUnavailableReason.AuthorizationUnavailable,
+            (outcome as AndroidReconnectOutcome.Unrecoverable).reasonCode,
+        )
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun a_paired_profile_without_a_claim_provider_is_not_configured() {
+        val paired = pairedClient(withClaims = false)
+        assertEquals(AndroidAuthorizationState.NotConfigured, paired.client.snapshot().authorizationState)
+        assertEquals(
+            AndroidHomeUnavailableReason.MissingBinding,
+            paired.client.snapshot().unavailableReason,
+        )
+    }
+
+    private class PairedClient(
+        val client: OkHttpRelaySessionClient,
+        val store: HomeClientPairingStore,
+        val claims: AtomicInteger,
+    )
+
+    private fun pairedBridge(
+        methods: MutableList<String>,
+        handles: MutableList<String>,
+        closed: CountDownLatch,
+    ) = object : WebSocketListener() {
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            val frame = JSONObject(text)
+            val method = frame.optString("method")
+            handles += frame.getJSONObject("params").getString("conversation_handle")
+            when (method) {
+                "conversation.open", "conversation.reconnect" -> {
+                    methods += method
+                    webSocket.send(readyResponse(frame.getString("id")))
+                }
+                "conversation.close" -> closed.countDown()
+            }
+        }
+
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            webSocket.close(code, null)
+        }
+    }
+
+    private fun pairedClient(
+        pinnedRoute: String? = null,
+        claimResult: HomeClientClaimResult = HomeClientClaimResult.Granted(CONVERSATION_HANDLE),
+        withClaims: Boolean = true,
+    ): PairedClient {
+        val homeUrl = server.url("/").toString().trimEnd('/')
+        val store = InMemoryHomeClientPairingStore(
+            HomeClientPairings(
+                records = listOf(
+                    HomeClientPairingRecord(
+                        pairingId = "pairing-1",
+                        homeUrl = homeUrl,
+                        deviceId = "id-7",
+                        generation = 1,
+                        credentialExpiresAt = System.currentTimeMillis() / 1000.0 + 60 * 86_400,
+                        grants = emptyList(),
+                        routeId = pinnedRoute,
+                    ),
+                ),
+            ),
+        )
+        val credentials = InMemoryRelayCredentialStore(
+            homeCredentials = mapOf(
+                HomeClientPairingRecord.credentialSlot("pairing-1") to PAIRED_CREDENTIAL,
+            ),
+        )
+        val claims = AtomicInteger(0)
+        val service = object : HomeClientService {
+            override fun submit(target: HomePairingTarget, endpointId: String, label: String) =
+                throw UnsupportedOperationException()
+
+            override fun consume(homeUrl: String, requestId: String, code: String) =
+                throw UnsupportedOperationException()
+
+            override fun renew(
+                homeUrl: String,
+                credential: String,
+                deviceId: String,
+                requestId: String,
+                generation: Int,
+            ) = throw UnsupportedOperationException()
+
+            override fun configuration(homeUrl: String, credential: String, deviceId: String) =
+                HomeClientConfiguration(
+                    revision = 3,
+                    grants = listOf(
+                        HomeClientGrant("grant-a", "Amanda", HomeClientGrantStatus.Active, true),
+                    ),
+                )
+
+            override fun claim(
+                homeUrl: String,
+                credential: String,
+                deviceId: String,
+                revision: Int,
+                grantId: String,
+                claimId: String,
+            ): HomeClientClaimResult {
+                claims.incrementAndGet()
+                return claimResult
+            }
+        }
+        val collection = RelayProfileCollection(
+            profiles = listOf(
+                RelayProfile(
+                    id = PROFILE_ID,
+                    endpoint = HomePairingLink.bridgeRoute(homeUrl),
+                    clientId = "android",
+                    deviceId = "id-7",
+                    displayName = "Amanda · localhost",
+                    homeClientGrant = RelayHomeClientGrantRef("pairing-1", "grant-a"),
+                ),
+            ),
+            selectedId = PROFILE_ID,
+        )
+        val client = OkHttpRelaySessionClient(
+            collection = { collection },
+            credentials = credentials,
+            httpClient = OkHttpClient.Builder()
+                .sslSocketFactory(clientCertificates.sslSocketFactory(), clientCertificates.trustManager)
+                .build(),
+            helloTimeoutMillis = 5_000,
+            requestTimeoutMillis = 5_000,
+            clientClaims = if (withClaims) HomeClientClaimProvider(store, credentials, service) else null,
+        )
+        return PairedClient(client, store, claims)
+    }
+
     private fun client(
         homeBinding: RelayHomeBinding? = RelayHomeBinding(
             approvedRoute = bridgeRoute(),
@@ -1407,6 +1601,7 @@ class OkHttpRelaySessionClientTest {
         const val PROFILE_ID = "profile-1"
         const val CONVERSATION_HANDLE = "opaque-conversation-1"
         const val VALID_HOME_CREDENTIAL = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        const val PAIRED_CREDENTIAL = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
         val RELAY_FORMAT = AndroidAudioFormat(24_000, 1, 2, "pcm_s16le")
     }
 }

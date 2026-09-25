@@ -49,16 +49,30 @@ import com.achappell.hermesrelay.ui.theme.LocalHermesStateColors
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
+    /** A `hermes-home://pair` link waiting for the configuration sheet. */
+    private var pendingPairingLink by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState == null) acceptPairingLink(intent)
 
         val credentials = KeystoreRelayCredentialStore(applicationContext)
         val historyStore = FileAndroidHistoryStore(applicationContext)
+        val pairings = FileHomeClientPairingStore(applicationContext)
+        val clientService = HttpHomeClientService()
         val configuration = RelayConfigurationController(
             profiles = FileRelayProfileStore(applicationContext),
             credentials = credentials,
             history = historyStore,
+            homeClientPairings = pairings,
+        )
+        val homePairing = HomeClientPairingCoordinator(
+            store = pairings,
+            credentials = credentials,
+            service = clientService,
+            configuration = configuration,
+            deviceLabel = android.os.Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android",
         )
         // One port serves both states: it reports NotConfigured until a profile
         // with a stored credential exists, so the shell stays honest about an
@@ -67,6 +81,7 @@ class MainActivity : ComponentActivity() {
             collection = { configuration.collection },
             credentials = credentials,
             audioSink = AudioTrackAudioSink(),
+            clientClaims = HomeClientClaimProvider(pairings, credentials, clientService),
         )
 
         setContent {
@@ -82,9 +97,24 @@ class MainActivity : ComponentActivity() {
                     homeAdministration = homeAdministration,
                     speechInput = speechInput,
                     historyStore = historyStore,
+                    homePairing = homePairing,
+                    pendingPairingLink = pendingPairingLink,
+                    onPendingPairingLinkConsumed = { pendingPairingLink = null },
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        acceptPairingLink(intent)
+    }
+
+    private fun acceptPairingLink(intent: android.content.Intent?) {
+        val data = intent?.data ?: return
+        if (intent.action != android.content.Intent.ACTION_VIEW) return
+        if (!data.scheme.equals(HomePairingLink.SCHEME, ignoreCase = true)) return
+        pendingPairingLink = data.toString()
     }
 }
 
@@ -96,6 +126,9 @@ internal fun AndroidClientScreen(
     homeAdministration: HomeDeviceAdministrationController? = null,
     speechInput: AndroidSpeechInput? = null,
     historyStore: AndroidHistoryStore? = null,
+    homePairing: HomeClientPairingCoordinator? = null,
+    pendingPairingLink: String? = null,
+    onPendingPairingLinkConsumed: () -> Unit = {},
 ) {
     var configurationRevision by remember { mutableStateOf(0) }
     var recoveryState by remember { mutableStateOf(AndroidRecoveryState()) }
@@ -106,6 +139,10 @@ internal fun AndroidClientScreen(
         recoveryState.connectionId,
     ) { clientPort.snapshot() }
     var configurationVisible by rememberSaveable { mutableStateOf(false) }
+    // A delivered pairing link opens the configuration sheet, which submits it.
+    LaunchedEffect(pendingPairingLink) {
+        if (pendingPairingLink != null) configurationVisible = true
+    }
     var historyVisible by rememberSaveable { mutableStateOf(false) }
     val controller = remember(clientPort) { AndroidInitiationController(clientPort) }
     var prompt by rememberSaveable { mutableStateOf("") }
@@ -604,6 +641,9 @@ internal fun AndroidClientScreen(
                                 clientPort.close()
                                 configurationRevision += 1
                             },
+                            homePairing = homePairing,
+                            pendingPairingLink = pendingPairingLink,
+                            onPendingPairingLinkConsumed = onPendingPairingLinkConsumed,
                             onChanged = {
                                 configurationRevision += 1
                                 if (configurationController.collection.selectedId != null) {

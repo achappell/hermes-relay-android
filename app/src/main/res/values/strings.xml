@@ -159,4 +159,25 @@
     <string name="android_hands_free_exit_silence">Hands-free ended after a silent window.</string>
     <string name="android_hands_free_exit_failure">Hands-free ended because the turn did not complete.</string>
     <string name="android_hands_free_exit_session">Hands-free ended because the Home bridge ended.</string>
+    <string name="android_home_pair_title">Pair with Home</string>
+    <string name="android_home_pair_description">Scan the QR code on the Home pairing page with your camera, paste its link, or type the short code and Home address shown beside it.</string>
+    <string name="android_home_pair_link">Pairing link</string>
+    <string name="android_home_pair_link_submit">Pair from link</string>
+    <string name="android_home_pair_code">Short code</string>
+    <string name="android_home_pair_address">Home address (https://…)</string>
+    <string name="android_home_pair_code_submit">Pair with code</string>
+    <string name="android_home_pair_cancel">Cancel pairing</string>
+    <string name="android_home_pair_submitting">Contacting %1$s…</string>
+    <string name="android_home_pair_waiting">Waiting for approval on the %1$s pairing page. Check that it shows confirmation code %2$s.</string>
+    <string name="android_home_pair_done">Paired with %1$s. Profiles added: %2$d.</string>
+    <string name="android_home_pair_pending_owner">Waiting for the owner to approve: %1$s.</string>
+    <string name="android_home_pair_rejected">The pairing request was rejected. Create a new code on the Home page to try again.</string>
+    <string name="android_home_pair_expired">The pairing code expired before it was approved. Create a new code on the Home page.</string>
+    <string name="android_home_pair_unreachable">Home could not be reached. Check that this phone is on the tailnet and try again.</string>
+    <string name="android_home_pair_code_rejected">Home did not accept that code. It may have expired or already been used.</string>
+    <string name="android_home_pair_storage_failed">The Home credential could not be stored securely on this phone. Nothing was saved.</string>
+    <string name="android_home_pair_failed">Pairing did not complete. Nothing was saved.</string>
+    <string name="android_home_pair_link_invalid">That is not a Home pairing link.</string>
+    <string name="android_home_pair_address_invalid">The Home address must be an https:// address with a host name.</string>
+    <string name="android_home_pair_code_invalid">The short code should be letters and digits, like K7Q-4MX.</string>
 </resources>

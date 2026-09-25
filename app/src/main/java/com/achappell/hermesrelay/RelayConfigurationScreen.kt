@@ -41,6 +41,9 @@ internal fun RelayConfigurationScreen(
     homeAdministration: HomeDeviceAdministrationController? = null,
     onHomeAdministrationChanged: () -> Unit = {},
     onHomeCredentialChanged: () -> Unit = {},
+    homePairing: HomeClientPairingCoordinator? = null,
+    pendingPairingLink: String? = null,
+    onPendingPairingLinkConsumed: () -> Unit = {},
     onChanged: () -> Unit,
 ) {
     var collection by remember { mutableStateOf(controller.collection) }
@@ -108,6 +111,15 @@ internal fun RelayConfigurationScreen(
                     }
                 }
             }
+        }
+
+        homePairing?.let { coordinator ->
+            HomePairingSection(
+                coordinator = coordinator,
+                pendingLink = pendingPairingLink,
+                onPendingLinkConsumed = onPendingPairingLinkConsumed,
+                onPaired = ::refresh,
+            )
         }
 
         if (collection.profiles.isEmpty()) {
