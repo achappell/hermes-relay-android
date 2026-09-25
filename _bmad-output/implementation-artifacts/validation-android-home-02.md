@@ -4,6 +4,7 @@ slice: 1 — pair and connect through a client claim
 spec: spec-android-home-02-pair-and-connect.md
 home_contract: hermes-relay-home 0d345be (HOME-NW-17)
 status: done-with-environment-limitation
+story_status: done
 updated: 2026-09-25
 ---
 
@@ -110,4 +111,15 @@ Spec: `spec-android-home-02-approvals.md`.
 - Unit (265 tests, 0 failures), plus build, lint, instrumentation compile and APK metadata. New coverage: pending and holder parsing against Home's actual item shape; the approve, reject and revoke paths with `{"schema":1}`; the mapping of `not_found`, `unauthorized`, `forbidden`, `service_unavailable` and other errors to Gone, NotAllowed, Unreachable and Failed; per-pairing loading and deciding; holder grouping by Profile.
 - Emulator against the live Home: the sheet listed no waiting requests and the holders of Amanda, Jensen and Spark. Hermes TUI refresh is marked "First device" for the owned Profiles, and this phone is "This phone". Remove on the TUI opened "Remove Hermes TUI refresh from Amanda?", and Keep dismissed it without a change.
 - Not verified live: approving or declining a real request (it needs a second device to request an owned Profile this phone holds), the banner appearing for a real request, and a confirmed removal.
+
+## Story closure — 2026-09-25
+
+All three slices are merged: #56 and #57 (pairing and the QR scanner), #58 (conversations; Home #60), and #59 (owner approvals). Amanda marked ANDROID-HOME-02 done with these gaps recorded, not closed:
+
+- A physical Pixel pass was waived. All live evidence comes from the `hermes-relay-api36` emulator against the deployed Home.
+- A live owner approve or decline, the banner for a real request, and a confirmed removal were not exercised.
+- A live camera scan was not exercised; decoding is covered by unit tests.
+- A spoken turn after pairing was not explicitly confirmed; response audio playback was.
+
+Android Epic 1 stays in progress until a short emulator pass covers the voice and approval gaps.
 
