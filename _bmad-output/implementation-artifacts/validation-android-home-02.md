@@ -3,7 +3,7 @@ story: ANDROID-HOME-02
 slice: 1 — pair and connect through a client claim
 spec: spec-android-home-02-pair-and-connect.md
 home_contract: hermes-relay-home 0d345be (HOME-NW-17)
-status: local-evidence
+status: done-with-environment-limitation
 updated: 2026-09-25
 ---
 
@@ -17,7 +17,7 @@ This record keeps four gates separate. A gate is complete only when its evidence
 | Decision confirmation | Pending | Spec decisions were carried from the approved iOS slice; Amanda has not confirmed them for Android |
 | Merge | Not started | Committed on `feat/android-home-02-pair-and-connect`; not pushed, no pull request |
 | Emulator against live Home | Partial pass (2026-09-25) | Pairing, claim, connect, response and audible playback against the deployed Home; see below |
-| Physical (Pixel) | Not run | No physical pairing yet |
+| Physical (Pixel) | Waived for slice 1 by Amanda, 2026-09-25 | "The emulator is good enough." The emulator run against the live Home is the accepted evidence for this slice. The camera-opens-QR assumption behind the no-scanner decision remains unverified |
 
 ## Local gate — 2026-09-24
 
