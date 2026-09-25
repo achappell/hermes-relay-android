@@ -149,6 +149,8 @@ internal data class HomeClientPairingRecord(
     val credentialExpiresAt: Double,
     val grants: List<HomeClientGrant>,
     val routeId: String? = null,
+    /** This phone's last conversation per grant, as opaque Home references. */
+    val lastSessionRefs: Map<String, String> = emptyMap(),
 ) {
     val credentialSlot: String get() = credentialSlot(pairingId)
 
@@ -185,6 +187,7 @@ internal data class HomeClientPairings(
                         .put("generation", record.generation)
                         .put("credential_expires_at", record.credentialExpiresAt)
                         .putOpt("route_id", record.routeId)
+                        .put("last_session_refs", JSONObject(record.lastSessionRefs))
                         .put("grants", JSONArray().apply {
                             record.grants.forEach { grant ->
                                 put(
@@ -219,6 +222,9 @@ internal data class HomeClientPairings(
                         generation = item.getInt("generation"),
                         credentialExpiresAt = item.getDouble("credential_expires_at"),
                         routeId = if (item.isNull("route_id")) null else item.optString("route_id"),
+                        lastSessionRefs = item.optJSONObject("last_session_refs")?.let { refs ->
+                            refs.keys().asSequence().associateWith(refs::getString)
+                        }.orEmpty(),
                         grants = item.getJSONArray("grants").toGrants(),
                     )
                 }
@@ -285,13 +291,34 @@ internal sealed interface HomeConsumeResult {
     data object Expired : HomeConsumeResult
 }
 
+/** One of a Profile's Home conversations, as listed for this grant. */
+internal data class HomeClientSession(
+    val sessionRef: String,
+    val title: String,
+    val startedAt: Double,
+    val messageCount: Int,
+    /** Another active claim holds it; resuming it would be refused as busy. */
+    val active: Boolean,
+)
+
+/** Which conversation a client claim should open. */
+internal sealed interface HomeClientSessionChoice {
+    data object New : HomeClientSessionChoice
+
+    data class Resume(val sessionRef: String) : HomeClientSessionChoice
+}
+
 internal data class HomeClientConfiguration(
     val revision: Int,
     val grants: List<HomeClientGrant>,
 )
 
 internal sealed interface HomeClientClaimResult {
-    class Granted(val conversationHandle: String) : HomeClientClaimResult {
+    class Granted(
+        val conversationHandle: String,
+        /** Set when the claim resumed a stored conversation. */
+        val resumedSessionRef: String? = null,
+    ) : HomeClientClaimResult {
         override fun toString() = "Granted(conversationHandle=<redacted>)"
     }
 
@@ -325,7 +352,18 @@ internal interface HomeClientService {
         revision: Int,
         grantId: String,
         claimId: String,
+        session: HomeClientSessionChoice = HomeClientSessionChoice.New,
     ): HomeClientClaimResult
+
+    fun listSessions(
+        homeUrl: String,
+        credential: String,
+        grantId: String,
+        limit: Int = 50,
+    ): List<HomeClientSession>
+
+    /** The reference behind this device's own claim, or null before its first turn. */
+    fun claimSession(homeUrl: String, credential: String, conversationHandle: String): String?
 }
 
 internal class HttpHomeClientService(
@@ -438,14 +476,21 @@ internal class HttpHomeClientService(
         revision: Int,
         grantId: String,
         claimId: String,
+        session: HomeClientSessionChoice,
     ): HomeClientClaimResult {
+        val sessionJson = when (session) {
+            HomeClientSessionChoice.New -> JSONObject().put("mode", "new")
+            is HomeClientSessionChoice.Resume -> JSONObject()
+                .put("mode", "resume")
+                .put("session_ref", session.sessionRef)
+        }
         val body = JSONObject()
             .put("schema", 1)
             .put("claim_id", claimId)
             .put("device_id", deviceId)
             .put("configuration_revision", revision)
             .put("grant_id", grantId)
-            .put("session", JSONObject().put("mode", "new"))
+            .put("session", sessionJson)
         val reply = send("POST", homeUrl, "/api/v1/client-claims", credential, body)
         reply.errorCode?.takeIf { it in CLAIM_DENIALS }?.let {
             return HomeClientClaimResult.Denied(it)
@@ -457,7 +502,57 @@ internal class HttpHomeClientService(
             if (decision != "granted") return@parse HomeClientClaimResult.Denied(decision)
             val handle = json.text("conversation_handle")
             require(RelayProfileValidator.isValidHomeConversationHandle(handle))
-            HomeClientClaimResult.Granted(handle)
+            val granted = json.optJSONObject("session")
+            val resumedRef = if (granted?.optString("mode") == "resumed") {
+                granted.text("session_ref")
+            } else {
+                null
+            }
+            HomeClientClaimResult.Granted(handle, resumedRef)
+        }
+    }
+
+    override fun listSessions(
+        homeUrl: String,
+        credential: String,
+        grantId: String,
+        limit: Int,
+    ): List<HomeClientSession> {
+        val body = JSONObject()
+            .put("schema", 1)
+            .put("grant_id", grantId)
+            .put("limit", limit.coerceIn(1, 50))
+        val reply = send("POST", homeUrl, "/api/v1/client-sessions/list", credential, body)
+        val json = successBody(reply)
+        return parse {
+            val sessions = json.getJSONArray("sessions")
+            (0 until sessions.length()).map { index ->
+                val item = sessions.getJSONObject(index)
+                HomeClientSession(
+                    sessionRef = item.text("session_ref"),
+                    title = item.optString("title").trim(),
+                    startedAt = item.optDouble("started_at", 0.0).takeIf(Double::isFinite) ?: 0.0,
+                    messageCount = item.optInt("message_count", 0).coerceAtLeast(0),
+                    active = item.getBoolean("active"),
+                )
+            }
+        }
+    }
+
+    override fun claimSession(
+        homeUrl: String,
+        credential: String,
+        conversationHandle: String,
+    ): String? {
+        val body = JSONObject()
+            .put("schema", 1)
+            .put("conversation_handle", conversationHandle)
+        val reply = send("POST", homeUrl, "/api/v1/client-claims/session", credential, body)
+        // Older Homes lack the route, and a closed claim no longer has one.
+        if (reply.status == 404) return null
+        val json = successBody(reply)
+        return parse {
+            if (json.isNull("session_ref")) null else json.text("session_ref")
         }
     }
 
@@ -658,8 +753,38 @@ internal class HomeClientPairingCoordinator(
     }
 }
 
+/** What the next claim for a paired Profile should open. */
+internal sealed interface HomeConversationIntent {
+    /** This phone's last conversation for the grant, else a new one. */
+    data object ContinueLast : HomeConversationIntent
+
+    data object New : HomeConversationIntent
+
+    data class Resume(val sessionRef: String) : HomeConversationIntent
+}
+
+/** Why a requested conversation could not be resumed and a new one began. */
+internal enum class HomeResumeFallback {
+    /** Another device holds it. */
+    Busy,
+
+    /** Home no longer has it. */
+    Gone,
+}
+
+internal data class HomeClaimedConversation(
+    /** Known when a stored conversation was resumed; learned later for a new one. */
+    val sessionRef: String?,
+    val resumed: Boolean,
+    val fallback: HomeResumeFallback? = null,
+)
+
 internal sealed interface HomeClientClaimOutcome {
-    class Claimed(val binding: RelayHomeBinding, val credential: String) : HomeClientClaimOutcome {
+    class Claimed(
+        val binding: RelayHomeBinding,
+        val credential: String,
+        val conversation: HomeClaimedConversation = HomeClaimedConversation(null, false),
+    ) : HomeClientClaimOutcome {
         override fun toString() = "Claimed(binding=<redacted>, credential=<redacted>)"
     }
 
@@ -686,7 +811,10 @@ internal class HomeClientClaimProvider(
     fun credentialFor(grant: RelayHomeClientGrantRef): String? =
         credentials.readHomeCredential(HomeClientPairingRecord.credentialSlot(grant.pairingId))
 
-    fun claim(grant: RelayHomeClientGrantRef): HomeClientClaimOutcome {
+    fun claim(
+        grant: RelayHomeClientGrantRef,
+        intent: HomeConversationIntent = HomeConversationIntent.New,
+    ): HomeClientClaimOutcome {
         var record = store.load().find(grant.pairingId)
             ?: return unavailable(
                 "This Profile's Home pairing is missing. Pair with Home again.",
@@ -717,6 +845,14 @@ internal class HomeClientClaimProvider(
             }
         }
 
+        var choice: HomeClientSessionChoice = when (intent) {
+            HomeConversationIntent.New -> HomeClientSessionChoice.New
+            is HomeConversationIntent.Resume -> HomeClientSessionChoice.Resume(intent.sessionRef)
+            HomeConversationIntent.ContinueLast ->
+                record.lastSessionRefs[grant.grantId]?.let(HomeClientSessionChoice::Resume)
+                    ?: HomeClientSessionChoice.New
+        }
+        var fallback: HomeResumeFallback? = null
         var refreshed = false
         while (true) {
             val configuration = try {
@@ -739,21 +875,52 @@ internal class HomeClientClaimProvider(
                     revision = configuration.revision,
                     grantId = grant.grantId,
                     claimId = "client-${idFactory()}",
+                    session = choice,
                 )
             } catch (error: HomeAdministrationException) {
                 return fromError(error)
             }
             when (result) {
-                is HomeClientClaimResult.Granted -> return HomeClientClaimOutcome.Claimed(
-                    binding = RelayHomeBinding(
-                        approvedRoute = HomePairingLink.bridgeRoute(record.homeUrl),
-                        conversationHandle = result.conversationHandle,
-                    ),
-                    credential = credential,
-                )
+                is HomeClientClaimResult.Granted -> {
+                    val resumedRef = result.resumedSessionRef
+                    when {
+                        resumedRef != null -> rememberSession(grant, resumedRef)
+                        // Busy is temporary (often this phone's own claim from
+                        // before a restart, held for Home's reconnect grace), so
+                        // the next launch tries it again.
+                        fallback == HomeResumeFallback.Busy -> Unit
+                        // A new conversation's reference is learned after its
+                        // first turn; until then there is nothing to continue.
+                        else -> rememberSession(grant, null)
+                    }
+                    return HomeClientClaimOutcome.Claimed(
+                        binding = RelayHomeBinding(
+                            approvedRoute = HomePairingLink.bridgeRoute(record.homeUrl),
+                            conversationHandle = result.conversationHandle,
+                        ),
+                        credential = credential,
+                        conversation = HomeClaimedConversation(
+                            sessionRef = resumedRef,
+                            resumed = resumedRef != null,
+                            fallback = fallback,
+                        ),
+                    )
+                }
                 is HomeClientClaimResult.Denied -> {
                     if (result.code == "stale_configuration" && !refreshed) {
                         refreshed = true
+                        continue
+                    }
+                    // A conversation that cannot be resumed never strands the
+                    // Profile: start a new one and report why.
+                    val resumeFailure = when (result.code) {
+                        "session_busy" -> HomeResumeFallback.Busy
+                        "session_unavailable" -> HomeResumeFallback.Gone
+                        else -> null
+                    }
+                    if (choice is HomeClientSessionChoice.Resume && resumeFailure != null) {
+                        choice = HomeClientSessionChoice.New
+                        fallback = resumeFailure
                         continue
                     }
                     return denial(result.code)
@@ -761,6 +928,63 @@ internal class HomeClientClaimProvider(
             }
         }
     }
+
+    /** Records (or, with null, forgets) this phone's last conversation for a grant. */
+    fun rememberSession(grant: RelayHomeClientGrantRef, sessionRef: String?) {
+        val pairings = store.load()
+        val record = pairings.find(grant.pairingId) ?: return
+        val refs = if (sessionRef == null) {
+            record.lastSessionRefs - grant.grantId
+        } else {
+            record.lastSessionRefs + (grant.grantId to sessionRef)
+        }
+        if (refs != record.lastSessionRefs) store.save(pairings.upsert(record.copy(lastSessionRefs = refs)))
+    }
+
+    /**
+     * Asks Home which conversation a held claim is using and remembers it, so
+     * the next launch can continue it. Returns the reference, or null when Home
+     * has none yet or cannot say. Blocking.
+     */
+    fun learnSession(grant: RelayHomeClientGrantRef, conversationHandle: String): String? {
+        val record = store.load().find(grant.pairingId) ?: return null
+        val credential = credentials.readHomeCredential(record.credentialSlot) ?: return null
+        val ref = runCatching {
+            service.claimSession(record.homeUrl, credential, conversationHandle)
+        }.getOrNull() ?: return null
+        rememberSession(grant, ref)
+        return ref
+    }
+
+    sealed interface Sessions {
+        data class Listed(val sessions: List<HomeClientSession>) : Sessions
+
+        data class Unavailable(val message: String) : Sessions
+    }
+
+    /** The grant's Home conversations, newest first. Blocking. */
+    fun listSessions(grant: RelayHomeClientGrantRef): Sessions {
+        val record = store.load().find(grant.pairingId)
+            ?: return Sessions.Unavailable("This Profile's Home pairing is missing.")
+        val credential = credentials.readHomeCredential(record.credentialSlot)
+            ?: return Sessions.Unavailable("The Home credential cannot be read.")
+        return try {
+            Sessions.Listed(service.listSessions(record.homeUrl, credential, grant.grantId))
+        } catch (error: HomeAdministrationException) {
+            Sessions.Unavailable(
+                when (error.reason) {
+                    HomeAdministrationError.TransportUnavailable,
+                    HomeAdministrationError.ServiceUnavailable,
+                    -> "Home could not be reached to list conversations."
+                    else -> "Home did not return this Profile's conversations."
+                },
+            )
+        }
+    }
+
+    /** The last conversation this phone used for the grant, if any. */
+    fun lastSession(grant: RelayHomeClientGrantRef): String? =
+        store.load().find(grant.pairingId)?.lastSessionRefs?.get(grant.grantId)
 
     /**
      * Pins the bridge route identity on the first ready after pairing. Returns

@@ -81,6 +81,7 @@ internal class TranscriptExporter(
     private fun AndroidTranscriptRole.exportLabel(): String = when (this) {
         AndroidTranscriptRole.User -> "You"
         AndroidTranscriptRole.Assistant -> "Hermes"
+        AndroidTranscriptRole.Divider -> "—"
     }
 
     private companion object {

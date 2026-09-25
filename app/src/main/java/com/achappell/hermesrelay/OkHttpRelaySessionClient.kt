@@ -130,10 +130,19 @@ internal class OkHttpRelaySessionClient(
     private val interruptTelemetry: AndroidInterruptTelemetryState = AndroidInterruptTelemetryState(),
     private val liveHomeGateTrace: AndroidLiveHomeGateTrace? = null,
     private val clientClaims: HomeClientClaimProvider? = null,
-) : AndroidClientPort {
+) : AndroidClientPort, AndroidHomeConversations {
 
     /** A personal-client claim held for one Profile; never persisted. */
-    private class HeldClaim(val profileId: String, val binding: RelayHomeBinding)
+    private class HeldClaim(
+        val profileId: String,
+        val binding: RelayHomeBinding,
+        @Volatile var sessionRef: String?,
+    )
+
+    /** What the next fresh claim opens; a transport loss continues the last one. */
+    private val nextConversation =
+        AtomicReference<HomeConversationIntent>(HomeConversationIntent.ContinueLast)
+    private val conversationNotice = AtomicReference<HomeClaimedConversation?>(null)
 
     private val activeSocket = AtomicReference<WebSocket?>(null)
     private val heldClaim = AtomicReference<HeldClaim?>(null)
@@ -473,6 +482,8 @@ internal class OkHttpRelaySessionClient(
         heldClaim.get()?.takeIf { it.profileId != profile.id }?.let { releaseHeldClaim() }
         val pairedGrant = profile.homeClientGrant
         var claimedCredential: String? = null
+        // A claim made just now has never been opened, whatever its handle.
+        var freshClaim = false
         val homeBinding = if (pairedGrant != null) {
             val claims = clientClaims ?: return AndroidReconnectOutcome.Unrecoverable(
                 "This Profile has not completed Home pairing.",
@@ -491,10 +502,15 @@ internal class OkHttpRelaySessionClient(
                 held
             } else {
                 heldClaim.set(null)
-                when (val outcome = claims.claim(pairedGrant)) {
+                val intent = nextConversation.getAndSet(HomeConversationIntent.ContinueLast)
+                when (val outcome = claims.claim(pairedGrant, intent)) {
                     is HomeClientClaimOutcome.Claimed -> {
-                        heldClaim.set(HeldClaim(profile.id, outcome.binding))
+                        heldClaim.set(
+                            HeldClaim(profile.id, outcome.binding, outcome.conversation.sessionRef),
+                        )
+                        conversationNotice.set(outcome.conversation)
                         claimedCredential = outcome.credential
+                        freshClaim = true
                         outcome.binding
                     }
                     is HomeClientClaimOutcome.Unavailable -> return if (outcome.retryable) {
@@ -565,8 +581,10 @@ internal class OkHttpRelaySessionClient(
             reconnectRequired.set(false)
         }
         val handshakeMethod = if (
-            (hasOpenedConversation.get() && sameHandshakeBinding) ||
-                (reconnectRequired.get() && sameReconnectRequiredBinding)
+            !freshClaim && (
+                (hasOpenedConversation.get() && sameHandshakeBinding) ||
+                    (reconnectRequired.get() && sameReconnectRequiredBinding)
+                )
         ) {
             "conversation.reconnect"
         } else {
@@ -1003,6 +1021,77 @@ internal class OkHttpRelaySessionClient(
         terminalObserved.set(false)
         queuedFrames.clear()
         audioSink.close()
+    }
+
+    override fun selectedIsPaired(): Boolean =
+        clientClaims != null && collection().selected?.homeClientGrant != null
+
+    override fun listConversations(): HomeClientClaimProvider.Sessions {
+        val grant = collection().selected?.homeClientGrant
+        val claims = clientClaims
+        if (grant == null || claims == null) {
+            return HomeClientClaimProvider.Sessions.Unavailable(
+                "This Profile is not paired with Home.",
+            )
+        }
+        return claims.listSessions(grant)
+    }
+
+    override fun currentConversationRef(): String? {
+        val profileId = collection().selected?.id ?: return null
+        return heldClaim.get()?.takeIf { it.profileId == profileId }?.sessionRef
+    }
+
+    override fun requestConversation(intent: HomeConversationIntent) {
+        nextConversation.set(intent)
+        releaseHeldClaim()
+        closeTransport()
+    }
+
+    override fun takeConversationNotice(): HomeClaimedConversation? =
+        conversationNotice.getAndSet(null)
+
+    override fun learnCurrentConversation(): String? {
+        val profile = collection().selected ?: return null
+        val grant = profile.homeClientGrant ?: return null
+        val held = heldClaim.get()?.takeIf { it.profileId == profile.id } ?: return null
+        held.sessionRef?.let { return it }
+        val ref = clientClaims?.learnSession(grant, held.binding.conversationHandle) ?: return null
+        held.sessionRef = ref
+        return ref
+    }
+
+    override fun canRenameConversation(): Boolean =
+        selectedIsPaired() && ready.get() && TITLE_COMMAND in capabilities.get().commands
+
+    override fun renameConversation(title: String): Boolean {
+        val trimmed = title.trim()
+        if (trimmed.isEmpty() || !canRenameConversation()) return false
+        val socket = activeSocket.get() ?: return false
+        val profileId = collection().selected?.id ?: return false
+        val held = heldClaim.get()?.takeIf { it.profileId == profileId } ?: return false
+        val requestId = rpcId("title")
+        val response = PendingRpc()
+        pending[requestId] = response
+        try {
+            val sent = socket.send(
+                rpcRequest(
+                    requestId,
+                    "command.dispatch",
+                    JSONObject()
+                        .put("conversation_handle", held.binding.conversationHandle)
+                        .put("name", TITLE_COMMAND)
+                        .put("arg", trimmed),
+                ).toString(),
+            )
+            if (!sent) return false
+            val frame = response.await(requestTimeoutMillis) ?: return false
+            return isHomeEnvelope(frame) &&
+                frame.optJSONObject("error") == null &&
+                frame.optJSONObject("result") != null
+        } finally {
+            pending.remove(requestId)
+        }
     }
 
     private fun bindingFor(profile: RelayProfile): RelayHomeBinding? =
@@ -1679,6 +1768,7 @@ internal class OkHttpRelaySessionClient(
     }
 
     private companion object {
+        const val TITLE_COMMAND = "title"
         const val SCHEMA_VERSION = 1
         const val DEFAULT_HELLO_TIMEOUT_MILLIS = 10_000L
         const val DEFAULT_REQUEST_TIMEOUT_MILLIS = 10_000L

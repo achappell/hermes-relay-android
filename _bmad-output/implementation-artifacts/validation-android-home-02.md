@@ -79,3 +79,19 @@ Built after Amanda reversed the no-scanner decision. CameraX preview and analysi
 - Emulator (virtual-scene camera): the camera permission, the camera opening, and a live preview inside its square frame were observed. The first build let the preview paint over the text above and below it; it is now clipped to its frame. The virtual camera was not steered to the QR poster, so a live camera-to-pairing scan was not performed.
 - Not verified: scanning on a physical camera, and the denied-permission and no-camera messages on a device.
 
+## Slice 2 — conversations (2026-09-25)
+
+Spec: `spec-android-home-02-conversations.md`. Depends on Home PR #60 (claim session lookup, and rename through `session.title`), which is not yet deployed.
+
+- Unit (262 tests, 0 failures), plus build, lint, instrumentation compile and APK metadata. New coverage: continue-last resumes the remembered conversation; no remembered conversation starts new; `session_busy` and `session_unavailable` fall back to new and report why (busy keeps the reference for the next launch, gone forgets it); a deliberate new conversation forgets it; learning the current reference persists it in the pairing record; the list, claim-session and resume wire shapes; current/in-use row classification; dividers never lead the history; and on the transport, a requested new conversation closes the current claim (`conversation.close` observed) and opens the new claim with `conversation.open`.
+- Informative defect: the transport chose `conversation.reconnect` for a just-made claim when its handle matched the previous one. A fresh claim now always opens.
+- Emulator against the live Home:
+  - The Conversations sheet listed the Spark Profile's real conversations with Hermes titles, dates and message counts.
+  - Resuming "Say one short sentence" restored Hermes's memory: asked "what did I ask you to do in my previous message", it described the earlier ten-sentence story request. Its message count rose from 4 to 6, and the sheet marked it "Current conversation".
+  - Leaving with Back and reopening continued the last resumed conversation with no fallback, and it stayed marked current.
+  - Local History recorded the "Resumed: <title>" dividers.
+- Found live, fixed or routed:
+  - Rename was rejected (`request_rejected`) because Standard Hermes's `command.dispatch` refuses `title`, which is renamed through `session.title`. The fix is in Home PR #60; Android rename is unverified live until it deploys.
+  - After a force-stop, Home still held the old claim for its 120 s reconnect grace, so continue-last fell back to new and forgot the conversation, with a message that blamed "another device". Busy now keeps the reference, and the message explains the restart case.
+- Not verified live until Home PR #60 is deployed: learning a brand-new conversation's reference (the route returns 404 on the current Home, so continue-last only works after an explicit resume), and rename.
+

@@ -465,6 +465,166 @@ class HomeClientPairingTest {
     }
 
     @Test
+    fun continue_last_resumes_the_remembered_conversation() {
+        val fixture = pairedFixture()
+        val claims = fixture.claims()
+        claims.rememberSession(fixture.grant(), "sref-7")
+
+        val outcome = claims.claim(fixture.grant(), HomeConversationIntent.ContinueLast)
+            as HomeClientClaimOutcome.Claimed
+
+        assertEquals(HomeClientSessionChoice.Resume("sref-7"), fixture.service.claimedChoices.single())
+        assertEquals(HomeClaimedConversation("sref-7", resumed = true), outcome.conversation)
+    }
+
+    @Test
+    fun continue_last_without_a_remembered_conversation_starts_new() {
+        val fixture = pairedFixture()
+        val outcome = fixture.claims().claim(fixture.grant(), HomeConversationIntent.ContinueLast)
+            as HomeClientClaimOutcome.Claimed
+        assertEquals(HomeClientSessionChoice.New, fixture.service.claimedChoices.single())
+        assertEquals(HomeClaimedConversation(null, resumed = false), outcome.conversation)
+    }
+
+    @Test
+    fun a_busy_or_missing_conversation_falls_back_to_new_and_says_why() {
+        listOf(
+            "session_busy" to HomeResumeFallback.Busy,
+            "session_unavailable" to HomeResumeFallback.Gone,
+        ).forEach { (code, fallback) ->
+            val fixture = pairedFixture()
+            val claims = fixture.claims()
+            claims.rememberSession(fixture.grant(), "sref-7")
+            fixture.service.claimResults += HomeClientClaimResult.Denied(code)
+
+            val outcome = claims.claim(fixture.grant(), HomeConversationIntent.ContinueLast)
+                as HomeClientClaimOutcome.Claimed
+
+            assertEquals(
+                listOf(HomeClientSessionChoice.Resume("sref-7"), HomeClientSessionChoice.New),
+                fixture.service.claimedChoices,
+            )
+            assertEquals(fallback, outcome.conversation.fallback)
+            assertFalse(outcome.conversation.resumed)
+            // Busy is temporary and retried next launch; a missing one is forgotten.
+            assertEquals(
+                if (fallback == HomeResumeFallback.Busy) "sref-7" else null,
+                claims.lastSession(fixture.grant()),
+            )
+        }
+    }
+
+    @Test
+    fun a_deliberate_new_conversation_forgets_the_last_one() {
+        val fixture = pairedFixture()
+        val claims = fixture.claims()
+        claims.rememberSession(fixture.grant(), "sref-7")
+        claims.claim(fixture.grant(), HomeConversationIntent.New)
+        assertEquals(HomeClientSessionChoice.New, fixture.service.claimedChoices.single())
+        assertNull(claims.lastSession(fixture.grant()))
+    }
+
+    @Test
+    fun learning_the_current_conversation_remembers_it_for_the_next_launch() {
+        val fixture = pairedFixture()
+        val claims = fixture.claims()
+        assertNull(claims.learnSession(fixture.grant(), "opaque-home-claim-1"))
+
+        fixture.service.sessionForHandle = "sref-9"
+        assertEquals("sref-9", claims.learnSession(fixture.grant(), "opaque-home-claim-1"))
+        assertEquals("sref-9", claims.lastSession(fixture.grant()))
+        assertTrue(fixture.store.load().toJson().contains("sref-9"))
+        assertEquals(
+            "sref-9",
+            HomeClientPairings.fromJson(fixture.store.load().toJson()).records.single()
+                .lastSessionRefs[fixture.grant().grantId],
+        )
+    }
+
+    @Test
+    fun listing_returns_the_grants_conversations() {
+        val fixture = pairedFixture()
+        fixture.service.listed = listOf(HomeClientSession("sref-1", "Groceries", 20.0, 4, false))
+        val result = fixture.claims().listSessions(fixture.grant())
+        assertEquals(HomeClientClaimProvider.Sessions.Listed(fixture.service.listed), result)
+    }
+
+    @Test
+    fun session_wire_calls_match_the_home_contract() {
+        val list = RecordingTransport(
+            HomeHttpResponse(
+                200,
+                """{"schema":1,"sessions":[{"session_ref":"sref-1","title":"Groceries",""" +
+                    """"started_at":1727120000,"message_count":14,"active":true}]}""",
+            ),
+        )
+        val sessions = HttpHomeClientService(list).listSessions(HOME_URL, VALID_CREDENTIAL, "grant-a")
+        assertEquals(listOf(HomeClientSession("sref-1", "Groceries", 1727120000.0, 14, true)), sessions)
+        assertEquals("$HOME_URL/api/v1/client-sessions/list", list.requests.single().url)
+        assertEquals("grant-a", JSONObject(list.requests.single().body!!).getString("grant_id"))
+
+        val claimSession = RecordingTransport(HomeHttpResponse(200, """{"schema":1,"session_ref":"sref-2"}"""))
+        assertEquals(
+            "sref-2",
+            HttpHomeClientService(claimSession).claimSession(HOME_URL, VALID_CREDENTIAL, "handle-1"),
+        )
+        assertEquals("$HOME_URL/api/v1/client-claims/session", claimSession.requests.single().url)
+        assertNull(
+            HttpHomeClientService(RecordingTransport(HomeHttpResponse(200, """{"schema":1,"session_ref":null}""")))
+                .claimSession(HOME_URL, VALID_CREDENTIAL, "handle-1"),
+        )
+        assertNull(
+            HttpHomeClientService(RecordingTransport(HomeHttpResponse(404, error("not_found"))))
+                .claimSession(HOME_URL, VALID_CREDENTIAL, "handle-1"),
+        )
+
+        val resume = RecordingTransport(
+            HomeHttpResponse(
+                200,
+                """{"schema":1,"claim_id":"client-1","decision":"granted","configuration_revision":1,""" +
+                    """"conversation_handle":"opaque-home-claim-1","session":{"mode":"resumed","session_ref":"sref-2"}}""",
+            ),
+        )
+        val granted = HttpHomeClientService(resume).claim(
+            HOME_URL, VALID_CREDENTIAL, DEVICE_ID, 1, "grant-a", "client-1",
+            HomeClientSessionChoice.Resume("sref-2"),
+        ) as HomeClientClaimResult.Granted
+        assertEquals("sref-2", granted.resumedSessionRef)
+        val session = JSONObject(resume.requests.single().body!!).getJSONObject("session")
+        assertEquals("resume", session.getString("mode"))
+        assertEquals("sref-2", session.getString("session_ref"))
+    }
+
+    @Test
+    fun conversation_rows_mark_current_and_busy_conversations() {
+        val current = HomeClientSession("sref-1", "", 0.0, 0, active = true)
+        val busy = HomeClientSession("sref-2", "", 0.0, 0, active = true)
+        val free = HomeClientSession("sref-3", "", 0.0, 0, active = false)
+        assertEquals(HomeConversationRow.Current, HomeConversationRows.classify(current, "sref-1"))
+        assertEquals(HomeConversationRow.InUseElsewhere, HomeConversationRows.classify(busy, "sref-1"))
+        assertEquals(HomeConversationRow.Resumable, HomeConversationRows.classify(free, "sref-1"))
+        assertEquals("Resumed: Untitled conversation", HomeConversationRows.resumedDivider(" "))
+        assertEquals("Resumed: Groceries", HomeConversationRows.resumedDivider("Groceries"))
+    }
+
+    @Test
+    fun dividers_are_kept_in_history_but_never_lead_it() {
+        val store = InMemoryAndroidHistoryStore()
+        val recorder = AndroidHistoryRecorder(store) { 1L }
+        recorder.open("p1")
+        recorder.recordDivider("New conversation")
+        assertTrue(recorder.history.entries.isEmpty())
+
+        recorder.recordUserTurn("hello")
+        recorder.recordDivider("New conversation")
+        val reloaded = AndroidLocalHistory.fromJson(store.load("p1").toJson())
+        assertEquals(
+            listOf(AndroidTranscriptRole.User, AndroidTranscriptRole.Divider),
+            reloaded.entries.map { it.role },
+        )
+    }
+
+    @Test
     fun an_unreadable_pairing_file_yields_no_pairings() {
         assertTrue(HomeClientPairings.fromJson("{not json").records.isEmpty())
         assertTrue(HomeClientPairings.fromJson("""{"schema":99,"records":[]}""").records.isEmpty())
@@ -544,6 +704,9 @@ class HomeClientPairingTest {
         val claimResults = ArrayDeque<HomeClientClaimResult>()
         val submittedEndpointIds = mutableListOf<String>()
         val claimedGrants = mutableListOf<String>()
+        val claimedChoices = mutableListOf<HomeClientSessionChoice>()
+        var listed: List<HomeClientSession> = emptyList()
+        var sessionForHandle: String? = null
         val renewGenerations = mutableListOf<Int>()
         var configurationGrants: List<HomeClientGrant> = GRANTS
         var configurationError: HomeAdministrationError? = null
@@ -589,11 +752,31 @@ class HomeClientPairingTest {
             revision: Int,
             grantId: String,
             claimId: String,
+            session: HomeClientSessionChoice,
         ): HomeClientClaimResult {
             calls += "claim"
             claimedGrants += grantId
+            claimedChoices += session
             return claimResults.removeFirstOrNull()
-                ?: HomeClientClaimResult.Granted("opaque-home-claim-1")
+                ?: HomeClientClaimResult.Granted(
+                    "opaque-home-claim-1",
+                    (session as? HomeClientSessionChoice.Resume)?.sessionRef,
+                )
+        }
+
+        override fun listSessions(
+            homeUrl: String,
+            credential: String,
+            grantId: String,
+            limit: Int,
+        ): List<HomeClientSession> {
+            calls += "list"
+            return listed
+        }
+
+        override fun claimSession(homeUrl: String, credential: String, conversationHandle: String): String? {
+            calls += "claimSession"
+            return sessionForHandle
         }
     }
 

@@ -1,5 +1,9 @@
 package com.achappell.hermesrelay
 
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.material3.Text
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -139,6 +143,15 @@ internal fun AndroidClientScreen(
         recoveryState.connectionId,
     ) { clientPort.snapshot() }
     var configurationVisible by rememberSaveable { mutableStateOf(false) }
+    val homeConversations = clientPort as? AndroidHomeConversations
+    var conversationsVisible by rememberSaveable { mutableStateOf(false) }
+    var conversationsState by remember {
+        mutableStateOf<HomeConversationsState>(HomeConversationsState.Loading)
+    }
+    var renameMessage by remember { mutableStateOf<String?>(null) }
+    // The divider to record once the requested conversation actually opens.
+    var pendingDivider by remember { mutableStateOf<String?>(null) }
+    var conversationMessage by remember { mutableStateOf<String?>(null) }
     // A delivered pairing link opens the configuration sheet, which submits it.
     LaunchedEffect(pendingPairingLink) {
         if (pendingPairingLink != null) configurationVisible = true
@@ -245,6 +258,13 @@ internal fun AndroidClientScreen(
                         event is AndroidNormalizedEvent.TurnInterrupted
                     ) {
                         recoveryState = recoveryController.resolveHomeTurn()
+                    }
+                    // A new conversation only has a Home reference once a turn
+                    // was accepted; learn it so the next launch can continue it.
+                    if (event is AndroidNormalizedEvent.TurnCompleted) {
+                        homeConversations?.let { conversations ->
+                            workExecutor.execute { conversations.learnCurrentConversation() }
+                        }
                     }
                 }
             }
@@ -401,6 +421,32 @@ internal fun AndroidClientScreen(
         workExecutor.execute { recoveryController.recover() }
     }
 
+    fun loadConversations() {
+        val conversations = homeConversations ?: return
+        conversationsState = HomeConversationsState.Loading
+        workExecutor.execute {
+            val listed = when (val result = conversations.listConversations()) {
+                is HomeClientClaimProvider.Sessions.Listed -> HomeConversationsState.Listed(result.sessions)
+                is HomeClientClaimProvider.Sessions.Unavailable ->
+                    HomeConversationsState.Unavailable(result.message)
+            }
+            mainHandler.post { conversationsState = listed }
+        }
+    }
+
+    fun switchConversation(intent: HomeConversationIntent, divider: String) {
+        val conversations = homeConversations ?: return
+        conversationsVisible = false
+        conversationMessage = null
+        pendingDivider = divider
+        initiationState = AndroidInitiationState.Idle
+        turnState = AndroidTurnState()
+        workExecutor.execute {
+            conversations.requestConversation(intent)
+            recoveryController.recover()
+        }
+    }
+
     // A paired Profile claims a fresh conversation on every connect, so there
     // is no single-use handle to protect: connect it as soon as it is selected.
     // Operator-handle Profiles keep the deliberate connect action.
@@ -413,6 +459,29 @@ internal fun AndroidClientScreen(
         ) {
             recover()
         }
+    }
+
+    // Report how the last claim opened: a requested switch gets its divider,
+    // and a conversation that could not be continued is never silent.
+    val fallbackBusyText = stringResource(R.string.android_conversations_fallback_busy)
+    val fallbackGoneText = stringResource(R.string.android_conversations_fallback_gone)
+    LaunchedEffect(recoveryState.connectionId) {
+        val notice = homeConversations?.takeConversationNotice() ?: return@LaunchedEffect
+        val fallbackMessage = when (notice.fallback) {
+            HomeResumeFallback.Busy -> fallbackBusyText
+            HomeResumeFallback.Gone -> fallbackGoneText
+            null -> null
+        }
+        val requested = pendingDivider
+        pendingDivider = null
+        when {
+            fallbackMessage != null -> {
+                conversationMessage = fallbackMessage
+                recorder?.recordDivider(fallbackMessage)
+            }
+            requested != null -> recorder?.recordDivider(requested)
+        }
+        historyRevision += 1
     }
 
     fun resendUnconfirmedTurn() {
@@ -485,6 +554,14 @@ internal fun AndroidClientScreen(
                     onShowHistory = {
                         configurationVisible = false
                         historyVisible = true
+                    },
+                    canShowConversations = homeConversations?.selectedIsPaired() == true,
+                    onShowConversations = {
+                        configurationVisible = false
+                        historyVisible = false
+                        renameMessage = null
+                        conversationsVisible = true
+                        loadConversations()
                     },
                 )
             },
@@ -591,6 +668,18 @@ internal fun AndroidClientScreen(
                         }
                     }
 
+                    conversationMessage?.let { message ->
+                        item {
+                            Text(
+                                modifier = Modifier
+                                    .testTag("android_conversation_notice")
+                                    .semantics { liveRegion = LiveRegionMode.Polite },
+                                text = message,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+
                     item {
                         Column {
                             ConnectionRecoveryZone(
@@ -668,6 +757,38 @@ internal fun AndroidClientScreen(
                     }
                 }
             }
+        }
+
+        if (conversationsVisible && homeConversations != null) {
+            val renamedText = stringResource(R.string.android_conversations_renamed)
+            val renameFailedText = stringResource(R.string.android_conversations_rename_failed)
+            val newDivider = stringResource(R.string.android_conversations_new)
+            HomeConversationsSheet(
+                state = conversationsState,
+                currentRef = homeConversations.currentConversationRef(),
+                canRename = homeConversations.canRenameConversation(),
+                actionsEnabled = !hasAcceptedTurn && !hasUnresolvedTurn,
+                renameMessage = renameMessage,
+                onNew = { switchConversation(HomeConversationIntent.New, newDivider) },
+                onResume = { session ->
+                    switchConversation(
+                        HomeConversationIntent.Resume(session.sessionRef),
+                        HomeConversationRows.resumedDivider(session.title),
+                    )
+                },
+                onRename = { title ->
+                    renameMessage = null
+                    workExecutor.execute {
+                        val renamed = homeConversations.renameConversation(title)
+                        mainHandler.post {
+                            renameMessage = if (renamed) renamedText else renameFailedText
+                            if (renamed) loadConversations()
+                        }
+                    }
+                },
+                onRefresh = { loadConversations() },
+                onDismiss = { conversationsVisible = false },
+            )
         }
 
         if (historyVisible) {

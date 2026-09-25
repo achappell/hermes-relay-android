@@ -186,4 +186,24 @@
     <string name="android_home_pair_scan_denied">Camera access was not allowed. Paste the pairing link or type the short code instead.</string>
     <string name="android_home_pair_scan_no_camera">This device has no camera. Paste the pairing link or type the short code instead.</string>
     <string name="android_home_pair_scan_close">Close scanner</string>
+    <string name="android_history_divider">Conversation</string>
+    <string name="android_conversations_label">Conversations</string>
+    <string name="android_conversations_new">New conversation</string>
+    <string name="android_conversations_resume">Resume</string>
+    <string name="android_conversations_current">Current conversation</string>
+    <string name="android_conversations_in_use">In use on another device</string>
+    <string name="android_conversations_loading">Loading this Profile\'s conversations…</string>
+    <string name="android_conversations_empty">No conversations yet for this Profile.</string>
+    <string name="android_conversations_retry">Try again</string>
+    <string name="android_conversations_turn_active">Wait for the current reply to finish before switching conversations.</string>
+    <string name="android_conversations_rename_label">Rename this conversation</string>
+    <string name="android_conversations_rename">Rename</string>
+    <string name="android_conversations_renamed">Renamed.</string>
+    <string name="android_conversations_rename_failed">Hermes did not accept the new name.</string>
+    <string name="android_conversations_fallback_busy">Your last conversation is still held by another connection, so a new one was started. If this phone just restarted, it becomes available again within about two minutes.</string>
+    <string name="android_conversations_fallback_gone">Your last conversation is no longer available, so a new one was started.</string>
+    <plurals name="android_conversations_messages">
+        <item quantity="one">%d message</item>
+        <item quantity="other">%d messages</item>
+    </plurals>
 </resources>
