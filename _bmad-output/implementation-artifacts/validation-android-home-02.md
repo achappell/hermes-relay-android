@@ -4,7 +4,7 @@ slice: 1 — pair and connect through a client claim
 spec: spec-android-home-02-pair-and-connect.md
 home_contract: hermes-relay-home 0d345be (HOME-NW-17)
 status: local-evidence
-updated: 2026-09-24
+updated: 2026-09-25
 ---
 
 # ANDROID-HOME-02 validation record
@@ -16,7 +16,8 @@ This record keeps four gates separate. A gate is complete only when its evidence
 | Local (deterministic) | Passed | Below |
 | Decision confirmation | Pending | Spec decisions were carried from the approved iOS slice; Amanda has not confirmed them for Android |
 | Merge | Not started | Committed on `feat/android-home-02-pair-and-connect`; not pushed, no pull request |
-| Physical/live | Not run | HOME-NW-17 deployment and a physical pairing were not exercised |
+| Emulator against live Home | Partial pass (2026-09-25) | Pairing, claim, connect, response and audible playback against the deployed Home; see below |
+| Physical (Pixel) | Not run | No physical pairing yet |
 
 ## Local gate — 2026-09-24
 
@@ -35,9 +36,22 @@ The first transport test run failed: `conversation.close` never reached the brid
 
 The debug APK was installed on the `hermes-relay-api36` emulator (headless, no audio). `am start -a VIEW -d 'hermes-home://pair?home=https%3A%2F%2Fhome.invalid.ts.net&code=K7Q4MX'` opened MainActivity through the new intent filter, which opened the configuration sheet and submitted the link. The sheet then showed "Home could not be reached. Check that this phone is on the tailnet and try again." This proves the link-delivery path and the unreachable-Home state only. No real Home answered, so there was no approval, stored credential, claim, or turn.
 
+## Emulator against the deployed Home — 2026-09-25
+
+Amanda drove the `hermes-relay-api36` emulator, which reached `caticornqueen.taila59979.ts.net` over the host's tailnet (MagicDNS resolved; port 443 open). The deployed Home serves `/pair`.
+
+- Pairing: Amanda created a code on the Home pairing page, entered it in the app, and approved it. The app stored `home-client-pairings.json` and one Profile, `Spark · caticornqueen.taila59979.ts.net`, carrying a client-grant reference.
+- Conversation: Local History for that Profile holds two user entries and one assistant entry; entry content was deliberately not read. A client claim, bridge open, and a Hermes response therefore happened on the live Home.
+- Audio: an earlier run on the same build delivered 734,688 frames to `AudioTrack` (about 30 s at 24 kHz). It was inaudible at first because the emulator's media volume was 5/15; it was audible after the volume was raised.
+- Not established: whether the second user entry was spoken or typed, whether it got its own response, and renewal, reconnect-within-grace, and `conversation.close` observed on Home.
+
+### Emulator handling errors (not app defects)
+
+Two pairings were lost to emulator lifecycle, not the app: `-no-snapshot-save` reloaded a pre-pairing snapshot (which also reverted the installed APK to v0.1.0, with no pairing entry point), and a later cold boot after enabling `hw.keyboard` came up without the app. Home still holds those orphaned emulator devices until they are revoked on the pairing page.
+
 ## Not verified
 
-- Pairing, approval, claim, and a typed or voice turn against a deployed HOME-NW-17 Home on a physical phone.
+- Pairing, approval, claim, and a typed or voice turn on a physical phone.
 - Whether the Pixel's system camera opens a `hermes-home://` QR payload directly. The no-scanner decision depends on it.
 - Renewal against a real Home near expiry, and Home's handling of the best-effort `conversation.close` on Profile switch.
 - TalkBack reading of the pairing status live region.
