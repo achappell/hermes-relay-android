@@ -148,6 +148,7 @@ internal fun HomePairingSection(
     var code by rememberSaveable { mutableStateOf("") }
     var address by rememberSaveable { mutableStateOf("") }
     var session by remember { mutableStateOf<HomePairingSession?>(null) }
+    var scanning by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun start(input: HomePairingInput) {
@@ -206,7 +207,22 @@ internal fun HomePairingSection(
 
             val busy = state is HomePairingViewState.Submitting ||
                 state is HomePairingViewState.Waiting
-            if (!busy) {
+            if (!busy && scanning) {
+                HomePairingScanner(
+                    onLink = { scanned ->
+                        scanning = false
+                        link = scanned
+                        start(HomePairingLink.parse(scanned))
+                    },
+                    onClose = { scanning = false },
+                )
+            } else if (!busy) {
+                FilledTonalButton(
+                    modifier = Modifier.testTag("android_home_pair_scan"),
+                    onClick = { scanning = true },
+                ) {
+                    Text(stringResource(R.string.android_home_pair_scan))
+                }
                 OutlinedTextField(
                     modifier = Modifier.testTag("android_home_pair_link"),
                     value = link,

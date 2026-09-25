@@ -15,6 +15,9 @@
     <!-- Tap-to-speak. Audio is transcribed on device and never uploaded: the
          relay refuses binary ingress and accepts local-STT text only. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Optional: scanning a Home pairing QR code. Link and code entry work without it. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
         android:allowBackup="false"

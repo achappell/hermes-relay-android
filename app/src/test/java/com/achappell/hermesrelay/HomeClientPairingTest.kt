@@ -95,6 +95,26 @@ class HomeClientPairingTest {
         )
     }
 
+    @Test
+    fun a_scan_accepts_only_a_home_pairing_link() {
+        val link = "hermes-home://pair?home=https%3A%2F%2Fhome.example.ts.net&code=K7Q4MX"
+        assertNull(HomePairingScan.evaluate(emptyList()))
+        assertEquals(
+            HomePairingScan.Result.Accepted(link),
+            HomePairingScan.evaluate(listOf("https://example.com", null, " $link ")),
+        )
+        assertEquals(
+            HomePairingScan.Result.NotPairingCode,
+            HomePairingScan.evaluate(listOf("https://home.example.ts.net/pair?code=K7Q4MX")),
+        )
+        assertEquals(
+            HomePairingScan.Result.NotPairingCode,
+            HomePairingScan.evaluate(
+                listOf("hermes-home://pair?home=http%3A%2F%2Fhome.example.ts.net&code=K7Q4MX"),
+            ),
+        )
+    }
+
     // --- Wire client -----------------------------------------------------
 
     @Test

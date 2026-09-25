@@ -14,7 +14,7 @@ context:
 
 ## Approval state
 
-Drafted and implemented autonomously overnight on 2026-09-24 at Amanda's request ("go as far as you can in the android app"). The decisions below are carried from the approved iOS slice-1 decisions of the same date. They have **not** been separately confirmed for Android. Review this section before merging.
+Drafted and implemented autonomously overnight on 2026-09-24 at Amanda's request ("go as far as you can in the android app") and merged in PR #56. Amanda reviewed the decisions on 2026-09-25: she confirmed one saved Profile per grant and reversed the no-scanner decision.
 
 ## Intent
 
@@ -22,10 +22,10 @@ Drafted and implemented autonomously overnight on 2026-09-24 at Amanda's request
 
 **Approach:** Pair from a `hermes-home://pair?home=…&code=…` link or a typed short code plus Home address. Submit a `client_claim` enrollment, show the confirmation code, and poll consume until approval. Store one Keystore credential per pairing, renew it automatically, expose one saved Profile per active grant, and make a fresh client claim (`session: new`) on every `conversation.open`. Session listing/resume and owner approvals are deferred ANDROID-HOME-02 work.
 
-## Decisions (carried from iOS slice 1; Android confirmation pending)
+## Decisions (reviewed by Amanda, 2026-09-25)
 
-- **One saved Profile per grant.** One pairing per Home holds a single Keystore credential, keyed by pairing, not by Profile. Every active grant appears as its own saved Profile named `<grant label> · <Home host>`, with its own Local History. The pairing credential is deleted when the Home's last Profile is deleted.
-- **No in-app QR scanner (Android divergence).** Android's system camera opens `hermes-home://` links through the registered intent filter, so an in-app scanner would add a camera permission and a scanning dependency for no new capability. Link and typed-code entry are provided. Revisit only if a target device's camera app cannot open custom-scheme QR payloads.
+- **One saved Profile per grant (confirmed).** One pairing per Home holds a single Keystore credential, keyed by pairing, not by Profile. Every active grant appears as its own saved Profile named `<grant label> · <Home host>`, with its own Local History. The pairing credential is deleted when the Home's last Profile is deleted.
+- **In-app QR scanner (reversed 2026-09-25).** Slice 1 shipped without one, relying on the system camera opening `hermes-home://` links through the intent filter. Amanda chose an in-app scanner to match iOS. Built on 2026-09-25 with CameraX and ZXing (see validation): it needs a camera permission and a scanning dependency, it must accept only `hermes-home://pair` payloads, and it must fall back to link or typed entry when the camera is denied or unavailable. The intent filter stays.
 - **Local transcript continuity.** A fresh Home session on an existing Profile keeps local history visible; earlier messages are never sent to Hermes. The iOS "New conversation" divider is deferred for Android (see Deferred).
 
 ## Boundaries & Constraints
