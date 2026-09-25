@@ -95,3 +95,11 @@ Spec: `spec-android-home-02-conversations.md`. Depends on Home PR #60 (claim ses
   - After a force-stop, Home still held the old claim for its 120 s reconnect grace, so continue-last fell back to new and forgot the conversation, with a message that blamed "another device". Busy now keeps the reference, and the message explains the restart case.
 - Not verified live until Home PR #60 is deployed: learning a brand-new conversation's reference (the route returns 404 on the current Home, so continue-last only works after an explicit resume), and rename.
 
+### After Home PR #60 deployed (2026-09-25)
+
+The deployed Home answers `/api/v1/client-claims/session` with 401 when unauthenticated (404 before the update).
+
+- Continue-last for a brand-new conversation: New conversation, then a turn ("remember the code word …"). The pairing record then held the learned `session_ref`. After Back and relaunch there was no fallback notice, and "what is the code word" was answered correctly in the continued conversation (checked by keyword, without reading the reply).
+- Rename: renaming the current conversation reported "Renamed.", and the list showed the new title marked "Current conversation".
+- Both slice-2 items previously marked "not verified live" are now observed on the emulator. Physical-device checks remain waived as for slice 1.
+
