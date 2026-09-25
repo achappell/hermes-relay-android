@@ -1480,6 +1480,17 @@ class OkHttpRelaySessionClientTest {
 
             override fun claimSession(homeUrl: String, credential: String, conversationHandle: String) =
                 "sref-learned"
+
+            override fun pendingGrants(homeUrl: String, credential: String) = emptyList<HomeProfileHolder>()
+
+            override fun profileHolders(homeUrl: String, credential: String) = emptyList<HomeProfileHolder>()
+
+            override fun decideGrant(
+                homeUrl: String,
+                credential: String,
+                grantId: String,
+                action: HomeGrantAction,
+            ) = HomeGrantActionResult.Done
         }
         val collection = RelayProfileCollection(
             profiles = listOf(

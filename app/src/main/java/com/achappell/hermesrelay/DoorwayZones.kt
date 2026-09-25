@@ -92,10 +92,12 @@ internal fun DoorwayHeaderZone(
     onShowHistory: () -> Unit = {},
     canShowConversations: Boolean = false,
     onShowConversations: () -> Unit = {},
+    canShowApprovals: Boolean = false,
+    onShowApprovals: () -> Unit = {},
 ) {
     val stateColors = LocalHermesStateColors.current
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
-    val showMenu = canConfigure || canShowHistory || canShowConversations
+    val showMenu = canConfigure || canShowHistory || canShowConversations || canShowApprovals
     val menuDescription = stringResource(R.string.android_menu_content_description)
 
     TopAppBar(
@@ -201,6 +203,18 @@ internal fun DoorwayHeaderZone(
                                     onClick = {
                                         menuExpanded = false
                                         onShowConversations()
+                                    },
+                                )
+                            }
+                            if (canShowApprovals) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.testTag("android_menu_approvals"),
+                                    text = {
+                                        Text(stringResource(R.string.android_approvals_label))
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onShowApprovals()
                                     },
                                 )
                             }

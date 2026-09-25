@@ -301,6 +301,42 @@ internal data class HomeClientSession(
     val active: Boolean,
 )
 
+/**
+ * A device's grant to one of this phone's Profiles, pending or held. Home shows
+ * other devices by label and type only; device IDs never reach the phone.
+ */
+internal data class HomeProfileHolder(
+    val grantId: String,
+    val deviceLabel: String,
+    val deviceType: String,
+    val profileLabel: String,
+    val status: HomeClientGrantStatus,
+    /** The recorded first-device grant of an owned Profile. */
+    val bootstrap: Boolean,
+    val thisDevice: Boolean,
+    val createdAt: Double,
+)
+
+internal enum class HomeGrantAction(val path: String) {
+    Approve("approve"),
+    Reject("reject"),
+    Revoke("revoke"),
+}
+
+internal sealed interface HomeGrantActionResult {
+    data object Done : HomeGrantActionResult
+
+    /** The request expired, was already decided, or the device is gone. */
+    data object Gone : HomeGrantActionResult
+
+    /** This phone is not allowed to decide for that Profile. */
+    data object NotAllowed : HomeGrantActionResult
+
+    data object Unreachable : HomeGrantActionResult
+
+    data object Failed : HomeGrantActionResult
+}
+
 /** Which conversation a client claim should open. */
 internal sealed interface HomeClientSessionChoice {
     data object New : HomeClientSessionChoice
@@ -364,6 +400,19 @@ internal interface HomeClientService {
 
     /** The reference behind this device's own claim, or null before its first turn. */
     fun claimSession(homeUrl: String, credential: String, conversationHandle: String): String?
+
+    /** Requests waiting for this device to approve, as an owner. */
+    fun pendingGrants(homeUrl: String, credential: String): List<HomeProfileHolder>
+
+    /** Every device holding this device's Profiles. */
+    fun profileHolders(homeUrl: String, credential: String): List<HomeProfileHolder>
+
+    fun decideGrant(
+        homeUrl: String,
+        credential: String,
+        grantId: String,
+        action: HomeGrantAction,
+    ): HomeGrantActionResult
 }
 
 internal class HttpHomeClientService(
@@ -555,6 +604,60 @@ internal class HttpHomeClientService(
             if (json.isNull("session_ref")) null else json.text("session_ref")
         }
     }
+
+    override fun pendingGrants(homeUrl: String, credential: String): List<HomeProfileHolder> {
+        val json = successBody(send("GET", homeUrl, "/api/v1/profile-grants/pending", credential, null))
+        return parse { json.getJSONArray("pending").toHolders() }
+    }
+
+    override fun profileHolders(homeUrl: String, credential: String): List<HomeProfileHolder> {
+        val json = successBody(send("GET", homeUrl, "/api/v1/profile-grants/holders", credential, null))
+        return parse { json.getJSONArray("holders").toHolders() }
+    }
+
+    override fun decideGrant(
+        homeUrl: String,
+        credential: String,
+        grantId: String,
+        action: HomeGrantAction,
+    ): HomeGrantActionResult {
+        val reply = try {
+            send(
+                "POST",
+                homeUrl,
+                "/api/v1/profile-grants/${segment(grantId)}/${action.path}",
+                credential,
+                JSONObject().put("schema", 1),
+            )
+        } catch (_: HomeAdministrationException) {
+            return HomeGrantActionResult.Unreachable
+        }
+        if (reply.status in 200..299) return HomeGrantActionResult.Done
+        // Here "unauthorized" means "not this Profile's owner"; the phone's
+        // own credential was accepted to reach the route at all.
+        return when (reply.errorCode) {
+            "not_found", "expired_or_consumed" -> HomeGrantActionResult.Gone
+            "unauthorized", "forbidden" -> HomeGrantActionResult.NotAllowed
+            "service_unavailable" -> HomeGrantActionResult.Unreachable
+            else -> HomeGrantActionResult.Failed
+        }
+    }
+
+    private fun org.json.JSONArray.toHolders(): List<HomeProfileHolder> =
+        (0 until length()).mapNotNull { index ->
+            val item = getJSONObject(index)
+            val status = HomeClientGrantStatus.fromWire(item.getString("status")) ?: return@mapNotNull null
+            HomeProfileHolder(
+                grantId = item.text("grant_id"),
+                deviceLabel = item.text("device_label"),
+                deviceType = item.text("device_type"),
+                profileLabel = item.text("profile_label"),
+                status = status,
+                bootstrap = item.optBoolean("bootstrap", false),
+                thisDevice = item.optBoolean("this_device", false),
+                createdAt = item.optDouble("created_at", 0.0).takeIf(Double::isFinite) ?: 0.0,
+            )
+        }
 
     private fun send(
         method: String,
@@ -980,6 +1083,50 @@ internal class HomeClientClaimProvider(
                 },
             )
         }
+    }
+
+    sealed interface Approvals {
+        data class Loaded(
+            val pending: List<HomeProfileHolder>,
+            val holders: List<HomeProfileHolder>,
+        ) : Approvals
+
+        data class Unavailable(val message: String) : Approvals
+    }
+
+    /** Pending owner requests and current holders for a pairing. Blocking. */
+    fun approvals(grant: RelayHomeClientGrantRef): Approvals {
+        val record = store.load().find(grant.pairingId)
+            ?: return Approvals.Unavailable("This Profile's Home pairing is missing.")
+        val credential = credentials.readHomeCredential(record.credentialSlot)
+            ?: return Approvals.Unavailable("The Home credential cannot be read.")
+        return try {
+            Approvals.Loaded(
+                pending = service.pendingGrants(record.homeUrl, credential),
+                holders = service.profileHolders(record.homeUrl, credential),
+            )
+        } catch (error: HomeAdministrationException) {
+            Approvals.Unavailable(
+                when (error.reason) {
+                    HomeAdministrationError.TransportUnavailable,
+                    HomeAdministrationError.ServiceUnavailable,
+                    -> "Home could not be reached to check device requests."
+                    else -> "Home did not return this Profile's devices."
+                },
+            )
+        }
+    }
+
+    /** Approves, declines, or removes one grant. Blocking. */
+    fun decide(
+        grant: RelayHomeClientGrantRef,
+        targetGrantId: String,
+        action: HomeGrantAction,
+    ): HomeGrantActionResult {
+        val record = store.load().find(grant.pairingId) ?: return HomeGrantActionResult.Failed
+        val credential = credentials.readHomeCredential(record.credentialSlot)
+            ?: return HomeGrantActionResult.Failed
+        return service.decideGrant(record.homeUrl, credential, targetGrantId, action)
     }
 
     /** The last conversation this phone used for the grant, if any. */

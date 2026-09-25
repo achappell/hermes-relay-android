@@ -1,5 +1,6 @@
 package com.achappell.hermesrelay
 
+import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -152,6 +153,12 @@ internal fun AndroidClientScreen(
     // The divider to record once the requested conversation actually opens.
     var pendingDivider by remember { mutableStateOf<String?>(null) }
     var conversationMessage by remember { mutableStateOf<String?>(null) }
+    val homeApprovals = clientPort as? AndroidHomeApprovals
+    var approvalsVisible by rememberSaveable { mutableStateOf(false) }
+    var approvalsState by remember { mutableStateOf<HomeApprovalsState>(HomeApprovalsState.Loading) }
+    var approvalsMessage by remember { mutableStateOf<String?>(null) }
+    var approvalsBusy by remember { mutableStateOf(false) }
+    var pendingApprovals by remember { mutableStateOf(0) }
     // A delivered pairing link opens the configuration sheet, which submits it.
     LaunchedEffect(pendingPairingLink) {
         if (pendingPairingLink != null) configurationVisible = true
@@ -434,6 +441,27 @@ internal fun AndroidClientScreen(
         }
     }
 
+    fun refreshApprovals(showLoading: Boolean = true) {
+        val approvals = homeApprovals ?: return
+        if (homeConversations?.selectedIsPaired() != true) {
+            pendingApprovals = 0
+            return
+        }
+        if (showLoading) approvalsState = HomeApprovalsState.Loading
+        workExecutor.execute {
+            val loaded = when (val result = approvals.approvals()) {
+                is HomeClientClaimProvider.Approvals.Loaded ->
+                    HomeApprovalsState.Loaded(result.pending, result.holders)
+                is HomeClientClaimProvider.Approvals.Unavailable ->
+                    HomeApprovalsState.Unavailable(result.message)
+            }
+            mainHandler.post {
+                approvalsState = loaded
+                if (loaded is HomeApprovalsState.Loaded) pendingApprovals = loaded.pending.size
+            }
+        }
+    }
+
     fun switchConversation(intent: HomeConversationIntent, divider: String) {
         val conversations = homeConversations ?: return
         conversationsVisible = false
@@ -482,6 +510,23 @@ internal fun AndroidClientScreen(
             requested != null -> recorder?.recordDivider(requested)
         }
         historyRevision += 1
+    }
+
+    // No push yet: check for owner requests on connect and on every return to
+    // the foreground.
+    LaunchedEffect(recoveryState.connectionId, selectedProfileId) {
+        if (recoveryState.connection == AndroidConnectionState.Connected) {
+            refreshApprovals(showLoading = false)
+        }
+    }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val latestRefreshApprovals by rememberUpdatedState({ refreshApprovals(showLoading = false) })
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) latestRefreshApprovals()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     fun resendUnconfirmedTurn() {
@@ -556,6 +601,15 @@ internal fun AndroidClientScreen(
                         historyVisible = true
                     },
                     canShowConversations = homeConversations?.selectedIsPaired() == true,
+                    canShowApprovals = homeConversations?.selectedIsPaired() == true && homeApprovals != null,
+                    onShowApprovals = {
+                        configurationVisible = false
+                        historyVisible = false
+                        conversationsVisible = false
+                        approvalsMessage = null
+                        approvalsVisible = true
+                        refreshApprovals()
+                    },
                     onShowConversations = {
                         configurationVisible = false
                         historyVisible = false
@@ -665,6 +719,34 @@ internal fun AndroidClientScreen(
                                 onConfigure = { configurationVisible = true },
                                 onEditRelay = { configurationVisible = true },
                             )
+                        }
+                    }
+
+                    if (pendingApprovals > 0 && !approvalsVisible) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("android_approvals_banner")
+                                    .semantics { liveRegion = LiveRegionMode.Polite },
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    modifier = Modifier.weight(1f),
+                                    text = stringResource(R.string.android_approvals_banner),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                androidx.compose.material3.TextButton(
+                                    onClick = {
+                                        approvalsMessage = null
+                                        approvalsVisible = true
+                                        refreshApprovals()
+                                    },
+                                ) {
+                                    Text(stringResource(R.string.android_approvals_review))
+                                }
+                            }
                         }
                     }
 
@@ -788,6 +870,43 @@ internal fun AndroidClientScreen(
                 },
                 onRefresh = { loadConversations() },
                 onDismiss = { conversationsVisible = false },
+            )
+        }
+
+        if (approvalsVisible && homeApprovals != null) {
+            val doneTexts = mapOf(
+                HomeGrantAction.Approve to stringResource(R.string.android_approvals_done_approve),
+                HomeGrantAction.Reject to stringResource(R.string.android_approvals_done_reject),
+                HomeGrantAction.Revoke to stringResource(R.string.android_approvals_done_revoke),
+            )
+            val goneText = stringResource(R.string.android_approvals_gone)
+            val notAllowedText = stringResource(R.string.android_approvals_not_allowed)
+            val unreachableText = stringResource(R.string.android_approvals_unreachable)
+            val failedText = stringResource(R.string.android_approvals_failed)
+            HomeApprovalsSheet(
+                state = approvalsState,
+                message = approvalsMessage,
+                busy = approvalsBusy,
+                onDecide = { holder, action ->
+                    approvalsBusy = true
+                    approvalsMessage = null
+                    workExecutor.execute {
+                        val result = homeApprovals.decideGrant(holder.grantId, action)
+                        mainHandler.post {
+                            approvalsBusy = false
+                            approvalsMessage = when (result) {
+                                HomeGrantActionResult.Done -> doneTexts.getValue(action)
+                                HomeGrantActionResult.Gone -> goneText
+                                HomeGrantActionResult.NotAllowed -> notAllowedText
+                                HomeGrantActionResult.Unreachable -> unreachableText
+                                HomeGrantActionResult.Failed -> failedText
+                            }
+                            refreshApprovals(showLoading = false)
+                        }
+                    }
+                },
+                onRefresh = { refreshApprovals() },
+                onDismiss = { approvalsVisible = false },
             )
         }
 
