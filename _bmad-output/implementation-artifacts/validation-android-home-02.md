@@ -45,6 +45,16 @@ Amanda drove the `hermes-relay-api36` emulator, which reached `caticornqueen.tai
 - Audio: an earlier run on the same build delivered 734,688 frames to `AudioTrack` (about 30 s at 24 kHz). It was inaudible at first because the emulator's media volume was 5/15; it was audible after the volume was raised.
 - Not established: whether the second user entry was spoken or typed, whether it got its own response, and renewal, reconnect-within-grace, and `conversation.close` observed on Home.
 
+### Follow-up fixes from the emulator run — 2026-09-25
+
+Amanda reported "I can't send a second message". Sending worked (three test prompts each got a reply), but the screen said otherwise:
+
+- **Every reply ended as `Turn phase: Unavailable`.** A temporary content-free event log showed the correct order (thinking, audio started, text, turn completed), then `AudioFailed` about 3.4 s into playback. AudioFlinger logged `BUFFER TIMEOUT … due to underrun` at the same moment. `AudioTrackAudioSink` failed on any underrun, a rule introduced with the live-gate evidence work (`cea500d`), so ordinary playback stopped and marked the completed turn Unavailable. Ordinary playback now counts underruns and keeps playing; the live gate constructs its sink with `failOnUnderrun = true`, and `LiveHomeSafeResult` still requires `underrun_count == 0`. Related to `ANDROID-BUG-F3`.
+- **"Turn accepted … Waiting for Home events" stayed after the turn ended.** It is now hidden once the accepted turn is terminal.
+- **After launch the app showed "Unavailable … Edit relay settings" with Retry.** This was not a failed connect: the app never connected at launch, which was deliberate for single-use operator handles. A paired Profile now connects when it is selected or the app opens; operator-handle Profiles keep the manual connect.
+
+Evidence after the fixes, on the emulator against the live Home: the app connected at launch without a tap; a short typed turn and a long spoken reply (1,635,296 frames, about 68 s) both ended `Turn phase: Complete` with no stale status line. Neither turn underran, so tolerant underrun handling is proven by `ordinary_playback_counts_an_underrun_and_still_drains` only, not live. Unit suite: 248 tests, 0 failures; build, lint, instrumentation compile and APK metadata check pass. The diagnostic logs were removed before commit.
+
 ### Emulator handling errors (not app defects)
 
 Two pairings were lost to emulator lifecycle, not the app: `-no-snapshot-save` reloaded a pre-pairing snapshot (which also reverted the installed APK to v0.1.0, with no pairing entry point), and a later cold boot after enabling `hw.keyboard` came up without the app. Home still holds those orphaned emulator devices until they are revoked on the pairing page.

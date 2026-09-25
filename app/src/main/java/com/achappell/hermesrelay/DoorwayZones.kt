@@ -857,15 +857,19 @@ internal fun ColumnScope.TurnZone(
     when (initiationState) {
         AndroidInitiationState.Idle -> Unit
         is AndroidInitiationState.Accepted -> {
-            Text(
-                modifier = Modifier.testTag("android_turn_status"),
-                text = stringResource(
-                    R.string.android_initiation_accepted,
-                    snapshot.selectedProfile?.displayName
-                        ?: initiationState.binding.profileId,
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            // "Waiting for Home events" is only true until this turn ends.
+            val turnEnded = turnState.binding == initiationState.binding && turnState.isTerminal
+            if (!turnEnded) {
+                Text(
+                    modifier = Modifier.testTag("android_turn_status"),
+                    text = stringResource(
+                        R.string.android_initiation_accepted,
+                        snapshot.selectedProfile?.displayName
+                            ?: initiationState.binding.profileId,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
 
             if (hasAcceptedTurn && supportsInterrupt) {
                 OutlinedButton(

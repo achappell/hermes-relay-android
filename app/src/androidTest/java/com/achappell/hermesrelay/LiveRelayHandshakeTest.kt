@@ -142,7 +142,7 @@ class LiveRelayHandshakeTest {
     }
 
     private fun runTypedAudio(arguments: LiveArguments): LiveHomeScenarioResult {
-        val sink = AudioTrackAudioSink()
+        val sink = AudioTrackAudioSink(failOnUnderrun = true)
         val client = client(arguments, arguments.conversationHandle, sink)
         return try {
             resetRequestTelemetry(client)

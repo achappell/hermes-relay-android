@@ -401,6 +401,20 @@ internal fun AndroidClientScreen(
         workExecutor.execute { recoveryController.recover() }
     }
 
+    // A paired Profile claims a fresh conversation on every connect, so there
+    // is no single-use handle to protect: connect it as soon as it is selected.
+    // Operator-handle Profiles keep the deliberate connect action.
+    val selectedIsPaired = configuration?.collection?.selected?.homeClientGrant != null
+    LaunchedEffect(selectedProfileId, selectedIsPaired) {
+        if (
+            selectedIsPaired &&
+            canAttemptConnection &&
+            recoveryState.connection != AndroidConnectionState.Connected
+        ) {
+            recover()
+        }
+    }
+
     fun resendUnconfirmedTurn() {
         if (resendInFlight) return
         resendInFlight = true
