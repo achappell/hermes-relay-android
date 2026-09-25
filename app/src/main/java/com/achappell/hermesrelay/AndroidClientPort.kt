@@ -313,3 +313,10 @@ internal interface AndroidHomeConversations {
     /** Renames the current conversation with Hermes's `title` command. Blocking. */
     fun renameConversation(title: String): Boolean
 }
+
+/** Profile-owner approvals for a paired Profile (ANDROID-HOME-02 slice 3). Blocking. */
+internal interface AndroidHomeApprovals {
+    fun approvals(): HomeClientClaimProvider.Approvals
+
+    fun decideGrant(targetGrantId: String, action: HomeGrantAction): HomeGrantActionResult
+}

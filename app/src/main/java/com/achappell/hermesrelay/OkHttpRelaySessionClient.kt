@@ -130,7 +130,7 @@ internal class OkHttpRelaySessionClient(
     private val interruptTelemetry: AndroidInterruptTelemetryState = AndroidInterruptTelemetryState(),
     private val liveHomeGateTrace: AndroidLiveHomeGateTrace? = null,
     private val clientClaims: HomeClientClaimProvider? = null,
-) : AndroidClientPort, AndroidHomeConversations {
+) : AndroidClientPort, AndroidHomeConversations, AndroidHomeApprovals {
 
     /** A personal-client claim held for one Profile; never persisted. */
     private class HeldClaim(
@@ -1035,6 +1035,22 @@ internal class OkHttpRelaySessionClient(
             )
         }
         return claims.listSessions(grant)
+    }
+
+    override fun approvals(): HomeClientClaimProvider.Approvals {
+        val grant = collection().selected?.homeClientGrant
+        val claims = clientClaims
+        if (grant == null || claims == null) {
+            return HomeClientClaimProvider.Approvals.Unavailable(
+                "This Profile is not paired with Home.",
+            )
+        }
+        return claims.approvals(grant)
+    }
+
+    override fun decideGrant(targetGrantId: String, action: HomeGrantAction): HomeGrantActionResult {
+        val grant = collection().selected?.homeClientGrant ?: return HomeGrantActionResult.Failed
+        return clientClaims?.decide(grant, targetGrantId, action) ?: HomeGrantActionResult.Failed
     }
 
     override fun currentConversationRef(): String? {

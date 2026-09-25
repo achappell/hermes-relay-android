@@ -103,3 +103,11 @@ The deployed Home answers `/api/v1/client-claims/session` with 401 when unauthen
 - Rename: renaming the current conversation reported "Renamed.", and the list showed the new title marked "Current conversation".
 - Both slice-2 items previously marked "not verified live" are now observed on the emulator. Physical-device checks remain waived as for slice 1.
 
+## Slice 3 — owner approvals (2026-09-25)
+
+Spec: `spec-android-home-02-approvals.md`.
+
+- Unit (265 tests, 0 failures), plus build, lint, instrumentation compile and APK metadata. New coverage: pending and holder parsing against Home's actual item shape; the approve, reject and revoke paths with `{"schema":1}`; the mapping of `not_found`, `unauthorized`, `forbidden`, `service_unavailable` and other errors to Gone, NotAllowed, Unreachable and Failed; per-pairing loading and deciding; holder grouping by Profile.
+- Emulator against the live Home: the sheet listed no waiting requests and the holders of Amanda, Jensen and Spark. Hermes TUI refresh is marked "First device" for the owned Profiles, and this phone is "This phone". Remove on the TUI opened "Remove Hermes TUI refresh from Amanda?", and Keep dismissed it without a change.
+- Not verified live: approving or declining a real request (it needs a second device to request an owned Profile this phone holds), the banner appearing for a real request, and a confirmed removal.
+

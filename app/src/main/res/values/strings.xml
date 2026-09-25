@@ -206,4 +206,28 @@
         <item quantity="one">%d message</item>
         <item quantity="other">%d messages</item>
     </plurals>
+    <string name="android_approvals_label">Devices &amp; approvals</string>
+    <string name="android_approvals_loading">Checking device requests…</string>
+    <string name="android_approvals_pending_title">Waiting for your approval</string>
+    <string name="android_approvals_pending_none">No devices are waiting.</string>
+    <string name="android_approvals_request">%1$s wants to use %2$s</string>
+    <string name="android_approvals_approve">Approve</string>
+    <string name="android_approvals_decline">Decline</string>
+    <string name="android_approvals_holders_title">Devices with access</string>
+    <string name="android_approvals_this_phone">This phone</string>
+    <string name="android_approvals_first_device">First device</string>
+    <string name="android_approvals_waiting">Waiting for approval</string>
+    <string name="android_approvals_remove">Remove</string>
+    <string name="android_approvals_keep">Keep</string>
+    <string name="android_approvals_remove_title">Remove %1$s from %2$s?</string>
+    <string name="android_approvals_remove_body">That device loses access to this Profile at once, and its open conversations end. It can ask again later.</string>
+    <string name="android_approvals_done_approve">Approved.</string>
+    <string name="android_approvals_done_reject">Declined.</string>
+    <string name="android_approvals_done_revoke">Removed.</string>
+    <string name="android_approvals_gone">That request has already expired or been decided.</string>
+    <string name="android_approvals_not_allowed">Only a device that holds this owned Profile can decide that.</string>
+    <string name="android_approvals_unreachable">Home could not be reached. Try again.</string>
+    <string name="android_approvals_failed">Home did not accept that change.</string>
+    <string name="android_approvals_banner">A device is asking to use one of your Profiles.</string>
+    <string name="android_approvals_review">Review</string>
 </resources>

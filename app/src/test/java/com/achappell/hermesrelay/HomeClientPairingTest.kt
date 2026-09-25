@@ -625,6 +625,81 @@ class HomeClientPairingTest {
     }
 
     @Test
+    fun approvals_load_pending_requests_and_holders_for_the_pairing() {
+        val fixture = pairedFixture()
+        val request = HomeProfileHolder(
+            "grant-x", "Jensen's iPad", "ios", "Amanda", HomeClientGrantStatus.PendingOwner,
+            bootstrap = false, thisDevice = false, createdAt = 10.0,
+        )
+        fixture.service.pending = listOf(request)
+        fixture.service.holders = listOf(request.copy(grantId = "grant-a", deviceLabel = "Pixel", thisDevice = true))
+        val claims = fixture.claims()
+
+        val loaded = claims.approvals(fixture.grant()) as HomeClientClaimProvider.Approvals.Loaded
+        assertEquals(listOf(request), loaded.pending)
+        assertEquals(HomeGrantActionResult.Done, claims.decide(fixture.grant(), "grant-x", HomeGrantAction.Approve))
+        assertEquals(listOf("grant-x" to HomeGrantAction.Approve), fixture.service.decisions)
+    }
+
+    @Test
+    fun grant_wire_calls_parse_holders_and_map_denials() {
+        val holdersJson = """{"schema":1,"holders":[{"grant_id":"grant-a","device_label":"Pixel",""" +
+            """"device_type":"android","profile_label":"Amanda","status":"active","bootstrap":true,""" +
+            """"this_device":true,"created_at":1727120000}]}"""
+        val holders = RecordingTransport(HomeHttpResponse(200, holdersJson))
+        assertEquals(
+            listOf(
+                HomeProfileHolder(
+                    "grant-a", "Pixel", "android", "Amanda", HomeClientGrantStatus.Active,
+                    bootstrap = true, thisDevice = true, createdAt = 1727120000.0,
+                ),
+            ),
+            HttpHomeClientService(holders).profileHolders(HOME_URL, VALID_CREDENTIAL),
+        )
+        assertEquals("$HOME_URL/api/v1/profile-grants/holders", holders.requests.single().url)
+        assertEquals("GET", holders.requests.single().method)
+
+        val pending = RecordingTransport(HomeHttpResponse(200, holdersJson.replace("\"holders\"", "\"pending\"")))
+        assertEquals(1, HttpHomeClientService(pending).pendingGrants(HOME_URL, VALID_CREDENTIAL).size)
+        assertEquals("$HOME_URL/api/v1/profile-grants/pending", pending.requests.single().url)
+
+        val approve = RecordingTransport(HomeHttpResponse(200, """{"schema":1,"grant":{"grant_id":"grant-x","status":"active"}}"""))
+        assertEquals(
+            HomeGrantActionResult.Done,
+            HttpHomeClientService(approve).decideGrant(HOME_URL, VALID_CREDENTIAL, "grant-x", HomeGrantAction.Approve),
+        )
+        assertEquals("$HOME_URL/api/v1/profile-grants/grant-x/approve", approve.requests.single().url)
+        assertEquals("""{"schema":1}""", approve.requests.single().body)
+
+        listOf(
+            HomeHttpResponse(404, error("not_found")) to HomeGrantActionResult.Gone,
+            HomeHttpResponse(401, error("unauthorized")) to HomeGrantActionResult.NotAllowed,
+            HomeHttpResponse(403, error("forbidden")) to HomeGrantActionResult.NotAllowed,
+            HomeHttpResponse(503, error("service_unavailable")) to HomeGrantActionResult.Unreachable,
+            HomeHttpResponse(400, error("invalid_request")) to HomeGrantActionResult.Failed,
+        ).forEach { (response, expected) ->
+            assertEquals(
+                expected,
+                HttpHomeClientService(RecordingTransport(response))
+                    .decideGrant(HOME_URL, VALID_CREDENTIAL, "grant-x", HomeGrantAction.Revoke),
+            )
+        }
+    }
+
+    @Test
+    fun holders_group_by_profile_in_order() {
+        fun holder(profile: String, device: String) = HomeProfileHolder(
+            device, device, "tui", profile, HomeClientGrantStatus.Active, false, false, 0.0,
+        )
+        val grouped = HomeApprovalsText.byProfile(
+            listOf(holder("Amanda", "a"), holder("Spark", "b"), holder("Amanda", "c")),
+        )
+        assertEquals(listOf("Amanda", "Spark"), grouped.keys.toList())
+        assertEquals(listOf("a", "c"), grouped.getValue("Amanda").map { it.deviceLabel })
+        assertEquals("iPhone or iPad", HomeApprovalsText.deviceType("ios"))
+    }
+
+    @Test
     fun an_unreadable_pairing_file_yields_no_pairings() {
         assertTrue(HomeClientPairings.fromJson("{not json").records.isEmpty())
         assertTrue(HomeClientPairings.fromJson("""{"schema":99,"records":[]}""").records.isEmpty())
@@ -777,6 +852,24 @@ class HomeClientPairingTest {
         override fun claimSession(homeUrl: String, credential: String, conversationHandle: String): String? {
             calls += "claimSession"
             return sessionForHandle
+        }
+
+        var pending: List<HomeProfileHolder> = emptyList()
+        var holders: List<HomeProfileHolder> = emptyList()
+        val decisions = mutableListOf<Pair<String, HomeGrantAction>>()
+
+        override fun pendingGrants(homeUrl: String, credential: String) = pending
+
+        override fun profileHolders(homeUrl: String, credential: String) = holders
+
+        override fun decideGrant(
+            homeUrl: String,
+            credential: String,
+            grantId: String,
+            action: HomeGrantAction,
+        ): HomeGrantActionResult {
+            decisions += grantId to action
+            return HomeGrantActionResult.Done
         }
     }
 
