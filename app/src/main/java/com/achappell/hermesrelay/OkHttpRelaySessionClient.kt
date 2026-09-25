@@ -463,7 +463,24 @@ internal class OkHttpRelaySessionClient(
         }
     }
 
+    /** Set by the last attempt when it reused a held personal-client claim. */
+    private val lastAttemptReusedClaim = AtomicBoolean(false)
+
     override fun reconnect(): AndroidReconnectOutcome {
+        val first = reconnectOnce()
+        // A held claim closes after Home's reconnect grace (for example while
+        // Android kept the app in the background). Its reuse then fails; claim
+        // afresh once, which continues the last conversation, instead of
+        // leaving the Profile stuck.
+        if (first is AndroidReconnectOutcome.Unrecoverable && lastAttemptReusedClaim.get()) {
+            heldClaim.set(null)
+            return reconnectOnce()
+        }
+        return first
+    }
+
+    private fun reconnectOnce(): AndroidReconnectOutcome {
+        lastAttemptReusedClaim.set(false)
         val profile = collection().selected
             ?: return AndroidReconnectOutcome.Unrecoverable(
                 "No Android Profile is selected.",
@@ -499,6 +516,7 @@ internal class OkHttpRelaySessionClient(
                         reconnectRequiredConversationHandle.get() == held.conversationHandle)
                 )
             if (held != null && canReconnectHeld) {
+                lastAttemptReusedClaim.set(true)
                 held
             } else {
                 heldClaim.set(null)

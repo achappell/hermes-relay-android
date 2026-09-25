@@ -1,5 +1,6 @@
 package com.achappell.hermesrelay
 
+import androidx.compose.runtime.SideEffect
 import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.liveRegion
@@ -235,6 +236,9 @@ internal fun AndroidClientScreen(
             AndroidHomeUnavailableReason.CapabilityUnavailable,
         )
 
+    // Set once recover() exists below; lets the connection observer reconnect
+    // a paired Profile whose socket Android cut while the app was away.
+    val reconnectIfForeground = remember { mutableStateOf<() -> Unit>({}) }
     DisposableEffect(clientPort) {
         val connectionObservation = clientPort.observeConnection { event ->
             mainHandler.post {
@@ -244,6 +248,7 @@ internal fun AndroidClientScreen(
                         AndroidUnconfirmedTurn(latestAcceptedBinding, request)
                     },
                 )
+                reconnectIfForeground.value()
             }
         }
         onDispose {
@@ -521,9 +526,32 @@ internal fun AndroidClientScreen(
     }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val latestRefreshApprovals by rememberUpdatedState({ refreshApprovals(showLoading = false) })
+    // Android cuts a background app's network, so a paired Profile usually
+    // returns to a dropped connection. Reconnect at once: inside Home's grace
+    // this reopens the same conversation with conversation.reconnect.
+    val latestResumeConnection by rememberUpdatedState({
+        if (
+            homeConversations?.selectedIsPaired() == true &&
+            canAttemptConnection &&
+            recoveryState.connection != AndroidConnectionState.Connected
+        ) {
+            recover()
+        }
+    })
+    SideEffect {
+        reconnectIfForeground.value = {
+            val resumed = lifecycleOwner.lifecycle.currentState
+                .isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+            // An unresolved turn waits for the user's explicit resend/discard.
+            if (resumed && !hasUnresolvedTurn) latestResumeConnection()
+        }
+    }
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) latestRefreshApprovals()
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                latestResumeConnection()
+                latestRefreshApprovals()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
