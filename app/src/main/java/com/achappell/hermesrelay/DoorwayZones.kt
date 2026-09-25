@@ -90,10 +90,12 @@ internal fun DoorwayHeaderZone(
     canShowHistory: Boolean = false,
     onConfigure: () -> Unit = {},
     onShowHistory: () -> Unit = {},
+    canShowConversations: Boolean = false,
+    onShowConversations: () -> Unit = {},
 ) {
     val stateColors = LocalHermesStateColors.current
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
-    val showMenu = canConfigure || canShowHistory
+    val showMenu = canConfigure || canShowHistory || canShowConversations
     val menuDescription = stringResource(R.string.android_menu_content_description)
 
     TopAppBar(
@@ -187,6 +189,18 @@ internal fun DoorwayHeaderZone(
                                     onClick = {
                                         menuExpanded = false
                                         onConfigure()
+                                    },
+                                )
+                            }
+                            if (canShowConversations) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.testTag("android_menu_conversations"),
+                                    text = {
+                                        Text(stringResource(R.string.android_conversations_label))
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onShowConversations()
                                     },
                                 )
                             }
@@ -1180,10 +1194,10 @@ internal fun LocalHistoryZone(
                                     .testTag("android_history_entry_meta")
                                     .a11yOrder(A11yOrder.RESPONSE),
                                 text = stringResource(
-                                    if (entry.role == AndroidTranscriptRole.User) {
-                                        R.string.android_history_you
-                                    } else {
-                                        R.string.android_history_hermes
+                                    when (entry.role) {
+                                        AndroidTranscriptRole.User -> R.string.android_history_you
+                                        AndroidTranscriptRole.Assistant -> R.string.android_history_hermes
+                                        AndroidTranscriptRole.Divider -> R.string.android_history_divider
                                     },
                                 ) + " · " + timeFormat.format(Date(entry.createdAtMillis)),
                                 style = MaterialTheme.typography.labelMedium,

@@ -8,6 +8,9 @@ import java.io.File
 internal enum class AndroidTranscriptRole {
     User,
     Assistant,
+
+    /** A local marker such as "New conversation"; never sent to Hermes. */
+    Divider,
 }
 
 internal data class AndroidTranscriptEntry(
@@ -67,10 +70,10 @@ internal data class AndroidLocalHistory(
                     val text = item.optString("text")
                     if (text.isBlank()) return@mapNotNull null
                     AndroidTranscriptEntry(
-                        role = if (item.optString("role") == "assistant") {
-                            AndroidTranscriptRole.Assistant
-                        } else {
-                            AndroidTranscriptRole.User
+                        role = when (item.optString("role")) {
+                            "assistant" -> AndroidTranscriptRole.Assistant
+                            "divider" -> AndroidTranscriptRole.Divider
+                            else -> AndroidTranscriptRole.User
                         },
                         text = text,
                         createdAtMillis = item.optLong("created_at"),
@@ -168,6 +171,12 @@ internal class AndroidHistoryRecorder(
     fun recordUserTurn(text: String) = record(AndroidTranscriptRole.User, text)
 
     fun recordResponse(text: String) = record(AndroidTranscriptRole.Assistant, text)
+
+    /** Marks a conversation boundary. A leading divider is pointless and skipped. */
+    fun recordDivider(text: String) {
+        if (history.entries.isEmpty()) return
+        record(AndroidTranscriptRole.Divider, text)
+    }
 
     fun recordDraft(value: String) {
         val id = profileId ?: return

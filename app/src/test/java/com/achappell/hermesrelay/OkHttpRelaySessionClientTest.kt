@@ -1301,6 +1301,35 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun a_requested_new_conversation_closes_the_current_claim_and_claims_again() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        val closed = CountDownLatch(1)
+        repeat(2) {
+            server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, closed)))
+        }
+        val paired = pairedClient()
+
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertEquals("sref-learned", paired.client.learnCurrentConversation())
+        assertEquals("sref-learned", paired.client.currentConversationRef())
+
+        paired.client.requestConversation(HomeConversationIntent.New)
+        assertTrue(closed.await(5, TimeUnit.SECONDS))
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+
+        assertEquals(2, paired.claims.get())
+        assertEquals(
+            listOf<HomeClientSessionChoice>(HomeClientSessionChoice.New, HomeClientSessionChoice.New),
+            paired.choices.toList(),
+        )
+        assertEquals(listOf("conversation.open", "conversation.open"), methods.toList())
+        assertNull(paired.client.currentConversationRef())
+        assertEquals(HomeClaimedConversation(null, false), paired.client.takeConversationNotice())
+        paired.client.close()
+    }
+
+    @Test
     fun a_paired_profile_refuses_a_bridge_route_other_than_the_pinned_one() {
         server.enqueue(
             MockResponse().withWebSocketUpgrade(
@@ -1351,6 +1380,7 @@ class OkHttpRelaySessionClientTest {
         val client: OkHttpRelaySessionClient,
         val store: HomeClientPairingStore,
         val claims: AtomicInteger,
+        val choices: List<HomeClientSessionChoice>,
     )
 
     private fun pairedBridge(
@@ -1403,6 +1433,7 @@ class OkHttpRelaySessionClientTest {
             ),
         )
         val claims = AtomicInteger(0)
+        val choices = Collections.synchronizedList(mutableListOf<HomeClientSessionChoice>())
         val service = object : HomeClientService {
             override fun submit(target: HomePairingTarget, endpointId: String, label: String) =
                 throw UnsupportedOperationException()
@@ -1433,10 +1464,22 @@ class OkHttpRelaySessionClientTest {
                 revision: Int,
                 grantId: String,
                 claimId: String,
+                session: HomeClientSessionChoice,
             ): HomeClientClaimResult {
                 claims.incrementAndGet()
+                choices += session
                 return claimResult
             }
+
+            override fun listSessions(
+                homeUrl: String,
+                credential: String,
+                grantId: String,
+                limit: Int,
+            ) = emptyList<HomeClientSession>()
+
+            override fun claimSession(homeUrl: String, credential: String, conversationHandle: String) =
+                "sref-learned"
         }
         val collection = RelayProfileCollection(
             profiles = listOf(
@@ -1461,7 +1504,7 @@ class OkHttpRelaySessionClientTest {
             requestTimeoutMillis = 5_000,
             clientClaims = if (withClaims) HomeClientClaimProvider(store, credentials, service) else null,
         )
-        return PairedClient(client, store, claims)
+        return PairedClient(client, store, claims, choices)
     }
 
     private fun client(

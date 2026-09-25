@@ -281,3 +281,35 @@ internal object BootstrapClientPort : AndroidClientPort {
     override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult =
         AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable)
 }
+
+/**
+ * Home conversation management for a paired Profile (ANDROID-HOME-02 slice 2).
+ * Blocking calls belong on a worker thread.
+ */
+internal interface AndroidHomeConversations {
+    /** True when the selected Profile is a paired Home personal client. */
+    fun selectedIsPaired(): Boolean
+
+    /** The selected grant's Home conversations, newest first. Blocking. */
+    fun listConversations(): HomeClientClaimProvider.Sessions
+
+    /** The conversation the held claim is known to be using, if any. */
+    fun currentConversationRef(): String?
+
+    /**
+     * Closes the current conversation and makes the next connect open
+     * [intent]. The caller then reconnects.
+     */
+    fun requestConversation(intent: HomeConversationIntent)
+
+    /** The result of the most recent claim, delivered once. */
+    fun takeConversationNotice(): HomeClaimedConversation?
+
+    /** Learns and remembers the current conversation's reference. Blocking. */
+    fun learnCurrentConversation(): String?
+
+    fun canRenameConversation(): Boolean
+
+    /** Renames the current conversation with Hermes's `title` command. Blocking. */
+    fun renameConversation(title: String): Boolean
+}
