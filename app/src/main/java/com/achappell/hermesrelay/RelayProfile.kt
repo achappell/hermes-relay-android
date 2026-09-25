@@ -20,6 +20,17 @@ internal data class RelayProfile(
     val displayName: String,
     val homeBinding: RelayHomeBinding? = null,
     val homeAdministration: RelayHomeAdministration? = null,
+    /** Set when this Profile is one grant of a HOME-NW-17 personal-client pairing. */
+    val homeClientGrant: RelayHomeClientGrantRef? = null,
+)
+
+/**
+ * Points a Profile at one grant of a pairing. Both values are opaque, non-secret
+ * Home identities; the credential and conversation handle are never stored here.
+ */
+internal data class RelayHomeClientGrantRef(
+    val pairingId: String,
+    val grantId: String,
 )
 
 /** Versioned, non-secret metadata issued by the Home pairing flow. */
@@ -241,6 +252,14 @@ internal data class RelayProfileCollection(
                         .putOpt("last_error", administration.lastError),
                 )
             }
+            profile.homeClientGrant?.let { grant ->
+                item.put(
+                    "home_client_grant",
+                    JSONObject()
+                        .put("pairing_id", grant.pairingId)
+                        .put("grant_id", grant.grantId),
+                )
+            }
             array.put(item)
         }
         return JSONObject()
@@ -276,6 +295,15 @@ internal data class RelayProfileCollection(
                     } ?: legacyHomeBinding(item)
                     val homeAdministration = item.optJSONObject("home_administration")
                         ?.let(::parseHomeAdministration)
+                    val homeClientGrant = item.optJSONObject("home_client_grant")?.let { grant ->
+                        val pairingId = grant.optString("pairing_id").trim()
+                        val grantId = grant.optString("grant_id").trim()
+                        if (pairingId.isNotEmpty() && grantId.isNotEmpty()) {
+                            RelayHomeClientGrantRef(pairingId, grantId)
+                        } else {
+                            null
+                        }
+                    }
                     RelayProfile(
                         id = id,
                         endpoint = item.optString("endpoint"),
@@ -284,6 +312,7 @@ internal data class RelayProfileCollection(
                         displayName = item.optString("display_name"),
                         homeBinding = homeBinding,
                         homeAdministration = homeAdministration,
+                        homeClientGrant = homeClientGrant,
                     )
                 }
                 val selected = root.optString("selected_id").takeIf { it.isNotBlank() }

@@ -208,6 +208,9 @@ stories:
     tracker_key: android-home-02
     release_scope: migration
     spec: _bmad-output/implementation-artifacts/spec-android-home-02.md
+    slice_specs:
+      - _bmad-output/implementation-artifacts/spec-android-home-02-pair-and-connect.md
+    validation: _bmad-output/implementation-artifacts/validation-android-home-02.md
     depends_on:
       - home:HOME-NW-17
     github_issue: https://github.com/achappell/hermes-relay-android/issues/52

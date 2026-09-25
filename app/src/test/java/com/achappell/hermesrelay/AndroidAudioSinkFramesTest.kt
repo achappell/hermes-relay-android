@@ -2,6 +2,7 @@ package com.achappell.hermesrelay
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
@@ -120,6 +121,33 @@ class AndroidAudioSinkFramesTest {
     }
 
     @Test
+    fun ordinary_playback_counts_an_underrun_and_still_drains() {
+        val underrunCalls = AtomicInteger(0)
+        val driver = FakeAudioTrackDriver(
+            playbackHead = { 2 },
+            underruns = { if (underrunCalls.incrementAndGet() == 1) 0 else 1 },
+        )
+        val sink = AudioTrackAudioSink(
+            driverFactory = AudioTrackDriverFactory { _, _ -> driver },
+            drainStallDeadlineMillis = 200,
+            drainTimeoutMillis = 1_000,
+            minBufferSizeProvider = { 4 },
+        )
+        val drained = CountDownLatch(1)
+        val failed = CountDownLatch(1)
+
+        assertTrue(sink.start(AndroidAudioFormat(16_000, 1, 2, "pcm_s16le")))
+        sink.write(ByteArray(4))
+        sink.finish(drained::countDown) { failed.countDown() }
+
+        assertTrue(drained.await(2, TimeUnit.SECONDS))
+        assertFalse(failed.await(20, TimeUnit.MILLISECONDS))
+        assertEquals(1, sink.snapshotTelemetry().underrunCount)
+        assertNull(sink.snapshotTelemetry().failureKind)
+        sink.close()
+    }
+
+    @Test
     fun an_underrun_fails_even_when_the_playback_head_advances() {
         val underrunCalls = AtomicInteger(0)
         val driver = FakeAudioTrackDriver(
@@ -130,6 +158,7 @@ class AndroidAudioSinkFramesTest {
             driverFactory = AudioTrackDriverFactory { _, _ -> driver },
             drainStallDeadlineMillis = 200,
             drainTimeoutMillis = 1_000,
+            failOnUnderrun = true,
             minBufferSizeProvider = { 4 },
         )
         val drained = CountDownLatch(1)

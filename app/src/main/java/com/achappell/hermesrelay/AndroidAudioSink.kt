@@ -176,6 +176,13 @@ internal class AudioTrackAudioSink(
     private val writeStallDeadlineMillis: Long = DEFAULT_WRITE_STALL_DEADLINE_MILLIS,
     private val drainStallDeadlineMillis: Long = DEFAULT_DRAIN_STALL_DEADLINE_MILLIS,
     private val drainTimeoutMillis: Long = DEFAULT_DRAIN_TIMEOUT_MILLIS,
+    /**
+     * Live-gate evidence requires gapless playback, so it fails on the first
+     * underrun. Ordinary playback only counts them: AudioTrack resumes once
+     * more audio is written, and a brief gap must not end the reply's audio or
+     * make a completed turn look failed.
+     */
+    private val failOnUnderrun: Boolean = false,
     private val minBufferSizeProvider: (AndroidAudioFormat) -> Int = { format ->
         AudioTrack.getMinBufferSize(
             format.sampleRate,
@@ -472,7 +479,7 @@ internal class AudioTrackAudioSink(
             .coerceAtLeast(0)
         val delta = (current - underrunBaseline.get()).coerceAtLeast(0)
         underrunCount.set(delta)
-        if (current > underrunBaseline.get()) {
+        if (failOnUnderrun && current > underrunBaseline.get()) {
             fail(AudioSinkFailureKind.Underrun, expectedGeneration)
             return false
         }

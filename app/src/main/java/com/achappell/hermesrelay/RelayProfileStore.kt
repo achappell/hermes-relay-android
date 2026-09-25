@@ -82,6 +82,7 @@ internal class RelayConfigurationController(
     private val profiles: RelayProfileStore,
     private val credentials: RelayCredentialStore,
     private val history: AndroidHistoryStore? = null,
+    private val homeClientPairings: HomeClientPairingStore? = null,
     private val idFactory: () -> String = { java.util.UUID.randomUUID().toString() },
 ) {
     var collection: RelayProfileCollection = profiles.load()
@@ -264,12 +265,58 @@ internal class RelayConfigurationController(
         return true
     }
 
+    /**
+     * Adds one Profile per active grant of a personal-client pairing that has
+     * no Profile yet. Returns the new Profile IDs, or null when nothing could
+     * be saved. The first new Profile is selected when none is.
+     */
+    fun addHomeClientProfiles(record: HomeClientPairingRecord): List<String>? {
+        val host = java.net.URI(record.homeUrl).host
+        val route = HomePairingLink.bridgeRoute(record.homeUrl)
+        var next = collection
+        val added = mutableListOf<String>()
+        record.grants
+            .filter { it.status == HomeClientGrantStatus.Active }
+            .filter { grant ->
+                next.profiles.none {
+                    it.homeClientGrant == RelayHomeClientGrantRef(record.pairingId, grant.grantId)
+                }
+            }
+            .forEach { grant ->
+                val profile = RelayProfile(
+                    id = idFactory(),
+                    endpoint = route,
+                    clientId = HOME_CLIENT_ID,
+                    deviceId = record.deviceId,
+                    displayName = "${grant.label} · $host",
+                    homeClientGrant = RelayHomeClientGrantRef(record.pairingId, grant.grantId),
+                )
+                next = next.add(profile)
+                added += profile.id
+            }
+        if (added.isEmpty()) return emptyList()
+        return if (update(next)) added else null
+    }
+
     fun delete(id: String) {
+        val deleted = collection.profiles.firstOrNull { it.id == id }
         if (update(collection.remove(id))) {
             credentials.delete(id)
             // A Profile's conversation must not outlive the Profile that held it.
             history?.delete(id)
+            deleted?.homeClientGrant?.let(::releasePairingIfUnused)
         }
+    }
+
+    /** The pairing credential is removed with the Home's last Profile. */
+    private fun releasePairingIfUnused(grant: RelayHomeClientGrantRef) {
+        if (collection.profiles.any { it.homeClientGrant?.pairingId == grant.pairingId }) return
+        credentials.deleteHomeCredential(HomeClientPairingRecord.credentialSlot(grant.pairingId))
+        homeClientPairings?.let { store -> store.save(store.load().remove(grant.pairingId)) }
+    }
+
+    private companion object {
+        const val HOME_CLIENT_ID = "android"
     }
 
     private fun update(next: RelayProfileCollection): Boolean {
