@@ -70,3 +70,12 @@ Two pairings were lost to emulator lifecycle, not the app: `-no-snapshot-save` r
 
 - After pairing succeeds, the sheet closes because a Profile is now selected, so the "waiting for the owner to approve" note for `pending_owner` grants is rarely seen. A grant that later becomes active does not get a Profile until the same Home is paired again; a refresh action is deferred.
 - Leaving the sheet during approval cancels polling. A request approved afterwards is abandoned, and Home expires it after five minutes.
+
+## In-app QR scanner — 2026-09-25
+
+Built after Amanda reversed the no-scanner decision. CameraX preview and analysis with ZXing core decoding. ML Kit's bundled model was tried first and dropped because it grew the debug APK from 12.9 MB to 39.6 MB; with ZXing it is 17.8 MB, most of that CameraX. `CAMERA` is requested only when the scanner opens, and `android.hardware.camera.any` is optional.
+
+- Unit (252 tests, 0 failures): only a valid `hermes-home://pair` payload is accepted (other codes, and plain-http links, show "not a Home pairing code"). A ZXing-encoded pairing QR rendered as a padded camera Y plane decodes through the scanner's own row-copy and decode path to the accepted link; another QR decodes but is not accepted; a blank frame decodes to nothing.
+- Emulator (virtual-scene camera): the camera permission, the camera opening, and a live preview inside its square frame were observed. The first build let the preview paint over the text above and below it; it is now clipped to its frame. The virtual camera was not steered to the QR poster, so a live camera-to-pairing scan was not performed.
+- Not verified: scanning on a physical camera, and the denied-permission and no-camera messages on a device.
+

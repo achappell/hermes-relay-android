@@ -106,6 +106,12 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.okhttp)
+    // In-app pairing QR scanner (ANDROID-HOME-02). ZXing is pure Java: no
+    // native libraries and no Google Play services.
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.zxing.core)
 
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)

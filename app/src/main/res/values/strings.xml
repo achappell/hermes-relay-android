@@ -160,7 +160,7 @@
     <string name="android_hands_free_exit_failure">Hands-free ended because the turn did not complete.</string>
     <string name="android_hands_free_exit_session">Hands-free ended because the Home bridge ended.</string>
     <string name="android_home_pair_title">Pair with Home</string>
-    <string name="android_home_pair_description">Scan the QR code on the Home pairing page with your camera, paste its link, or type the short code and Home address shown beside it.</string>
+    <string name="android_home_pair_description">Scan the QR code on the Home pairing page, paste its link, or type the short code and Home address shown beside it.</string>
     <string name="android_home_pair_link">Pairing link</string>
     <string name="android_home_pair_link_submit">Pair from link</string>
     <string name="android_home_pair_code">Short code</string>
@@ -180,4 +180,10 @@
     <string name="android_home_pair_link_invalid">That is not a Home pairing link.</string>
     <string name="android_home_pair_address_invalid">The Home address must be an https:// address with a host name.</string>
     <string name="android_home_pair_code_invalid">The short code should be letters and digits, like K7Q-4MX.</string>
+    <string name="android_home_pair_scan">Scan QR code</string>
+    <string name="android_home_pair_scan_hint">Point the camera at the QR code on the Home pairing page.</string>
+    <string name="android_home_pair_scan_other_code">That QR code is not a Home pairing code. Scan the code on the Home pairing page.</string>
+    <string name="android_home_pair_scan_denied">Camera access was not allowed. Paste the pairing link or type the short code instead.</string>
+    <string name="android_home_pair_scan_no_camera">This device has no camera. Paste the pairing link or type the short code instead.</string>
+    <string name="android_home_pair_scan_close">Close scanner</string>
 </resources>

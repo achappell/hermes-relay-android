@@ -25,7 +25,7 @@ Drafted and implemented autonomously overnight on 2026-09-24 at Amanda's request
 ## Decisions (reviewed by Amanda, 2026-09-25)
 
 - **One saved Profile per grant (confirmed).** One pairing per Home holds a single Keystore credential, keyed by pairing, not by Profile. Every active grant appears as its own saved Profile named `<grant label> · <Home host>`, with its own Local History. The pairing credential is deleted when the Home's last Profile is deleted.
-- **In-app QR scanner (reversed 2026-09-25).** Slice 1 shipped without one, relying on the system camera opening `hermes-home://` links through the intent filter. Amanda chose an in-app scanner to match iOS. It is follow-up ANDROID-HOME-02 work: it needs a camera permission and a scanning dependency, it must accept only `hermes-home://pair` payloads, and it must fall back to link or typed entry when the camera is denied or unavailable. The intent filter stays.
+- **In-app QR scanner (reversed 2026-09-25).** Slice 1 shipped without one, relying on the system camera opening `hermes-home://` links through the intent filter. Amanda chose an in-app scanner to match iOS. Built on 2026-09-25 with CameraX and ZXing (see validation): it needs a camera permission and a scanning dependency, it must accept only `hermes-home://pair` payloads, and it must fall back to link or typed entry when the camera is denied or unavailable. The intent filter stays.
 - **Local transcript continuity.** A fresh Home session on an existing Profile keeps local history visible; earlier messages are never sent to Hermes. The iOS "New conversation" divider is deferred for Android (see Deferred).
 
 ## Boundaries & Constraints
@@ -64,7 +64,7 @@ Drafted and implemented autonomously overnight on 2026-09-24 at Amanda's request
 
 ## Deferred (still ANDROID-HOME-02 scope)
 
-The in-app QR scanner (see Decisions). Session list/resume/rename, owner approvals and holder lists, remote unpair, the "New conversation" divider, and physical/live acceptance against a deployed HOME-NW-17.
+Session list/resume/rename, owner approvals and holder lists, remote unpair, the "New conversation" divider, and physical/live acceptance against a deployed HOME-NW-17.
 
 ## Verification
 
