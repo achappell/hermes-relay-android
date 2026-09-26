@@ -1330,6 +1330,46 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun an_expired_held_claim_is_replaced_by_a_fresh_claim_in_one_reconnect() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        // Home has closed the old claim: its reconnect is refused as stale.
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        val frame = JSONObject(text)
+                        methods += frame.getString("method")
+                        webSocket.send(
+                            JSONObject()
+                                .put("schema", 1)
+                                .put("jsonrpc", "2.0")
+                                .put("id", frame.getString("id"))
+                                .put(
+                                    "error",
+                                    JSONObject().put("code", -32000).put("message", "stale")
+                                        .put("data", JSONObject().put("schema", 1).put("code", "stale_conversation")),
+                                )
+                                .toString(),
+                        )
+                    }
+                },
+            ),
+        )
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        val paired = pairedClient()
+
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        val outcome = paired.client.reconnect()
+
+        assertTrue(outcome.toString(), outcome is AndroidReconnectOutcome.Connected)
+        assertEquals(listOf("conversation.open", "conversation.reconnect", "conversation.open"), methods.toList())
+        assertEquals(2, paired.claims.get())
+        paired.client.close()
+    }
+
+    @Test
     fun a_paired_profile_refuses_a_bridge_route_other_than_the_pinned_one() {
         server.enqueue(
             MockResponse().withWebSocketUpgrade(
