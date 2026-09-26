@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.4.0 (2026-09-26)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Dependencies
+* chore(deps): bump androidx.compose:compose-bom from 2026.08.00 to 2026.09.00 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/49
+* chore(deps): bump com.android.application from 9.4.0 to 9.4.1 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/48
+* chore(deps): bump okhttp from 4.12.0 to 5.5.0 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/47
+* chore(deps): bump actions/setup-python from 6.3.0 to 7.0.0 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/45
+* chore(deps): bump org.json:json from 20240303 to 20260814 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/46
+### Other Changes
+* Fix/stereo drain frames by @achappell in https://github.com/achappell/hermes-relay-android/pull/26
+* 5-A-3: Night Console palette and doorway decomposition by @achappell in https://github.com/achappell/hermes-relay-android/pull/28
+* chore: make Android BMad delivery status local by @achappell in https://github.com/achappell/hermes-relay-android/pull/29
+* feat: migrate Android client to Home bridge by @achappell in https://github.com/achappell/hermes-relay-android/pull/36
+* feat: complete Android 5-A-3 doorway pass by @achappell in https://github.com/achappell/hermes-relay-android/pull/30
+* chore: standardize project-local worktrees by @achappell in https://github.com/achappell/hermes-relay-android/pull/37
+* chore: register Android next-wave aliases by @achappell in https://github.com/achappell/hermes-relay-android/pull/38
+* feat(android): align conversation navigation with iOS by @achappell in https://github.com/achappell/hermes-relay-android/pull/39
+* docs(android): defer manual TalkBack validation by @achappell in https://github.com/achappell/hermes-relay-android/pull/40
+* chore: configure BMAD issue tracking by @achappell in https://github.com/achappell/hermes-relay-android/pull/41
+* fix(android): resume Home turns after reconnect by @achappell in https://github.com/achappell/hermes-relay-android/pull/43
+* Harden Android BMAD issue tracking by @achappell in https://github.com/achappell/hermes-relay-android/pull/42
+* fix(android): complete signed live Home gate on Pixel by @achappell in https://github.com/achappell/hermes-relay-android/pull/44
+* feat(android): add Home device administration lifecycle by @achappell in https://github.com/achappell/hermes-relay-android/pull/50
+* chore(status): sync Android sprint status with merged PRs by @achappell in https://github.com/achappell/hermes-relay-android/pull/51
+* docs(planning): apply approved nine-epic course correction by @achappell in https://github.com/achappell/hermes-relay-android/pull/55
+* ANDROID-HOME-02 slice 1: pair with Home and claim per connect by @achappell in https://github.com/achappell/hermes-relay-android/pull/56
+* ANDROID-HOME-02: in-app pairing QR scanner and decision review by @achappell in https://github.com/achappell/hermes-relay-android/pull/57
+* ANDROID-HOME-02 slice 2: list, resume, rename, and continue Home conversations by @achappell in https://github.com/achappell/hermes-relay-android/pull/58
+* ANDROID-HOME-02 slice 3: owner approvals and Profile holders by @achappell in https://github.com/achappell/hermes-relay-android/pull/59
+* Mark ANDROID-HOME-02 done; Android Epic 1 stays open by @achappell in https://github.com/achappell/hermes-relay-android/pull/60
+* Reconnect a paired Profile after Android cuts it off by @achappell in https://github.com/achappell/hermes-relay-android/pull/61
+
+## New Contributors
+* @dependabot[bot] made their first contribution in https://github.com/achappell/hermes-relay-android/pull/49
+
+**Full Changelog**: https://github.com/achappell/hermes-relay-android/compare/v0.3.1...v0.4.0
+
 ## 0.3.1 (2026-09-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->
