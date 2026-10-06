@@ -520,7 +520,7 @@ stories:
     github_issue: https://github.com/achappell/hermes-relay-android/issues/80
     ios_reference: 'iOS b46e8fc, 31d8a2e, aabb275 (PR #122); validation-ios-home-07.md "Follow-up: PR #122 CI failure on the iOS Simulator destination"'
   - id: ANDROID-PARITY-01
-    title: Android parity with iOS 0.7.0 Home reliability and diagnostics
+    title: 'Android parity with iOS: top-level index'
     kind: umbrella
     product_epic: 1
     owner: hermes-relay-android
@@ -531,6 +531,349 @@ stories:
       - android:ANDROID-HOME-02
       - home:HOME-NW-18
     github_issue: https://github.com/achappell/hermes-relay-android/issues/81
+  - id: ANDROID-ARCH-01
+    title: 'Decompose AndroidClientScreen into testable state holders'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-arch-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-arch-01-state-holders.md
+    depends_on:
+      - android:ANDROID-HOME-07
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/83
+    parity_source: 'PX-02 (matrix D6 follow-through)'
+  - id: ANDROID-NET-01
+    title: 'Transport liveness, network awareness and off-tailnet classification'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-net-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-net-01-liveness-and-network.md
+    depends_on:
+      - android:ANDROID-HOME-04
+      - android:ANDROID-HOME-07
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/84
+    parity_source: 'PX-09, PX-10 (reconnect trigger lives in ANDROID-HOME-04), PX-11 remainder (off-tailnet; ANDROID-BUG-F1)'
+  - id: ANDROID-VOICE-01
+    title: 'Recognizer language-pack handling, error mapping and a confirmed spoken turn'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-voice-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-voice-01-recognizer-language-pack.md
+    depends_on:
+      - android:5-A-3
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/85
+    parity_source: 'PX-12 (matrix V2)'
+  - id: ANDROID-VOICE-02
+    title: 'Microphone permission rationale and Open Settings after permanent denial'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-voice-02
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-voice-02-mic-permission-ux.md
+    depends_on: []
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/86
+    parity_source: 'PX-13 (matrix V3)'
+  - id: ANDROID-VOICE-03
+    title: 'Endpointing parity and auto-send on tap-to-talk'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-voice-03
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-voice-03-endpointing.md
+    depends_on:
+      - android:ANDROID-VOICE-01
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/87
+    parity_source: 'PX-14 (matrix V1)'
+  - id: ANDROID-VOICE-04
+    title: 'Interrupt as the primary voice action with a 2 s acknowledgement'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-voice-04
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-voice-04-interrupt-primary.md
+    depends_on:
+      - android:ANDROID-UX-02
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/88
+    parity_source: 'PX-16 (matrix V5)'
+  - id: ANDROID-VOICE-05
+    title: 'Echo-safe route classifier, capture audio focus and a barge-in spike'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-voice-05
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-voice-05-echo-safe-bargein-spike.md
+    depends_on:
+      - android:ANDROID-HOME-09
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/89
+    parity_source: 'PX-08 (matrix V4) plus the capture-focus obligation from audit section 4'
+  - id: ANDROID-HOME-12
+    title: 'Disconnect from Home deliberately'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-12
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-12-disconnect-action.md
+    depends_on:
+      - android:ANDROID-HOME-07
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/90
+    parity_source: 'PX-20 (matrix C2)'
+  - id: ANDROID-HOME-13
+    title: 'Paired Homes screen: Refresh Profiles and Unpair Home'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-13
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-13-paired-homes-refresh-unpair.md
+    depends_on:
+      - android:ANDROID-HOME-02
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/91
+    parity_source: 'PX-28 (matrix O4)'
+  - id: ANDROID-HOME-14
+    title: 'Unconfirmed-turn continuity: Continue without resending and persisted recovery state'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-14
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-14-unconfirmed-turn-continuity.md
+    depends_on:
+      - android:ANDROID-HOME-07
+      - android:ANDROID-HOME-06
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/92
+    parity_source: 'PX-29 (matrix C11) and PX-03 (matrix C12)'
+  - id: ANDROID-REL-02
+    title: 'Play internal testing: AAB, Play App Signing, Data safety and foreground-service declarations'
+    kind: local
+    product_epic: 4
+    owner: hermes-relay-android
+    tracker_key: android-rel-02
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-rel-02-play-internal-testing.md
+    depends_on:
+      - android:ANDROID-REL-01
+      - android:ANDROID-HOME-08
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/93
+    parity_source: 'PX-34 (matrix R1)'
+  - id: ANDROID-REL-03
+    title: 'R8 shrinking, baseline profile, 16 KB page-size check and data-extraction rules'
+    kind: local
+    product_epic: 4
+    owner: hermes-relay-android
+    tracker_key: android-rel-03
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-rel-03-r8-baseline-16kb.md
+    depends_on: []
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/94
+    parity_source: 'PX-35 (audit section 4: release signing and Play, app backup)'
+  - id: ANDROID-QA-01
+    title: 'Physical-device QA pass with a validation record'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-qa-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-qa-01-physical-device-pass.md
+    depends_on:
+      - android:ANDROID-HOME-08
+      - android:ANDROID-VOICE-01
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/95
+    parity_source: 'PX-36 (audit risk 1)'
+  - id: ANDROID-ENTRY-01
+    title: 'Launcher shortcut and Quick Settings tile spike'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-entry-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-entry-01-entry-points-spike.md
+    depends_on: []
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/96
+    parity_source: 'PX-37 (audit section 4, home-screen entry points)'
+  - id: ANDROID-UX-01
+    title: 'Night Console design tokens: spacing, shapes, typography, state washes and vector icons'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-01-design-tokens.md
+    depends_on:
+      - android:5-A-3
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/97
+    parity_source: 'PX-17 (design section 3.1: color, state roles, typography, spacing/shape, iconography)'
+  - id: ANDROID-UX-02
+    title: 'Voice orb and nine-mode ambient HUD'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-02
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-02-orb-and-hud.md
+    depends_on:
+      - android:ANDROID-UX-01
+      - android:ANDROID-ARCH-01
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/98
+    parity_source: 'PX-18 (matrix V6; design section 3.1 orb, backdrop, bottom control bar)'
+  - id: ANDROID-UX-03
+    title: 'Session header card with status dot, profile, conversation title and duration'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-03
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-03-session-header.md
+    depends_on:
+      - android:ANDROID-UX-01
+      - android:ANDROID-HOME-12
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/99
+    parity_source: 'PX-19 (matrix C1)'
+  - id: ANDROID-UX-04
+    title: 'Live transcript rail with reveal-with-voice and Resume live'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-04
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-04-transcript-rail.md
+    depends_on:
+      - android:ANDROID-UX-02
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/100
+    parity_source: 'PX-21 (matrix C5)'
+  - id: ANDROID-UX-05
+    title: 'Compact composer and bottom control bar recomposition'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-05
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-05-composer-bottom-bar.md
+    depends_on:
+      - android:ANDROID-UX-01
+      - android:ANDROID-UX-02
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/101
+    parity_source: 'PX-22 (matrix C9; design section 3.1 bottom control bar and empty/loading/error)'
+  - id: ANDROID-UX-06
+    title: 'Collapsible connection details card'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-06
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-06-connection-details.md
+    depends_on:
+      - android:ANDROID-UX-04
+      - android:ANDROID-DIAG-01
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/102
+    parity_source: 'PX-23 (matrix C6)'
+  - id: ANDROID-UX-07
+    title: 'Adaptive layouts: window size classes, two-pane, landscape and table-top'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-07
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-07-adaptive-layouts.md
+    depends_on:
+      - android:ANDROID-UX-02
+      - android:ANDROID-HOME-11
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/103
+    parity_source: 'PX-24 (matrix X6; design section 3.2); the scroll/inset audit part is ANDROID-HOME-11'
+  - id: ANDROID-UX-08
+    title: 'Copy conversation, per-message copy and selectable transcript text'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-08
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-08-copy-select-share.md
+    depends_on:
+      - android:ANDROID-UX-04
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/104
+    parity_source: 'PX-25 (matrix C7)'
+  - id: ANDROID-UX-09
+    title: 'Splash screen, dark window background and predictive back'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-09
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-09-splash-and-back.md
+    depends_on: []
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/105
+    parity_source: 'PX-26 (matrix X9; design section 3.2; audit section 4 predictive back)'
+  - id: ANDROID-UX-10
+    title: 'Live reduced-motion tracking and a recorded TalkBack pass'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-10
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-10-live-motion-a11y.md
+    depends_on:
+      - android:ANDROID-UX-02
+      - android:ANDROID-UX-04
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/106
+    parity_source: 'PX-27 (matrix X2, X3; design section 3.3)'
+  - id: ANDROID-UX-11
+    title: 'Full-screen grouped Settings and device administration under Advanced'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-11
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-11-settings-restructure.md
+    depends_on:
+      - android:ANDROID-UX-01
+      - android:ANDROID-HOME-13
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/107
+    parity_source: 'PX-30, PX-31 (matrix D4, D5, O8)'
+  - id: ANDROID-UX-12
+    title: 'State surfaces, transitions and optional haptics'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-12
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-12-state-surfaces-motion.md
+    depends_on:
+      - android:ANDROID-UX-01
+      - android:ANDROID-UX-04
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/108
+    parity_source: 'Design section 3.1 (empty/loading/error, motion, haptics) and matrix O3 (confirmation-code card); not in the PX list'
+  - id: ANDROID-PARITY-02
+    title: 'Android parity: functional'
+    kind: umbrella
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-parity-02
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-parity-02.md
+    depends_on:
+      - android:ANDROID-PARITY-01
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/109
+  - id: ANDROID-PARITY-03
+    title: 'Android parity: design and polish'
+    kind: umbrella
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-parity-03
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-parity-03.md
+    depends_on:
+      - android:ANDROID-PARITY-01
+      - android:ANDROID-PARITY-02
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/110
 epic_scheme: hermes-home-2026-09-23
 epics:
   1: Connect personal clients through HomeBridge

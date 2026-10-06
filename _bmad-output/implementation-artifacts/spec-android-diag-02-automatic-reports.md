@@ -14,6 +14,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/77
 
 # ANDROID-DIAG-02 — Automatic Home connection reports (schema 1)
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): matrix D3.
+
 Parity with `IOS-DIAG-02` (`spec-ios-diag-02.md`), against the Home endpoint delivered by the HOME-NW-06 client-reports slice (`hermes-relay-home` PR #67 `79b2b4c`, "accept and review bounded device connection reports"; contract in `spec-home-client-diagnostics.md`, validator `src/hermes_home/observability/client_reports.py`).
 
 ## Background

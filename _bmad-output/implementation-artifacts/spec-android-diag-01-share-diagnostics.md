@@ -11,6 +11,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/76
 
 # ANDROID-DIAG-01 — On-device journal and Share diagnostics
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): PX-32 (connection journal), PX-33 (Share diagnostics), matrix D1/D2. Single ticket for both; no duplicate filed.
+
 Parity with `IOS-DIAG-01` (`spec-ios-diag-01-share-diagnostics.md`). It is the evidence layer every other Android ticket in `ANDROID-PARITY-01` uses for device acceptance. On iOS the journal is what turned weeks of guesses about background audio into a code-established root cause: the build-17 export named the initiator (`lifecycle deactivate trigger=backgroundWithoutRetention reply=none` followed by `home client close`).
 
 ## Background

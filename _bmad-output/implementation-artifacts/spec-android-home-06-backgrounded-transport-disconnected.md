@@ -13,6 +13,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/70
 
 # ANDROID-HOME-06 — Backgrounded Home transport is disconnected
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): matrix V18; PX-09 transport liveness is owned by `ANDROID-NET-01` and consumed here.
+
 Parity with `IOS-HOME-06` (`hermes-relay-ios` commit `feeb475`), plus the idempotent-close and stale-retry fixes from `b46e8fc` and `aabb275` (PR #122, v0.7.0).
 
 ## Background
