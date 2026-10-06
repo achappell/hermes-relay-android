@@ -1,7 +1,7 @@
 # Active epic parents are in story-index.yaml; numeric story prefixes remain historical.
 schema_version: 1
 generated: 2026-09-12
-last_updated: '2026-09-25'
+last_updated: '2026-10-06'
 project: hermes-relay-android
 tracking_system: file-system
 status_authority: local
@@ -25,6 +25,17 @@ development_status:
   5-a-4: done
   5-a-4-live-home-gate: done
   android-home-02: done
+  android-home-03: backlog
+  android-home-04: backlog
+  android-home-05: backlog
+  android-home-06: backlog
+  android-home-07: backlog
+  android-home-08: backlog
+  android-home-09: backlog
+  android-home-10: backlog
+  android-home-11: backlog
+  android-test-01: backlog
+  android-parity-01: backlog
   epic-2: backlog
   android-std-01: ready-for-dev
   epic-3: in-progress
@@ -37,6 +48,11 @@ development_status:
   android-home-01: done
   epic-4: backlog
   android-retire-01: backlog
+  android-rel-01: backlog
+  epic-6: backlog
+  android-diag-01: backlog
+  android-diag-02: backlog
+  android-diag-03: backlog
   epic-7: backlog
   android-perm-01: backlog
   epic-8: backlog

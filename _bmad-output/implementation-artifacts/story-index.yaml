@@ -340,6 +340,197 @@ stories:
     depends_on: []
     acceptance_overlay: _bmad-output/implementation-artifacts/course-correction-2026-09-23.md
     historical_horizon: later
+  - id: ANDROID-HOME-03
+    title: Keep Home conversations resumable, stop leaking claims, and let people close open ones
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-03
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-03-claim-lifecycle.md
+    depends_on:
+      - home:HOME-NW-17
+      - home:HOME-NW-18
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/67
+    ios_reference: 'IOS-HOME-03'
+  - id: ANDROID-HOME-04
+    title: Reconnect to Home after a long background
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-04
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-04-foreground-reconnect.md
+    depends_on:
+      - android:ANDROID-HOME-02
+      - home:HOME-NW-18
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/68
+    ios_reference: 'IOS-HOME-04'
+  - id: ANDROID-HOME-05
+    title: Play Home audio for replies slower than any client audio-start wait
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-05
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-05-audio-start-after-turn.md
+    depends_on:
+      - android:ANDROID-HOME-02
+      - home:HOME-NW-18
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/69
+    ios_reference: 'IOS-HOME-05'
+  - id: ANDROID-HOME-06
+    title: Treat a backgrounded Home transport as disconnected, and close or reconnect it exactly once
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-06
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-06-backgrounded-transport-disconnected.md
+    depends_on:
+      - android:ANDROID-HOME-04
+      - home:HOME-NW-18
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/70
+    ios_reference: 'IOS-HOME-06'
+  - id: ANDROID-HOME-07
+    title: Own the Home runtime in one process-scoped object that survives Activity recreation
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-07
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-07-single-home-runtime.md
+    depends_on:
+      - android:ANDROID-HOME-02
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/71
+    ios_reference: 'IOS-HOME-07 (root cause "orphaned voice coordinator", 8482051)'
+  - id: ANDROID-HOME-08
+    title: Keep Home reply and voice conversations running in the background
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-08
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-08-background-voice.md
+    depends_on:
+      - android:ANDROID-HOME-04
+      - android:ANDROID-HOME-06
+      - android:ANDROID-HOME-07
+      - home:HOME-NW-18
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/72
+    ios_reference: 'IOS-HOME-07 (d6dd1db, a147cd5, efff91d, 8482051, 1235243, a7bd524, aabb275; PR #122)'
+  - id: ANDROID-HOME-09
+    title: Keep reply audio playing through route changes, focus changes and output restarts
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-09
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-09-reply-audio-output-resilience.md
+    depends_on:
+      - android:ANDROID-HOME-05
+      - android:ANDROID-HOME-08
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/73
+    ios_reference: 'IOS-HOME-07 (a776a6d, efff91d, 1235243, a7bd524, a147cd5; PR #122)'
+  - id: ANDROID-HOME-10
+    title: Idle-based Home control deadline driven by turn.alive keep-alives
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-10
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-10-turn-keepalive-control-deadline.md
+    depends_on:
+      - android:ANDROID-HOME-05
+      - android:ANDROID-HOME-06
+      - home:HOME-NW-18
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/74
+    ios_reference: 'IOS-HOME-07 slow-turn control deadline (185418a, 676192d; PR #122)'
+  - id: ANDROID-HOME-11
+    title: Keep the Home conversation reachable at large font scales, with the keyboard, and on every screen size
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-home-11
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-home-11-hud-scroll-layout.md
+    depends_on:
+      - android:5-A-3
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/75
+    ios_reference: 'PR #123 (78185b4)'
+  - id: ANDROID-DIAG-01
+    title: Share content-free connection diagnostics from the app
+    kind: local
+    product_epic: 6
+    owner: hermes-relay-android
+    tracker_key: android-diag-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-diag-01-share-diagnostics.md
+    depends_on: []
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/76
+    ios_reference: 'IOS-DIAG-01 (journal and Share diagnostics), plus the PR #122 journal lines'
+  - id: ANDROID-DIAG-02
+    title: Automatically send opted-in connection reports to Home
+    kind: local
+    product_epic: 6
+    owner: hermes-relay-android
+    tracker_key: android-diag-02
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-diag-02-automatic-reports.md
+    depends_on:
+      - android:ANDROID-DIAG-01
+      - home:HOME-NW-06-client-reports
+      - home:HOME-NW-06-android-platform
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/77
+    ios_reference: 'IOS-DIAG-02'
+  - id: ANDROID-DIAG-03
+    title: Send and receive Home connection-failure diagnostics handshake and request envelopes
+    kind: local
+    product_epic: 6
+    owner: hermes-relay-android
+    tracker_key: android-diag-03
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-diag-03-connection-correlation.md
+    depends_on:
+      - android:ANDROID-DIAG-02
+      - home:HOME-NW-06
+      - home:HOME-NW-06-android-platform
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/78
+    ios_reference: 'IOS-DIAG-03 (PRs #119, #120, #121; issue achappell/hermes-relay-ios#118)'
+  - id: ANDROID-REL-01
+    title: Show the app version and build identity in settings and diagnostics
+    kind: local
+    product_epic: 4
+    owner: hermes-relay-android
+    tracker_key: android-rel-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-rel-01-version-and-build-identity.md
+    depends_on: []
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/79
+    ios_reference: 'iOS 19669cf, 89c40a4 (version label), 27139b6 (automated build numbers), docs/testflight.md'
+  - id: ANDROID-TEST-01
+    title: Make lifecycle, reconnect and voice tests platform-independent and flake-free
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-test-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-test-01-lifecycle-test-quality.md
+    depends_on: []
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/80
+    ios_reference: 'iOS b46e8fc, 31d8a2e, aabb275 (PR #122); validation-ios-home-07.md "Follow-up: PR #122 CI failure on the iOS Simulator destination"'
+  - id: ANDROID-PARITY-01
+    title: Android parity with iOS 0.7.0 Home reliability and diagnostics
+    kind: umbrella
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-parity-01
+    release_scope: migration
+    spec: _bmad-output/implementation-artifacts/spec-android-parity-01.md
+    depends_on:
+      - android:ANDROID-HOME-02
+      - home:HOME-NW-18
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/81
 epic_scheme: hermes-home-2026-09-23
 epics:
   1: Connect personal clients through HomeBridge
