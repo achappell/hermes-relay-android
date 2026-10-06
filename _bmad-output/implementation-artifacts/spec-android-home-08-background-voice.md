@@ -15,6 +15,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/72
 
 # ANDROID-HOME-08 — Background reply and voice retention
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): PX-06 (foreground service), PX-07 (MediaSession and lock-screen controls), matrix V11/V12/V13 and section 4.
+
 Parity with `IOS-HOME-07` and the background-audio fixes in iOS PR #122 (v0.7.0). iOS spec `spec-ios-home-07-background-voice.md` and the follow-up sections of `validation-ios-home-07.md` are the behavioral reference.
 
 ## Background (device-observed on iOS)
@@ -77,6 +79,13 @@ Locking the phone or switching apps mid-reply cut the spoken answer off: lifecyc
 | `AVAudioSession` interruption/route notifications | Audio focus callbacks and `ACTION_AUDIO_BECOMING_NOISY` (`ANDROID-HOME-09`). |
 | Idle timeout via injected `HomeMonotonicClock` | Injected monotonic clock in the runtime; only counts while armed with no capture or reply in flight, restarts after each activity. |
 | Lead sampling (`lead_ms`) | `ANDROID-HOME-09`. |
+
+Additional implementation notes from the audit (section 4 and risk 7):
+
+- **MediaSession library is a spike, not a given.** Platform `MediaSession` with a hand-published `PlaybackState` (actions PLAY/PAUSE/STOP only) versus Media3 `MediaSessionService` with a `SimpleBasePlayer` facade over `AudioTrackAudioSink`. Do a one-day spike first; do not replace the proven `AudioTrack` path with ExoPlayer and a custom `DataSource`. Media3 is not in `gradle/libs.versions.toml` today.
+- Manifest: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, and `FOREGROUND_SERVICE_MICROPHONE` only if D1 ships; channel `voice_session` (importance low, no sound); `MediaStyle` notification with a Stop action, immutable `PendingIntent`s, public visibility with content-free text (conversation title up to 60 characters, never the prompt).
+- A `WifiLock` or partial `WakeLock` is allowed only inside the service while a reply or capture is active and is released at the 60 s idle timeout; never request battery-optimization exemption.
+- Play Console foreground-service declaration (with demo video) is tracked by `ANDROID-REL-02`.
 
 ## Journal lines to add (content-free; reuse iOS grammar so one grep works on both platforms)
 

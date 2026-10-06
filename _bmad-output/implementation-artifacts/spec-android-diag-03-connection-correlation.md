@@ -14,6 +14,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/78
 
 # ANDROID-DIAG-03 — HOME-NW-06 connection-failure correlation (client side)
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): matrix D3.
+
 Parity with `IOS-DIAG-03` (`spec-ios-diag-03.md`, `validation-ios-diag-03.md`) against Home `hermes-relay-home` PR #71 (`a45f7ef`, HOME-NW-06) and its gap tests (PR #73), deployed on CaticornQueen as part of `0effbf9`. The Home contract is `_bmad-output/implementation-artifacts/ios-handoff-home-nw-06-diagnostics.md` (wire authority: `endpoint.py`, `client_reports.py`).
 
 ## Background

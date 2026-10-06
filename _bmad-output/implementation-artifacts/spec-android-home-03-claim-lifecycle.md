@@ -13,6 +13,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/67
 
 # ANDROID-HOME-03 — Home claim lifecycle on Android
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): matrix C4 (NW-18 list/close). Fully covered here; no separate ticket.
+
 Parity with `IOS-HOME-03` (spec `spec-ios-home-03-claim-lifecycle.md` on `hermes-relay-ios` main, v0.7.0) and the Home server contract `HOME-NW-18` (`hermes-relay-home` `082e593`, PR #69; deployed on CaticornQueen).
 
 ## Background

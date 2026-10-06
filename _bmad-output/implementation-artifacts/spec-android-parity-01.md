@@ -1,6 +1,6 @@
 ---
 id: ANDROID-PARITY-01
-title: Android parity with iOS 0.7.0 Home reliability and diagnostics
+title: 'Android parity with iOS: top-level index'
 status: backlog
 product_epic: 1
 created: 2026-10-06
@@ -10,9 +10,11 @@ depends_on:
 github_issue: https://github.com/achappell/hermes-relay-android/issues/81
 ---
 
-# ANDROID-PARITY-01 — Android parity with iOS 0.7.0 (umbrella)
+# ANDROID-PARITY-01 — Android parity with iOS (top-level index)
 
-Umbrella for the Android tickets that mirror what changed in `hermes-relay-ios` v0.7.0 (`755e03e`, merged PRs #122 `e7859db` and #123 `5aff151`) and the Home server contract those changes depend on. It tracks scope and order only; each child ticket owns its acceptance criteria. Status authority stays in `sprint-status.yaml`.
+**Top-level index.** This ticket is the single entry point for Android parity with iOS. It contains wave 1 below (the tickets that mirror the specific iOS 0.7.0 changes) and links the two epics that close the remaining gap: [`ANDROID-PARITY-02`](https://github.com/achappell/hermes-relay-android/issues/109) (functional) and [`ANDROID-PARITY-03`](https://github.com/achappell/hermes-relay-android/issues/110) (design and polish). A read-only audit (`android-ios-parity-audit.md`, 2026-10-06) rates Android at roughly 35-40 % overall parity (about 40-45 % functional, 30 % design); both epics derive from it, and the audit's `PX-nn` identifiers are retained only as `Source` cross-references.
+
+Wave 1 (this section) is the umbrella for the Android tickets that mirror what changed in `hermes-relay-ios` v0.7.0 (`755e03e`, merged PRs #122 `e7859db` and #123 `5aff151`) and the Home server contract those changes depend on. It tracks scope and order only; each child ticket owns its acceptance criteria. Status authority stays in `sprint-status.yaml`.
 
 ## Home server dependency
 
@@ -20,7 +22,7 @@ Deployed on CaticornQueen (2026-10-05): `hermes-relay-home` `0effbf9`, which inc
 
 **Known Home gap that blocks Android diagnostics reports:** Home's client-report validator accepts only `platform ∈ {ios, macos}` and an Apple model vocabulary, so no Android report can pass (verified in `client_reports.py` at Home `790f59e`). `ANDROID-DIAG-02` and `-03` depend on a Home change that is not ticketed in this repository.
 
-## Children
+## Wave 1 children (iOS 0.7.0 changes)
 
 | Order | Ticket | Title | iOS reference | Home dependency | Android state found |
 |---|---|---|---|---|---|
@@ -63,4 +65,50 @@ Every behavioral ticket ends with a physical-Pixel gate (lock-screen playback, r
 
 ## Acceptance
 
-All children are `done` or explicitly deferred with a recorded decision, and their device gates are recorded separately from local acceptance.
+All wave-1 children and both epics (`ANDROID-PARITY-02`, `ANDROID-PARITY-03`) are `done` or explicitly deferred with a recorded decision, and their device gates are recorded separately from local acceptance.
+
+## Audit PX identifiers to tickets (de-duplication record)
+
+Items already covered by wave 1 were merged, not duplicated.
+
+| Audit item | Ticket | Note |
+|---|---|---|
+| PX-01 runtime owner | `ANDROID-HOME-07` | merged |
+| PX-02 split `AndroidClientScreen` | `ANDROID-ARCH-01` | new |
+| PX-03 persist recovery state | `ANDROID-HOME-14` | new (with PX-29) |
+| PX-04, PX-05 audio focus, route recovery | `ANDROID-HOME-09` | merged |
+| PX-06, PX-07 foreground service, MediaSession | `ANDROID-HOME-08` | merged |
+| PX-08 echo-safe route, barge-in | `ANDROID-VOICE-05` | new spike |
+| PX-09 transport liveness | `ANDROID-NET-01` | new |
+| PX-10 network-aware reconnect | `ANDROID-HOME-04` (trigger) + `ANDROID-NET-01` (source) | merged |
+| PX-11 reconnect policy, off-tailnet | `ANDROID-HOME-04` (backoff) + `ANDROID-NET-01` (off-tailnet) | merged/split |
+| PX-12, PX-13, PX-14 | `ANDROID-VOICE-01`, `-02`, `-03` | new |
+| PX-15 playback latency | `ANDROID-HOME-09` | merged |
+| PX-16 interrupt primary | `ANDROID-VOICE-04` | new |
+| PX-17 tokens | `ANDROID-UX-01` | new |
+| PX-18 orb and HUD | `ANDROID-UX-02` | new |
+| PX-19 session header | `ANDROID-UX-03` | new |
+| PX-20 Disconnect | `ANDROID-HOME-12` | new |
+| PX-21 transcript rail | `ANDROID-UX-04` | new |
+| PX-22 compact composer | `ANDROID-UX-05` | new |
+| PX-23 connection details | `ANDROID-UX-06` | new |
+| PX-24 adaptive layouts | `ANDROID-HOME-11` (reachability) + `ANDROID-UX-07` (two-pane) | merged/split |
+| PX-25 copy/select | `ANDROID-UX-08` | new |
+| PX-26 splash, predictive back | `ANDROID-UX-09` | new |
+| PX-27 live motion, TalkBack | `ANDROID-UX-10` | new |
+| PX-28 Refresh Profiles, Unpair | `ANDROID-HOME-13` | new |
+| PX-29 Continue without resending | `ANDROID-HOME-14` | new |
+| PX-30, PX-31 settings, Advanced | `ANDROID-UX-11` | new |
+| PX-32, PX-33 journal, Share | `ANDROID-DIAG-01` | merged |
+| PX-34 Play internal testing | `ANDROID-REL-02` | new, owner-gated |
+| PX-35 R8, baseline, 16 KB | `ANDROID-REL-03` | new |
+| PX-36 physical-device QA | `ANDROID-QA-01` | new |
+| PX-37 entry points | `ANDROID-ENTRY-01` | new spike |
+| Design findings with no PX (states, motion, haptics, pairing code card) | `ANDROID-UX-12` | new |
+| NW-18 claim list/close (matrix C4) | `ANDROID-HOME-03` | wave 1 |
+
+## Ambiguities recorded
+
+- The audit's "NW-06/NW-17/NW-18" boundary was assumed as NW-06 = connection reports and correlation, NW-17 = pairing and claims, NW-18 = claim list/close; the journal and Share diagnostics (IOS-DIAG-01) are one ticket, `ANDROID-DIAG-01`.
+- The audit's idea of a `configChanges` stop-gap for rotation was not ticketed: `ANDROID-HOME-07` fixes the cause, and a stop-gap would hide it.
+- The Play-distribution policy in `README.md` conflicts with the audit's Play proposal; `ANDROID-REL-02` is gated on an owner decision.

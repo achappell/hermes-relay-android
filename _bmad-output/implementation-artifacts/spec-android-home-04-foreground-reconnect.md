@@ -13,6 +13,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/68
 
 # ANDROID-HOME-04 — Reconnect to Home after a long background
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): PX-10 (network-aware reconnect; the event source is `ANDROID-NET-01`), PX-11 (reconnect policy; off-tailnet classification moved to `ANDROID-NET-01`), matrix V14/V15.
+
 Parity with `IOS-HOME-04` (`hermes-relay-ios` commit `d199525`, PR #122, v0.7.0). Home contract: reconnect grace and `stale_conversation` handling from `HOME-NW-18` (Home `082e593`).
 
 ## Background

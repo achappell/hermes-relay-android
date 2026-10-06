@@ -12,6 +12,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/75
 
 # ANDROID-HOME-11 — Scroll instead of overflowing under the top and bottom bars
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): PX-24 in part (matrix X6): reachability and scroll rules are here; two-pane and posture layouts are `ANDROID-UX-07`; the orb and its compression rule arrive with `ANDROID-UX-02`.
+
 Parity check for iOS PR #123 ("scroll the Home HUD instead of spilling it under the top and bottom bars", `78185b4`, merged `5aff151`, v0.7.0). On Android this is an **audit-and-harden** ticket, not a port: the mechanism that broke iOS does not exist in the same form.
 
 ## Background (iOS)

@@ -13,6 +13,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/73
 
 # ANDROID-HOME-09 — Reply audio output resilience
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): PX-04 (audio focus and ducking), PX-05 (route-change and track-death recovery), PX-15 (playback latency), matrix V7/V9/V10 and `ANDROID-BUG-F3`.
+
 Parity with the iOS output fixes shipped in PR #122 (v0.7.0): restart after engine configuration change (coalesced, single restart), never reconfigure a live session, playback cushion with a hold cap, lead sampling, route-loss pause/resume, interruption handling.
 
 ## Background (device-observed on iOS)
@@ -54,6 +56,8 @@ Parity with the iOS output fixes shipped in PR #122 (v0.7.0): restart after engi
 - Keep platform types behind the existing `AudioTrackDriver` seam and add `AudioFocusController` / `AudioRouteEvents` interfaces so the JVM suite stays device-free.
 - `AudioAttributes` usage: `USAGE_MEDIA` + `CONTENT_TYPE_SPEECH` today. Whether `USAGE_ASSISTANT`/`USAGE_ASSISTANCE_ACCESSIBILITY` would be a better fit for talk-over behavior is a design question for the story spec; it must not change at background entry either way.
 - The 1-second wall-clock pause iOS found was an Android-agnostic lesson: any main-thread work at background entry (notification build, MediaSession registration, journal writes) can starve a feed that shares that thread. The OkHttp reader and the sink worker are off the main thread today; keep new work off the thread that feeds PCM.
+
+Audit detail to apply in the story spec: request focus per reply with `setAcceptsDelayedFocusGain` and `setWillPauseWhenDucked(false)`; recreate the track on `ERROR_DEAD_OBJECT` and resume from the last written frame; re-measure the `ANDROID-BUG-F3` underruns on a device after the cushion change; capture-side focus (`AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE`) is owned by `ANDROID-VOICE-05`. Target values for the cushion are 300 ms lead with a 500 ms maximum hold (about 0.7 s lower first-audio latency than the current 1000 ms); keep them injectable and prove them with `lead_ms` before changing the default.
 
 ## Dependencies
 

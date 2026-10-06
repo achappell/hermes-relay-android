@@ -36,6 +36,32 @@ development_status:
   android-home-11: backlog
   android-test-01: backlog
   android-parity-01: backlog
+  android-arch-01: backlog
+  android-net-01: backlog
+  android-voice-01: backlog
+  android-voice-02: backlog
+  android-voice-03: backlog
+  android-voice-04: backlog
+  android-voice-05: backlog
+  android-home-12: backlog
+  android-home-13: backlog
+  android-home-14: backlog
+  android-qa-01: backlog
+  android-entry-01: backlog
+  android-ux-01: backlog
+  android-ux-02: backlog
+  android-ux-03: backlog
+  android-ux-04: backlog
+  android-ux-05: backlog
+  android-ux-06: backlog
+  android-ux-07: backlog
+  android-ux-08: backlog
+  android-ux-09: backlog
+  android-ux-10: backlog
+  android-ux-11: backlog
+  android-ux-12: backlog
+  android-parity-02: backlog
+  android-parity-03: backlog
   epic-2: backlog
   android-std-01: ready-for-dev
   epic-3: in-progress
@@ -49,6 +75,8 @@ development_status:
   epic-4: backlog
   android-retire-01: backlog
   android-rel-01: backlog
+  android-rel-02: backlog
+  android-rel-03: backlog
   epic-6: backlog
   android-diag-01: backlog
   android-diag-02: backlog

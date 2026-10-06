@@ -1,0 +1,53 @@
+---
+id: ANDROID-VOICE-02
+title: Microphone permission rationale and Open Settings after permanent denial
+status: backlog
+product_epic: 1
+created: 2026-10-06
+depends_on: []
+parity_source: 'PX-13 (matrix V3)'
+github_issue: https://github.com/achappell/hermes-relay-android/issues/86
+---
+
+# ANDROID-VOICE-02 — Microphone permission rationale and Open Settings
+
+Source: PX-13 (matrix V3) (`android-ios-parity-audit.md`, 2026-10-06; PX numbers are cross-references only). Priority P1, size S.
+
+## Background
+
+iOS shows a combined microphone and speech request and, after denial, an "Open Settings" button. On Android, after the user picks "Don't allow" twice (or once with "Don't ask again"), the platform no longer shows the dialog, so the current "Allow microphone" button silently does nothing and voice is a dead end.
+
+## Android today (checked against `main` unless marked [INFERENCE])
+
+- `DoorwayZones.kt:687` launches `ActivityResultContracts.RequestPermission` for `RECORD_AUDIO`; there is no `shouldShowRequestPermissionRationale` check and no `ACTION_APPLICATION_DETAILS_SETTINGS` intent (grep).
+- `MicrophonePermission` state is recomputed from `permissionRevision`.
+
+## Required behavior
+
+- Distinguish four states: not yet asked, granted, denied with rationale available, permanently denied.
+- Rationale state: one sentence on why ("Hermes transcribes your speech on this device"; adjust if `ANDROID-VOICE-01` allows online recognition) and the request button.
+- Permanently denied state: explain and offer **Open settings**, which opens the app details screen; re-check on `ON_RESUME`.
+- Never nag: no request without a user action.
+
+## Acceptance criteria
+
+- Unit tests of the state function with a fake permission/rationale source for all four states.
+- Instrumented test: granting via `GrantPermissionRule` enables capture; denial shows rationale; a permanently denied fake shows Open settings and its `Intent` action equals `Settings.ACTION_APPLICATION_DETAILS_SETTINGS` with the package URI.
+- TalkBack reads the state and the action (extend `AccessibilityOrderTest`).
+
+## Android design notes
+
+- Rationale heuristic: `shouldShowRequestPermissionRationale == false` after a prior request means permanently denied. Persist "has asked" in preferences to tell it from "never asked".
+- The camera permission for QR scanning has the same shape (`HomePairingScanner.kt:96`); reuse the helper there.
+
+## Dependencies
+
+None.
+
+## Test notes
+
+JVM state function; one instrumented test.
+
+## Device verification
+
+Pixel: deny twice, observe Open settings, grant in Settings, return, capture works.

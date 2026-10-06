@@ -12,6 +12,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/71
 
 # ANDROID-HOME-07 — One Home runtime, bound to what the user sees
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): PX-01 (runtime owner outside the Activity), matrix D6. Follow-on UI split: `ANDROID-ARCH-01`; recovery persistence: `ANDROID-HOME-14`.
+
 Android analogue of iOS commit `8482051` ("build the voice and lifecycle stack once so background retention sees the real reply", PR #122, v0.7.0). It is the prerequisite for `ANDROID-HOME-06` and `ANDROID-HOME-08`.
 
 ## Background — the iOS bug and why Android is exposed to a sibling of it

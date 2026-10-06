@@ -11,6 +11,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/80
 
 # ANDROID-TEST-01 — Test quality for the Home reliability work
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): matrix R3.
+
 Parity with the iOS test-quality fixes in PR #122 (v0.7.0). This ticket defines the rules the other `ANDROID-PARITY-01` tickets' tests must meet and audits the existing Android tests against them. It ships independently and early.
 
 ## What iOS learned (evidence)

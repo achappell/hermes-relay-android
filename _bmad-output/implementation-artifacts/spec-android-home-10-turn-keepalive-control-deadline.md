@@ -14,6 +14,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/74
 
 # ANDROID-HOME-10 — `turn.alive` keep-alives and an idle-based control deadline
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): matrix V17. The audit confirms Android must add the whole deadline layer, not tune an existing one; liveness at the socket level is `ANDROID-NET-01`.
+
 Parity with iOS `185418a` (30 s → 120 s) and `676192d` (idle deadline with `turn.alive`), and the Home server change `hermes-relay-home` PR #75 (`0effbf9`, "opt-in per-turn turn.alive keep-alive for bridge clients"; header parsing covered by PR #78), deployed on CaticornQueen 2026-10-05.
 
 ## Background

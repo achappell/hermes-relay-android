@@ -11,6 +11,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/79
 
 # ANDROID-REL-01 — App version and build identity
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): matrix R2 and the version part of D2. The Play internal-testing track (PX-34) is `ANDROID-REL-02`; R8, baseline profile and 16 KB checks (PX-35) are `ANDROID-REL-03`.
+
 Smaller parity ticket for the iOS commits `19669cf`/`89c40a4` ("show app version in relay settings"), `27139b6` ("automate local app build numbers") and the TestFlight documentation in `docs/testflight.md` (PR #122, v0.7.0).
 
 ## Background

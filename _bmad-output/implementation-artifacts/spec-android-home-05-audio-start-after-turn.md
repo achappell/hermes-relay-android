@@ -13,6 +13,8 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/69
 
 # ANDROID-HOME-05 — Slow replies still get their audio
 
+Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): matrix V17 (audio deadline after text; pre-speech tolerance). The audit found no matching iOS constant for ">30 s tolerance"; the requirement here is the arming rule plus the late-audio test.
+
 Parity with `IOS-HOME-05` (`hermes-relay-ios` commit `8c3f163`) and the Home fix in `hermes-relay-home` PR #74 (`9b445bc`, "start the response-audio timeout only once speech is requested"), deployed on CaticornQueen as `0effbf9`.
 
 ## Background
