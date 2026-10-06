@@ -3,6 +3,7 @@ id: ANDROID-PARITY-03
 title: 'Android parity: design and polish'
 status: backlog
 product_epic: 1
+kind: epic
 created: 2026-10-06
 depends_on:
   - android:ANDROID-PARITY-01

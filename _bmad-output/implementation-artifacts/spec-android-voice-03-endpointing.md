@@ -3,6 +3,9 @@ id: ANDROID-VOICE-03
 title: Endpointing parity and auto-send on tap-to-talk
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-02
+parity_stream: S3
 created: 2026-10-06
 depends_on:
   - android:ANDROID-VOICE-01

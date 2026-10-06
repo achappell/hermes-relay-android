@@ -1,3 +1,12 @@
+# Android-local fields (2026-10-06 epic structure; the hermes-home-2026-09-23 product epics are unchanged):
+#   parity_epic   Parent programme umbrella ANDROID-PARITY-01/-02/-03.
+#   parity_stream Android-local stream S1-S8 (runtime/reconnect, background audio, voice input,
+#                 Home management, diagnostics, release/QA, conversation surface, polish).
+#                 Neither field is a product epic.
+#   kind: epic    ANDROID-PARITY-01/-02/-03 are programme umbrellas, not stories: exclude every
+#                 `kind: epic` row from story counts and from the product-epic roll-up.
+#   disposition   `declined` marks a ticket closed as not planned; its tracker status stays `done`,
+#                 the closest value in the shared status vocabulary.
 schema_version: 1
 repository: hermes-relay-android
 surface: A
@@ -347,6 +356,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-03
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-home-03-claim-lifecycle.md
     depends_on:
       - home:HOME-NW-17
@@ -360,6 +371,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-04
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-home-04-foreground-reconnect.md
     depends_on:
       - android:ANDROID-HOME-02
@@ -373,6 +386,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-05
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S2
     spec: _bmad-output/implementation-artifacts/spec-android-home-05-audio-start-after-turn.md
     depends_on:
       - android:ANDROID-HOME-02
@@ -386,10 +401,13 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-06
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-home-06-backgrounded-transport-disconnected.md
     depends_on:
       - android:ANDROID-HOME-04
       - home:HOME-NW-18
+      - android:ANDROID-HOME-07
     github_issue: https://github.com/achappell/hermes-relay-android/issues/70
     ios_reference: 'IOS-HOME-06'
   - id: ANDROID-HOME-07
@@ -399,6 +417,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-07
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-home-07-single-home-runtime.md
     depends_on:
       - android:ANDROID-HOME-02
@@ -411,6 +431,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-08
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S2
     spec: _bmad-output/implementation-artifacts/spec-android-home-08-background-voice.md
     depends_on:
       - android:ANDROID-HOME-04
@@ -426,6 +448,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-09
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S2
     spec: _bmad-output/implementation-artifacts/spec-android-home-09-reply-audio-output-resilience.md
     depends_on:
       - android:ANDROID-HOME-05
@@ -439,11 +463,15 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-10
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S2
     spec: _bmad-output/implementation-artifacts/spec-android-home-10-turn-keepalive-control-deadline.md
     depends_on:
       - android:ANDROID-HOME-05
       - android:ANDROID-HOME-06
       - home:HOME-NW-18
+      - android:ANDROID-HOME-04
+      - android:ANDROID-HOME-07
     github_issue: https://github.com/achappell/hermes-relay-android/issues/74
     ios_reference: 'IOS-HOME-07 slow-turn control deadline (185418a, 676192d; PR #122)'
   - id: ANDROID-HOME-11
@@ -453,6 +481,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-11
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-home-11-hud-scroll-layout.md
     depends_on:
       - android:5-A-3
@@ -465,6 +495,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-diag-01
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S5
     spec: _bmad-output/implementation-artifacts/spec-android-diag-01-share-diagnostics.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/76
@@ -475,28 +507,33 @@ stories:
     product_epic: 6
     owner: hermes-relay-android
     tracker_key: android-diag-02
-    release_scope: migration
+    release_scope: later
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S5
     spec: _bmad-output/implementation-artifacts/spec-android-diag-02-automatic-reports.md
     depends_on:
       - android:ANDROID-DIAG-01
       - home:HOME-NW-06-client-reports
-      - home:HOME-NW-06-android-platform
     github_issue: https://github.com/achappell/hermes-relay-android/issues/77
     ios_reference: 'IOS-DIAG-02'
+    scope_note: 'release_scope later, mirroring IOS-DIAG-02 (iOS tracks it as later). Android platform support in home:HOME-NW-06-client-reports was delivered by Home PR #80 (HOME-NW-06-android-platform); deployed 2026-10-06 pending record.'
   - id: ANDROID-DIAG-03
     title: Send and receive Home connection-failure diagnostics handshake and request envelopes
     kind: local
     product_epic: 6
     owner: hermes-relay-android
     tracker_key: android-diag-03
-    release_scope: migration
+    release_scope: later
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S5
     spec: _bmad-output/implementation-artifacts/spec-android-diag-03-connection-correlation.md
     depends_on:
       - android:ANDROID-DIAG-02
       - home:HOME-NW-06
-      - home:HOME-NW-06-android-platform
+      - home:HOME-NW-06-client-reports
     github_issue: https://github.com/achappell/hermes-relay-android/issues/78
     ios_reference: 'IOS-DIAG-03 (PRs #119, #120, #121; issue achappell/hermes-relay-ios#118)'
+    scope_note: 'release_scope later, mirroring IOS-DIAG-03 (iOS tracks it as later). Android platform support is tracked under home:HOME-NW-06-client-reports and was delivered by Home PR #80 (HOME-NW-06-android-platform); deployed 2026-10-06 pending record.'
   - id: ANDROID-REL-01
     title: Show the app version and build identity in settings and diagnostics
     kind: local
@@ -504,6 +541,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-rel-01
     release_scope: migration
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S6
     spec: _bmad-output/implementation-artifacts/spec-android-rel-01-version-and-build-identity.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/79
@@ -515,13 +554,15 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-test-01
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-test-01-lifecycle-test-quality.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/80
     ios_reference: 'iOS b46e8fc, 31d8a2e, aabb275 (PR #122); validation-ios-home-07.md "Follow-up: PR #122 CI failure on the iOS Simulator destination"'
   - id: ANDROID-PARITY-01
     title: 'Android parity with iOS: top-level index'
-    kind: umbrella
+    kind: epic
     product_epic: 1
     owner: hermes-relay-android
     tracker_key: android-parity-01
@@ -538,6 +579,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-arch-01
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-arch-01-state-holders.md
     depends_on:
       - android:ANDROID-HOME-07
@@ -550,6 +593,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-net-01
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-net-01-liveness-and-network.md
     depends_on:
       - android:ANDROID-HOME-04
@@ -563,6 +608,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-voice-01
     release_scope: migration
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S3
     spec: _bmad-output/implementation-artifacts/spec-android-voice-01-recognizer-language-pack.md
     depends_on:
       - android:5-A-3
@@ -575,6 +622,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-voice-02
     release_scope: migration
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S3
     spec: _bmad-output/implementation-artifacts/spec-android-voice-02-mic-permission-ux.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/86
@@ -586,6 +635,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-voice-03
     release_scope: migration
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S3
     spec: _bmad-output/implementation-artifacts/spec-android-voice-03-endpointing.md
     depends_on:
       - android:ANDROID-VOICE-01
@@ -598,6 +649,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-voice-04
     release_scope: migration
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S3
     spec: _bmad-output/implementation-artifacts/spec-android-voice-04-interrupt-primary.md
     depends_on:
       - android:ANDROID-UX-02
@@ -609,12 +662,16 @@ stories:
     product_epic: 1
     owner: hermes-relay-android
     tracker_key: android-voice-05
-    release_scope: migration
+    release_scope: later
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S2
     spec: _bmad-output/implementation-artifacts/spec-android-voice-05-echo-safe-bargein-spike.md
     depends_on:
       - android:ANDROID-HOME-09
+      - android:ANDROID-VOICE-03
     github_issue: https://github.com/achappell/hermes-relay-android/issues/89
     parity_source: 'PX-08 (matrix V4) plus the capture-focus obligation from audit section 4'
+    scope_note: 'Research spike with no migration acceptance criterion; release_scope later by owner decision 2026-10-06.'
   - id: ANDROID-HOME-12
     title: 'Disconnect from Home deliberately'
     kind: local
@@ -622,9 +679,13 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-12
     release_scope: migration
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S4
     spec: _bmad-output/implementation-artifacts/spec-android-home-12-disconnect-action.md
     depends_on:
       - android:ANDROID-HOME-07
+      - android:ANDROID-ARCH-01
+      - android:ANDROID-HOME-06
     github_issue: https://github.com/achappell/hermes-relay-android/issues/90
     parity_source: 'PX-20 (matrix C2)'
   - id: ANDROID-HOME-13
@@ -634,6 +695,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-13
     release_scope: migration
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S4
     spec: _bmad-output/implementation-artifacts/spec-android-home-13-paired-homes-refresh-unpair.md
     depends_on:
       - android:ANDROID-HOME-02
@@ -646,10 +709,13 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-home-14
     release_scope: migration
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-home-14-unconfirmed-turn-continuity.md
     depends_on:
       - android:ANDROID-HOME-07
       - android:ANDROID-HOME-06
+      - android:ANDROID-ARCH-01
     github_issue: https://github.com/achappell/hermes-relay-android/issues/92
     parity_source: 'PX-29 (matrix C11) and PX-03 (matrix C12)'
   - id: ANDROID-REL-02
@@ -658,13 +724,17 @@ stories:
     product_epic: 4
     owner: hermes-relay-android
     tracker_key: android-rel-02
-    release_scope: migration
+    release_scope: later
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S6
     spec: _bmad-output/implementation-artifacts/spec-android-rel-02-play-internal-testing.md
     depends_on:
       - android:ANDROID-REL-01
       - android:ANDROID-HOME-08
     github_issue: https://github.com/achappell/hermes-relay-android/issues/93
     parity_source: 'PX-34 (matrix R1)'
+    scope_note: 'Declined 2026-10-06: Play Store distribution stays out of scope per README. Closed as not planned (GitHub #93). sprint-status.yaml carries done because the tracker vocabulary has no wont-do; disposition: declined is the authoritative reading.'
+    disposition: declined
   - id: ANDROID-REL-03
     title: 'R8 shrinking, baseline profile, 16 KB page-size check and data-extraction rules'
     kind: local
@@ -672,6 +742,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-rel-03
     release_scope: migration
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S6
     spec: _bmad-output/implementation-artifacts/spec-android-rel-03-r8-baseline-16kb.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/94
@@ -683,10 +755,14 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-qa-01
     release_scope: migration
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S6
     spec: _bmad-output/implementation-artifacts/spec-android-qa-01-physical-device-pass.md
     depends_on:
       - android:ANDROID-HOME-08
       - android:ANDROID-VOICE-01
+      - android:ANDROID-HOME-09
+      - android:ANDROID-DIAG-01
     github_issue: https://github.com/achappell/hermes-relay-android/issues/95
     parity_source: 'PX-36 (audit risk 1)'
   - id: ANDROID-ENTRY-01
@@ -695,11 +771,14 @@ stories:
     product_epic: 1
     owner: hermes-relay-android
     tracker_key: android-entry-01
-    release_scope: migration
+    release_scope: later
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S6
     spec: _bmad-output/implementation-artifacts/spec-android-entry-01-entry-points-spike.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/96
     parity_source: 'PX-37 (audit section 4, home-screen entry points)'
+    scope_note: 'Spike that produces a decision record, not a migration deliverable; release_scope later by owner decision 2026-10-06.'
   - id: ANDROID-UX-01
     title: 'Night Console design tokens: spacing, shapes, typography, state washes and vector icons'
     kind: local
@@ -707,6 +786,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-01
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-01-design-tokens.md
     depends_on:
       - android:5-A-3
@@ -719,6 +800,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-02
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-02-orb-and-hud.md
     depends_on:
       - android:ANDROID-UX-01
@@ -732,6 +815,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-03
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-03-session-header.md
     depends_on:
       - android:ANDROID-UX-01
@@ -745,6 +830,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-04
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-04-transcript-rail.md
     depends_on:
       - android:ANDROID-UX-02
@@ -757,6 +844,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-05
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-05-composer-bottom-bar.md
     depends_on:
       - android:ANDROID-UX-01
@@ -770,6 +859,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-06
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-06-connection-details.md
     depends_on:
       - android:ANDROID-UX-04
@@ -783,6 +874,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-07
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-07-adaptive-layouts.md
     depends_on:
       - android:ANDROID-UX-02
@@ -796,6 +889,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-08
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S8
     spec: _bmad-output/implementation-artifacts/spec-android-ux-08-copy-select-share.md
     depends_on:
       - android:ANDROID-UX-04
@@ -808,6 +903,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-09
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S8
     spec: _bmad-output/implementation-artifacts/spec-android-ux-09-splash-and-back.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/105
@@ -819,6 +916,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-10
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S8
     spec: _bmad-output/implementation-artifacts/spec-android-ux-10-live-motion-a11y.md
     depends_on:
       - android:ANDROID-UX-02
@@ -832,6 +931,8 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-11
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-11-settings-restructure.md
     depends_on:
       - android:ANDROID-UX-01
@@ -845,15 +946,42 @@ stories:
     owner: hermes-relay-android
     tracker_key: android-ux-12
     release_scope: migration
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S8
     spec: _bmad-output/implementation-artifacts/spec-android-ux-12-state-surfaces-motion.md
     depends_on:
       - android:ANDROID-UX-01
       - android:ANDROID-UX-04
     github_issue: https://github.com/achappell/hermes-relay-android/issues/108
     parity_source: 'Design section 3.1 (empty/loading/error, motion, haptics) and matrix O3 (confirmation-code card); not in the PX list'
+  - id: ANDROID-BUG-F3
+    title: 'Find why response audio arrives slower than real time'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-bug-f3
+    release_scope: later
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S2
+    spec: _bmad-output/implementation-artifacts/spec-android-bug-f3-audio-slower-than-real-time.md
+    depends_on: []
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/112
+    scope_note: 'Not audible; ANDROID-HOME-09 (migration) already re-measures the underruns after the cushion change. Promote to migration if the measurement shows audible gaps.'
+  - id: ANDROID-WATCH-F1
+    title: 'Verify recovery and interruption while hands-free is armed with no turn binding'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-watch-f1
+    release_scope: migration
+    parity_epic: ANDROID-PARITY-02
+    parity_stream: S3
+    spec: _bmad-output/implementation-artifacts/spec-android-watch-f1-listening-without-binding.md
+    depends_on: []
+    github_issue: https://github.com/achappell/hermes-relay-android/issues/113
   - id: ANDROID-PARITY-02
     title: 'Android parity: functional'
-    kind: umbrella
+    kind: epic
     product_epic: 1
     owner: hermes-relay-android
     tracker_key: android-parity-02
@@ -864,7 +992,7 @@ stories:
     github_issue: https://github.com/achappell/hermes-relay-android/issues/109
   - id: ANDROID-PARITY-03
     title: 'Android parity: design and polish'
-    kind: umbrella
+    kind: epic
     product_epic: 1
     owner: hermes-relay-android
     tracker_key: android-parity-03

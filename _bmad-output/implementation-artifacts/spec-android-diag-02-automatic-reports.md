@@ -3,11 +3,13 @@ id: ANDROID-DIAG-02
 title: Automatically send opted-in connection reports to Home
 status: backlog
 product_epic: 6
+release_scope: later
+parity_epic: ANDROID-PARITY-01
+parity_stream: S5
 created: 2026-10-06
 depends_on:
   - android:ANDROID-DIAG-01
   - home:HOME-NW-06-client-reports
-  - home:HOME-NW-06-android-platform
 ios_reference: 'IOS-DIAG-02'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/77
 ---
@@ -22,9 +24,9 @@ Parity with `IOS-DIAG-02` (`spec-ios-diag-02.md`), against the Home endpoint del
 
 On 2026-10-03/04 the pilot iPhone's automatic diagnostics stopped uploading after 18:41:23 while the app was active, and reports carried no build SHA; both hid the incident telemetry (`validation-ios-home-06.md` follow-up). Android has no way to put connection evidence in front of the Home owner at all; the household members' phones are the ones that fail.
 
-## BLOCKER — Home does not accept Android reports today (verified, Home `main` at `790f59e`)
+## Home dependency — Android reports are accepted by Home (resolved 2026-10-06)
 
-`validate_report` requires `platform ∈ {"ios", "macos"}` and `model` matching `(iPhone|iPad|Mac)N,N | arm64 | x86_64 | unknown`. An Android report with `platform: "android"` is rejected `400 invalid_request`, and no value of `platform` that Android could truthfully send passes. (Device credentials already allow endpoint type `android`: `CLIENT_ENDPOINT_TYPES = {"tui","ios","macos","android"}`.) Required Home change, **not part of this repository and not yet ticketed there**: accept `platform: "android"` and a bounded Android model vocabulary (propose `unknown` or a sanitized `[A-Za-z0-9 _.-]{1,40}` Build.MODEL), extend the `/pair` viewer label, and add tests. Until Home ships that, this ticket can implement and test everything locally but cannot pass device acceptance. Tracked here as the dependency `home:HOME-NW-06-android-platform`; the owner of `hermes-relay-home` must raise the matching story.
+Home's client-report validator originally accepted only `platform ∈ {"ios", "macos"}` and an Apple `model` vocabulary, so no Android report could pass (verified at Home `790f59e`). That gap was closed by Home PR #80 (`HOME-NW-06-android-platform`, merged 2026-10-06, `f1eeb94`), which extends `home:HOME-NW-06-client-reports`: `platform: "android"` with `model` matching `[A-Za-z0-9]([A-Za-z0-9 _.+()-]{0,38}[A-Za-z0-9_.+()-])?` (1–40 ASCII characters, `Build.MODEL` only; a `manufacturer` key and any other platform spelling are rejected `400 invalid_request`; Apple models are rejected on `android`). The dependency is recorded as `home:HOME-NW-06-client-reports`, the key that exists in Home's tracker; `home:HOME-NW-06-android-platform` was never a Home story key. Delivered by Home PR #80; deployed 2026-10-06 pending record. Device acceptance needs a Home that carries it.
 
 ## Required behavior
 
@@ -54,7 +56,7 @@ On 2026-10-03/04 the pilot iPhone's automatic diagnostics stopped uploading afte
 
 ## Dependencies
 
-`ANDROID-DIAG-01` (journal/UI home); Home client-reports endpoint (deployed with HOME-NW-06); **Home accepting `platform: android`** (blocker above).
+`ANDROID-DIAG-01` (journal/UI home); Home client-reports endpoint on a deployment containing Home PR #80 (2026-10-06 delivery; deployment record pending).
 
 ## Test notes
 
@@ -67,3 +69,7 @@ JVM: fake clock, temp directory for the queue, fake HTTP service. Keep upload ti
 ## References
 
 iOS: `spec-ios-diag-02.md`, `validation-ios-diag-02.md`, issue achappell/hermes-relay-ios#114; Home: `spec-home-client-diagnostics.md`, `client_reports.py`.
+
+## Release scope decision (2026-10-06)
+
+`later`, mirroring `IOS-DIAG-02`, which the iOS tracker holds at `release_scope: later`. `ANDROID-DIAG-01` (share content-free diagnostics) stays `migration`, matching `IOS-DIAG-01`.

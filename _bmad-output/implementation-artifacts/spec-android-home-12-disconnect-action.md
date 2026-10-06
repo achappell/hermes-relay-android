@@ -3,9 +3,14 @@ id: ANDROID-HOME-12
 title: Disconnect from Home deliberately
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-02
+parity_stream: S4
 created: 2026-10-06
 depends_on:
   - android:ANDROID-HOME-07
+  - android:ANDROID-ARCH-01
+  - android:ANDROID-HOME-06
 parity_source: 'PX-20 (matrix C2)'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/90
 ---

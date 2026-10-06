@@ -3,6 +3,9 @@ id: ANDROID-UX-09
 title: Splash screen, dark window background and predictive back
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-03
+parity_stream: S8
 created: 2026-10-06
 depends_on: []
 parity_source: 'PX-26 (matrix X9; design section 3.2; audit section 4 predictive back)'

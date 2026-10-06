@@ -3,6 +3,9 @@ id: ANDROID-VOICE-01
 title: Recognizer language-pack handling, error mapping and a confirmed spoken turn
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-02
+parity_stream: S3
 created: 2026-10-06
 depends_on:
   - android:5-A-3
@@ -38,7 +41,7 @@ Voice is the product, and a spoken Home turn on Android has never been confirmed
 
 ## Android design notes
 
-- Keep the privacy statement honest: if online recognition is used, audio is processed by the system recognizer, not by Hermes; update the strings and `ANDROID-REL-02` Data safety text accordingly.
+- Keep the privacy statement honest: if online recognition is used, audio is processed by the system recognizer, not by Hermes; update the app privacy strings accordingly. Play's Data safety form was part of declined `ANDROID-REL-02` (2026-10-06), not this ticket.
 - The emulator has no microphone and no speech pack (`AGENTS.md`); do not claim recognition from it.
 
 ## Dependencies

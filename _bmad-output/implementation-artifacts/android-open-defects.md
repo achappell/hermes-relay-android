@@ -52,7 +52,7 @@ have identified `ANDROID-BUG-F1` immediately instead of requiring a code read.
 single response, each followed by a track restart. Playback was **inaudible**ly
 affected — it sounded correct — but the underruns are what made the drain guard
 unsatisfiable (fixed in PR #25 by other means). The underlying streaming rate is
-untouched. Same territory as Puck `P-5`.
+untouched. Same territory as Puck `P-5`. Tracked as Android story `ANDROID-BUG-F3` (spec `spec-android-bug-f3-audio-slower-than-real-time.md`, GitHub #112); `ANDROID-HOME-09` owns the cushion change and re-measurement.
 
 ## `ANDROID-WATCH-F1` — `Listening` with no binding
 
@@ -60,7 +60,7 @@ Since PR #25, hands-free reopen sets the phase to `Listening` before any turn
 exists, so the phase can be non-terminal with a null `binding`. Nothing reads
 `binding` in that window today and `A-3`'s ladder keys off connection state, but
 recovery and interruption while hands-free is armed should be checked here
-first.
+first. Tracked as Android story `ANDROID-WATCH-F1` (spec `spec-android-watch-f1-listening-without-binding.md`, GitHub #113).
 
 ## Resolved: `ANDROID-BUG-F4` — the header contradicted the screen below it
 

@@ -3,9 +3,13 @@ id: ANDROID-VOICE-05
 title: Echo-safe route classifier, capture audio focus and a barge-in spike
 status: backlog
 product_epic: 1
+release_scope: later
+parity_epic: ANDROID-PARITY-01
+parity_stream: S2
 created: 2026-10-06
 depends_on:
   - android:ANDROID-HOME-09
+  - android:ANDROID-VOICE-03
 parity_source: 'PX-08 (matrix V4) plus the capture-focus obligation from audit section 4'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/89
 ---
@@ -52,3 +56,7 @@ JVM for the classifier and focus; the spike is device-only.
 ## Device verification
 
 Pixel with wired headset, Bluetooth earbuds and speaker: record whether capture during playback self-triggers.
+
+## Release scope decision (2026-10-06)
+
+`later`. This is a research spike (route classifier, capture focus, barge-in) with no migration acceptance criterion; the migration voice experience works without it. Promote to `migration` only if the spike concludes that echo self-triggering blocks the shipped voice flow.

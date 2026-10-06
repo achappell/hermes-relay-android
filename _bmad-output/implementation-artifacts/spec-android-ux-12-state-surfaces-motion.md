@@ -3,6 +3,9 @@ id: ANDROID-UX-12
 title: State surfaces, transitions and optional haptics
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-03
+parity_stream: S8
 created: 2026-10-06
 depends_on:
   - android:ANDROID-UX-01

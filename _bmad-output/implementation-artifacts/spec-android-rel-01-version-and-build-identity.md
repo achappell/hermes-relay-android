@@ -3,6 +3,9 @@ id: ANDROID-REL-01
 title: Show the app version and build identity in settings and diagnostics
 status: backlog
 product_epic: 4
+release_scope: migration
+parity_epic: ANDROID-PARITY-02
+parity_stream: S6
 created: 2026-10-06
 depends_on: []
 ios_reference: 'iOS 19669cf, 89c40a4 (version label), 27139b6 (automated build numbers), docs/testflight.md'
@@ -49,9 +52,9 @@ The TestFlight half of the iOS change has **no Android counterpart today by poli
 - iOS stamps `CFBundleVersion` from a counter file; do not port that. Android's installer already refuses downgrades by `versionCode` and allows same-code reinstall, so no counter is needed.
 - The label must be computed from the installed package (not a hard-coded string) so it cannot drift from the APK that `check-apk-metadata.sh` verifies.
 
-## Optional follow-up (needs an owner decision; not accepted work)
+## Decision (2026-10-06): no Play follow-up
 
-If the owner reverses "Play Store distribution remains intentionally outside this repository", an internal-testing equivalent of TestFlight would add: `bundleRelease` (AAB), a protected `play-internal` environment with the upload credentials held as repository/environment secrets (never printed or committed), a `workflow_dispatch`/`workflow_call` upload job after packaging, a strictly increasing `versionCode` per upload (conflicts with the "derived from versionName" rule, so it needs its own design), Play Console foreground-service type declarations (`ANDROID-HOME-08`), and a non-preview `targetSdk` (the repo compiles and targets API 37, published as the "37.0" preview platform in CI — [INFERENCE] Play does not accept uploads targeting a preview SDK). Open a separate story if approved.
+Play Store distribution stays out of scope per `README.md` ("Play Store distribution remains intentionally outside this repository"). `ANDROID-REL-02` is declined and closed as not planned. `ANDROID-REL-01` remains version/build identity only: it does not own an optional Play follow-up or change the signed-APK/sideloading release path.
 
 ## Dependencies
 

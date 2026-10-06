@@ -3,6 +3,9 @@ id: ANDROID-UX-01
 title: 'Night Console design tokens: spacing, shapes, typography, state washes and vector icons'
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-03
+parity_stream: S7
 created: 2026-10-06
 depends_on:
   - android:5-A-3

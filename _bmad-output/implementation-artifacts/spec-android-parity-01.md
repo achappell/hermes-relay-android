@@ -3,6 +3,7 @@ id: ANDROID-PARITY-01
 title: 'Android parity with iOS: top-level index'
 status: backlog
 product_epic: 1
+kind: epic
 created: 2026-10-06
 depends_on:
   - android:ANDROID-HOME-02
@@ -20,7 +21,7 @@ Wave 1 (this section) is the umbrella for the Android tickets that mirror what c
 
 Deployed on CaticornQueen (2026-10-05): `hermes-relay-home` `0effbf9`, which includes PR #74 (`9b445bc`, response-audio timeout starts only after speech is requested), PR #75 (opt-in `turn.alive` keep-alive, header `X-Hermes-Home-Client-Features: turn_keepalive`), PR #76 (windows runner), PR #77 (deployment record) and PR #78 (header-parsing test, `790f59e`). Earlier, already deployed: HOME-NW-06 diagnostics correlation (PR #71, #73), device connection reports (PR #67), HOME-NW-18 claim list/close (PR #69, `082e593`), HOME-NW-17 client claims.
 
-**Known Home gap that blocks Android diagnostics reports:** Home's client-report validator accepts only `platform ∈ {ios, macos}` and an Apple model vocabulary, so no Android report can pass (verified in `client_reports.py` at Home `790f59e`). `ANDROID-DIAG-02` and `-03` depend on a Home change that is not ticketed in this repository.
+**Resolved Home change (2026-10-06):** Home's client-report validator originally rejected Android reports. Home PR #80 (`HOME-NW-06-android-platform`, merged 2026-10-06, `f1eeb94`) extends `home:HOME-NW-06-client-reports` to accept `platform: android` and a bounded `Build.MODEL`; the key exists in Home's tracker. Delivered by Home PR #80; deployed 2026-10-06 pending record. `ANDROID-DIAG-02/-03` retain this Home dependency until deployment is recorded.
 
 ## Wave 1 children (iOS 0.7.0 changes)
 
@@ -49,15 +50,15 @@ Order rationale: `ANDROID-HOME-07` is the prerequisite for everything lifecycle-
 - **Playback cushion 300 ms/500 ms cap:** Android already waits 1000 ms with no cap; ticket tunes and caps rather than adds (`ANDROID-HOME-09`).
 - **Now Playing off the main thread/750 ms deferral:** mapped to MediaSession/notification work on a private thread (`ANDROID-HOME-08`).
 - **HUD scroll (PR #123):** Android has no orb and a Scaffold layout; scoped as audit-and-harden (`ANDROID-HOME-11`).
-- **TestFlight automation:** Android policy is "Play Store distribution remains intentionally outside this repository"; scoped to a visible version/build identity, with Play listed as an optional, owner-gated follow-up (`ANDROID-REL-01`).
+- **TestFlight automation:** Android stays on the signed-APK/sideloading path. `ANDROID-REL-01` is version/build identity only; the Play internal-testing proposal is declined in `ANDROID-REL-02` (2026-10-06).
 - **Dropped:** macOS-only behavior (window closure, Settings sheet layout); iOS stamping of `CFBundleVersion`.
 
 ## Decisions needed before the affected tickets start
 
 1. Background hands-free and background mic continuation (`ANDROID-HOME-08` D1/D2): iOS decisions were approved for iOS only.
 2. Add an Android control/idle deadline layer (`ANDROID-HOME-10` part 2): Android currently waits unboundedly.
-3. Whether to reverse the Play-distribution policy (`ANDROID-REL-01` optional follow-up).
-4. Who raises the Home story for Android report platform support.
+3. **Resolved 2026-10-06 — Play distribution:** stay out of scope per `README.md`; `ANDROID-REL-02` is closed as not planned.
+4. **Resolved 2026-10-06 — Home Android report support:** Home PR #80 extends the existing `home:HOME-NW-06-client-reports` key; deployed 2026-10-06 pending record.
 
 ## Device gates (none are satisfied by this ticketing pass)
 

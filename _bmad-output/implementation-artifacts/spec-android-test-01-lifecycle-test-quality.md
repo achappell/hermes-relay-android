@@ -3,6 +3,9 @@ id: ANDROID-TEST-01
 title: Make lifecycle, reconnect and voice tests platform-independent and flake-free
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-01
+parity_stream: S1
 created: 2026-10-06
 depends_on: []
 ios_reference: 'iOS b46e8fc, 31d8a2e, aabb275 (PR #122); validation-ios-home-07.md "Follow-up: PR #122 CI failure on the iOS Simulator destination"'

@@ -3,6 +3,9 @@ id: ANDROID-NET-01
 title: Transport liveness, network awareness and off-tailnet classification
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-01
+parity_stream: S1
 created: 2026-10-06
 depends_on:
   - android:ANDROID-HOME-04
@@ -45,7 +48,7 @@ iOS detects a dead Home socket with `bridge.ping` (5 s deadline, `HomeOperationD
 
 - OkHttp pings need an unfrozen process; a foreground service (`ANDROID-HOME-08`) is what keeps them running during a retained reply.
 - `NetworkCapabilities.TRANSPORT_VPN` is the signal for Tailscale being up; no permission beyond `ACCESS_NETWORK_STATE` (normal permission, add it).
-- Do not request `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (Play policy).
+- Never request `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`.
 - Keep probe intervals and thresholds injectable; Home advertises `heartbeat: true`, so confirm what Home does with its own pings before choosing the interval.
 
 ## Dependencies

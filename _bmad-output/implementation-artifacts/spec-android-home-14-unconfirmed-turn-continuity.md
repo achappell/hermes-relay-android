@@ -3,10 +3,14 @@ id: ANDROID-HOME-14
 title: 'Unconfirmed-turn continuity: Continue without resending and persisted recovery state'
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-01
+parity_stream: S1
 created: 2026-10-06
 depends_on:
   - android:ANDROID-HOME-07
   - android:ANDROID-HOME-06
+  - android:ANDROID-ARCH-01
 parity_source: 'PX-29 (matrix C11) and PX-03 (matrix C12)'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/92
 ---

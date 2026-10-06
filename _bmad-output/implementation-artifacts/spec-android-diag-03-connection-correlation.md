@@ -3,11 +3,14 @@ id: ANDROID-DIAG-03
 title: Send and receive Home connection-failure diagnostics handshake and request envelopes
 status: backlog
 product_epic: 6
+release_scope: later
+parity_epic: ANDROID-PARITY-01
+parity_stream: S5
 created: 2026-10-06
 depends_on:
   - android:ANDROID-DIAG-02
   - home:HOME-NW-06
-  - home:HOME-NW-06-android-platform
+  - home:HOME-NW-06-client-reports
 ios_reference: 'IOS-DIAG-03 (PRs #119, #120, #121; issue achappell/hermes-relay-ios#118)'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/78
 ---
@@ -62,7 +65,7 @@ Home without the capability, a non-opted-in socket, or no valid ready ID: no req
 
 - Decoder strictness (ten malformed ready shapes, malformed submit echo), header exactly once, capability-gated negotiation (five partial/malformed capability sets), reconnect to a legacy Home and to a new opted-in socket (no mismatch; a new socket uses its own ID, the old ID is cleared), fresh unique request IDs over many submissions, `request_started` present before the frame is written (assert write order with a fake socket), correlated accepted and rejected responses, legacy frame byte-for-byte unchanged.
 - Reporter tests: schema-2 report field/origin/sequence shape, legacy schema-1 report, packing bounds/determinism/drop accounting/referenced origins, origin null rules, pending-submit socket loss records uncertain correlation (`request_failed` with `pending_state: unknown`, iOS `testSocketLossDuringNegotiatedPromptSubmitRecordsUncertainCorrelation`).
-- Device acceptance per Home hand-off §3 against a HOME-NW-06 Home (needs the Android platform change): ready carries `conn-…`, submit carries `req-…`, response returns `corr-…`; **close the carrying socket before checking `/pair`** (associations become `linked` only at socket finalize); a legacy Home shows no decode failures, header errors or reconnect mismatches; a duplicate token shows `ambiguous`.
+- Device acceptance per Home hand-off §3 against a HOME-NW-06 Home that carries the Android platform support delivered by Home PR #80 (deployment record pending 2026-10-06): ready carries `conn-…`, submit carries `req-…`, response returns `corr-…`; **close the carrying socket before checking `/pair`** (associations become `linked` only at socket finalize); a legacy Home shows no decode failures, header errors or reconnect mismatches; a duplicate token shows `ambiguous`.
 
 ## Android design notes
 
@@ -86,3 +89,7 @@ Fake socket with scripted ready/submit envelopes; vector tests copied from Home'
 ## References
 
 iOS: `spec-ios-diag-03.md`, `validation-ios-diag-03.md`; Home: `ios-handoff-home-nw-06-diagnostics.md`, `spec-home-nw-06-connection-failure-diagnostics.md`, `_bmad-output/specs/spec-connection-failure-diagnostics/event-contract.md`.
+
+## Release scope decision (2026-10-06)
+
+`later`, mirroring `IOS-DIAG-03`, which the iOS tracker holds at `release_scope: later`.
