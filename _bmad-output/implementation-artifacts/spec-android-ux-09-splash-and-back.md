@@ -1,7 +1,7 @@
 ---
 id: ANDROID-UX-09
 title: Splash screen, dark window background and predictive back
-status: in-progress
+status: review
 baseline_commit: 4ef41308bc2b66330d9af7a400dc9b0b705bf4d9
 product_epic: 1
 release_scope: migration
