@@ -3,11 +3,16 @@ id: ANDROID-HOME-10
 title: Idle-based Home control deadline driven by turn.alive keep-alives
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-01
+parity_stream: S2
 created: 2026-10-06
 depends_on:
   - android:ANDROID-HOME-05
   - android:ANDROID-HOME-06
   - home:HOME-NW-18
+  - android:ANDROID-HOME-04
+  - android:ANDROID-HOME-07
 ios_reference: 'IOS-HOME-07 slow-turn control deadline (185418a, 676192d; PR #122)'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/74
 ---

@@ -1,17 +1,29 @@
 ---
 id: ANDROID-REL-02
 title: 'Play internal testing: AAB, Play App Signing, Data safety and foreground-service declarations'
-status: backlog
+status: done
 product_epic: 4
+release_scope: later
+parity_epic: ANDROID-PARITY-02
+parity_stream: S6
 created: 2026-10-06
 depends_on:
   - android:ANDROID-REL-01
   - android:ANDROID-HOME-08
 parity_source: 'PX-34 (matrix R1)'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/93
+disposition: declined
 ---
 
-# ANDROID-REL-02 — Play internal testing track (owner-gated)
+# ANDROID-REL-02 — Play internal testing track (DECLINED 2026-10-06)
+
+## Decision (2026-10-06): declined, not planned
+
+Owner decision 2026-10-06: **Play Store distribution stays out of scope per `README.md`** ("Play Store distribution remains intentionally outside this repository"). This ticket is closed as not planned (GitHub #93, closed with reason "not planned"). No AAB, Play App Signing, Data safety form, Play foreground-service declaration or Play upload workflow will be built. Distribution stays a signed APK attached to a GitHub Release for sideloading (`.github/workflows/release.yml`, `scripts/install-release.sh`).
+
+The shared tracker vocabulary (`backlog`, `ready-for-dev`, `in-progress`, `review`, `done`) has no `wont-do` value, so `sprint-status.yaml` carries `done` and `story-index.yaml` and this front matter carry `disposition: declined`. Nothing described below was delivered. The text below is kept as the record of what was declined.
+
+What survives from this ticket: R8 shrinking, the baseline profile and 16 KB page-size compatibility are tracked in `ANDROID-REL-03` (re-scoped for sideloaded builds); the version/build label is `ANDROID-REL-01`; the `versionCode` 99-cap in `android-open-defects.md` stays a standing release-engineering note and is no longer tied to this ticket.
 
 Source: PX-34 (matrix R1) (`android-ios-parity-audit.md`, 2026-10-06; PX numbers are cross-references only). Priority P1, size M.
 

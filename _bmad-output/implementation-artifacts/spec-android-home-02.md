@@ -1,6 +1,6 @@
 ---
 id: ANDROID-HOME-02
-status: backlog
+status: done
 product_epic: 1
 created: 2026-09-23
 ---

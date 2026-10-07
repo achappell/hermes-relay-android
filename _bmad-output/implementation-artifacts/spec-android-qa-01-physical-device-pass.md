@@ -3,10 +3,15 @@ id: ANDROID-QA-01
 title: Physical-device QA pass with a validation record
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-02
+parity_stream: S6
 created: 2026-10-06
 depends_on:
   - android:ANDROID-HOME-08
   - android:ANDROID-VOICE-01
+  - android:ANDROID-HOME-09
+  - android:ANDROID-DIAG-01
 parity_source: 'PX-36 (audit risk 1)'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/95
 ---

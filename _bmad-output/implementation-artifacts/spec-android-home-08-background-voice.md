@@ -3,6 +3,9 @@ id: ANDROID-HOME-08
 title: Keep Home reply and voice conversations running in the background
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-01
+parity_stream: S2
 created: 2026-10-06
 depends_on:
   - android:ANDROID-HOME-04
@@ -85,7 +88,7 @@ Additional implementation notes from the audit (section 4 and risk 7):
 - **MediaSession library is a spike, not a given.** Platform `MediaSession` with a hand-published `PlaybackState` (actions PLAY/PAUSE/STOP only) versus Media3 `MediaSessionService` with a `SimpleBasePlayer` facade over `AudioTrackAudioSink`. Do a one-day spike first; do not replace the proven `AudioTrack` path with ExoPlayer and a custom `DataSource`. Media3 is not in `gradle/libs.versions.toml` today.
 - Manifest: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, and `FOREGROUND_SERVICE_MICROPHONE` only if D1 ships; channel `voice_session` (importance low, no sound); `MediaStyle` notification with a Stop action, immutable `PendingIntent`s, public visibility with content-free text (conversation title up to 60 characters, never the prompt).
 - A `WifiLock` or partial `WakeLock` is allowed only inside the service while a reply or capture is active and is released at the 60 s idle timeout; never request battery-optimization exemption.
-- Play Console foreground-service declaration (with demo video) is tracked by `ANDROID-REL-02`.
+- Play Console foreground-service declaration was part of the declined `ANDROID-REL-02` (2026-10-06) and is out of scope. The Android foreground service itself, its manifest permissions, and physical-device verification remain `ANDROID-HOME-08` requirements.
 
 ## Journal lines to add (content-free; reuse iOS grammar so one grep works on both platforms)
 

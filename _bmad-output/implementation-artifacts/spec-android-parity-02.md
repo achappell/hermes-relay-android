@@ -3,6 +3,7 @@ id: ANDROID-PARITY-02
 title: 'Android parity: functional'
 status: backlog
 product_epic: 1
+kind: epic
 created: 2026-10-06
 depends_on:
   - android:ANDROID-PARITY-01
@@ -78,13 +79,13 @@ Journal and share first; automatic reports need a Home change.
 
 ### G. Release and verification (P1/P2)
 
-R8/16 KB before any Play work; Play is owner-gated; the QA pass follows the behavioral tickets; barge-in and entry points are spikes.
+The Play distribution proposal is declined; `ANDROID-REL-02` is closed as not planned (2026-10-06). `ANDROID-REL-03` retains sideloaded-build R8, baseline-profile, 16 KB runtime compatibility and data-extraction work; it has no Play prerequisite. The QA pass follows the behavioral tickets; barge-in and entry points are spikes.
 
 | Ticket | Title | Pri | Size | Source |
 |---|---|---|---|---|
 | [`ANDROID-REL-01`](https://github.com/achappell/hermes-relay-android/issues/79) | (PARITY-01 ticket) | — | — | iOS 0.7.0 |
 | [`ANDROID-REL-03`](https://github.com/achappell/hermes-relay-android/issues/94) | R8 shrinking, baseline profile, 16 KB page-size check and data-extraction rules | P1 | M | PX-35 |
-| [`ANDROID-REL-02`](https://github.com/achappell/hermes-relay-android/issues/93) | Play internal testing: AAB, Play App Signing, Data safety and foreground-service declarations | P1 | M | PX-34 |
+| [`ANDROID-REL-02`](https://github.com/achappell/hermes-relay-android/issues/93) | Play internal testing (declined 2026-10-06; closed as not planned) | — | — | owner decision |
 | [`ANDROID-QA-01`](https://github.com/achappell/hermes-relay-android/issues/95) | Physical-device QA pass with a validation record | P1 | M | PX-36 |
 | [`ANDROID-VOICE-05`](https://github.com/achappell/hermes-relay-android/issues/89) | Echo-safe route classifier, capture audio focus and a barge-in spike | P2 | M | PX-08 |
 | [`ANDROID-ENTRY-01`](https://github.com/achappell/hermes-relay-android/issues/96) | Launcher shortcut and Quick Settings tile spike | P2 | S | PX-37 |

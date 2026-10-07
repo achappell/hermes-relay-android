@@ -3,6 +3,9 @@ id: ANDROID-UX-08
 title: Copy conversation, per-message copy and selectable transcript text
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-03
+parity_stream: S8
 created: 2026-10-06
 depends_on:
   - android:ANDROID-UX-04

@@ -3,6 +3,9 @@ id: ANDROID-ENTRY-01
 title: Launcher shortcut and Quick Settings tile spike
 status: backlog
 product_epic: 1
+release_scope: later
+parity_epic: ANDROID-PARITY-02
+parity_stream: S6
 created: 2026-10-06
 depends_on: []
 parity_source: 'PX-37 (audit section 4, home-screen entry points)'
@@ -45,3 +48,7 @@ None (decision record).
 ## Device verification
 
 None.
+
+## Release scope decision (2026-10-06)
+
+`later`. This is a spike whose output is a decision record; nothing in it is required for the migration release. Design parity is migration scope (owner decision 2026-10-06) but a decision record for optional entry points is not a design deliverable. Promote to `migration` only if the record selects an entry point as required.

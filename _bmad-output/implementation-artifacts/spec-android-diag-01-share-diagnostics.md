@@ -3,6 +3,9 @@ id: ANDROID-DIAG-01
 title: Share content-free connection diagnostics from the app
 status: backlog
 product_epic: 6
+release_scope: migration
+parity_epic: ANDROID-PARITY-01
+parity_stream: S5
 created: 2026-10-06
 depends_on: []
 ios_reference: 'IOS-DIAG-01 (journal and Share diagnostics), plus the PR #122 journal lines'

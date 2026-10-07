@@ -3,10 +3,14 @@ id: ANDROID-HOME-06
 title: Treat a backgrounded Home transport as disconnected, and close or reconnect it exactly once
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-01
+parity_stream: S1
 created: 2026-10-06
 depends_on:
   - android:ANDROID-HOME-04
   - home:HOME-NW-18
+  - android:ANDROID-HOME-07
 ios_reference: 'IOS-HOME-06'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/70
 ---

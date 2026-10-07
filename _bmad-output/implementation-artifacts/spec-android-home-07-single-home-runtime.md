@@ -3,6 +3,9 @@ id: ANDROID-HOME-07
 title: Own the Home runtime in one process-scoped object that survives Activity recreation
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-01
+parity_stream: S1
 created: 2026-10-06
 depends_on:
   - android:ANDROID-HOME-02

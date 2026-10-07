@@ -3,6 +3,9 @@ id: ANDROID-VOICE-02
 title: Microphone permission rationale and Open Settings after permanent denial
 status: backlog
 product_epic: 1
+release_scope: migration
+parity_epic: ANDROID-PARITY-02
+parity_stream: S3
 created: 2026-10-06
 depends_on: []
 parity_source: 'PX-13 (matrix V3)'
