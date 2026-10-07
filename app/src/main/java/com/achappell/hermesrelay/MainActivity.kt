@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
 import com.achappell.hermesrelay.ui.theme.LocalHermesStateColors
 
@@ -57,6 +58,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var runtime: HomeRuntime
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) acceptPairingLink(intent)
