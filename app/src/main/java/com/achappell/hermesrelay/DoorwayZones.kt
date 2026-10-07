@@ -57,7 +57,9 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -969,6 +971,7 @@ internal fun ColumnScope.TurnZone(
     supportsInterrupt: Boolean,
     motionMode: AndroidMotionMode,
     onInterrupt: (AndroidTurnBinding) -> Unit,
+    interruptStatus: InterruptStatus = InterruptStatus.None,
 ) {
     when (initiationState) {
         AndroidInitiationState.Idle -> Unit
@@ -988,15 +991,46 @@ internal fun ColumnScope.TurnZone(
             }
 
             if (hasAcceptedTurn && supportsInterrupt) {
+                val modeLabel = stringResource(turnState.phase.labelRes())
+                val interruptActionLabel = stringResource(R.string.android_interrupt)
                 OutlinedButton(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("android_interrupt")
+                        .semantics {
+                            stateDescription = modeLabel
+                            if (interruptStatus == InterruptStatus.None) {
+                                onClick(label = interruptActionLabel) {
+                                    onInterrupt(initiationState.binding)
+                                    true
+                                }
+                            }
+                        }
                         .a11yOrder(A11yOrder.ACTION),
+                    // One interrupt per turn: the control is spent once sent.
+                    enabled = interruptStatus == InterruptStatus.None,
                     onClick = { onInterrupt(initiationState.binding) },
                 ) {
-                    Text(stringResource(R.string.android_interrupt))
+                    Text(
+                        stringResource(
+                            if (interruptStatus == InterruptStatus.None) {
+                                R.string.android_interrupt
+                            } else {
+                                R.string.android_interrupting
+                            },
+                        ),
+                    )
                 }
+            }
+
+            if (interruptStatus == InterruptStatus.Unconfirmed && !turnState.isTerminal) {
+                Text(
+                    modifier = Modifier
+                        .testTag("android_interrupt_unconfirmed")
+                        .a11yOrder(A11yOrder.STATE, LiveRegionMode.Assertive),
+                    text = stringResource(R.string.android_interrupt_unconfirmed),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
 
             if (turnState.phase == AndroidTurnPhase.Interrupted) {

@@ -1,7 +1,8 @@
 ---
 id: ANDROID-VOICE-04
 title: Interrupt as the primary voice action with a 2 s acknowledgement
-status: backlog
+status: in-progress
+baseline_commit: 64f12cb6292c7a2eee205eb0bedf875942af9e53
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-02
@@ -25,6 +26,13 @@ On iOS the orb becomes "Tap to interrupt" while Hermes speaks; it stops local au
 
 - Protocol parity exists: `interruptTurn` cancels the sink first, then sends `session.interrupt` (`OkHttpRelaySessionClient.kt:970`).
 - The UI is an `OutlinedButton` "Stop responding" in the response zone (`TurnZone`), and the acknowledgement wait is `requestTimeoutMillis` = 10 s.
+
+## Code Map
+
+- `OkHttpRelaySessionClient.interruptTurn` is the protocol seam: it cancels local playback before sending `session.interrupt`.
+- `TurnInterruptCoordinator` owns the once-per-turn guard, 2 s acknowledgement state, timeout, and interrupt-and-listen handoff; `HomeRuntime` wires it to normalized terminal events and capture.
+- `DoorwayZones.kt::TurnZone` renders the Interrupt action, phase state description, and unconfirmed announcement; `MainActivity` routes the control through `HomeRuntime`.
+- `TurnInterruptCoordinatorTest`, `HomeRuntimeInterruptTest`, `OkHttpRelaySessionClientTest`, `InterruptControlTest`, and `AccessibilityOrderTest` cover timing, ordering, capture handoff, and accessibility semantics. The physical Pixel pass remains a device gate.
 
 ## Required behavior
 

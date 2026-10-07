@@ -1170,6 +1170,68 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun interrupt_stops_local_audio_before_the_frame_reaches_home_and_is_sent_once() {
+        val order = Collections.synchronizedList(mutableListOf<String>())
+        val interruptFrames = AtomicInteger(0)
+        val interruptSeen = CountDownLatch(1)
+
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        val request = JSONObject(text)
+                        when (request.optString("method")) {
+                            "conversation.open", "conversation.reconnect" -> webSocket.send(readyResponse(request.getString("id"), interrupt = true, audio = false))
+                            "prompt.submit" -> webSocket.send(
+                                rpcResult(
+                                    request.getString("id"),
+                                    JSONObject()
+                                        .put("schema", 1)
+                                        .put("conversation_handle", CONVERSATION_HANDLE)
+                                        .put("turn_id", "home-turn-order")
+                                        .put("status", "submitted"),
+                                ),
+                            )
+                            "session.interrupt" -> {
+                                order += "frame"
+                                interruptFrames.incrementAndGet()
+                                interruptSeen.countDown()
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+        val delegate = RecordingAudioSink()
+        val sink = object : AndroidAudioSink by delegate {
+            override fun cancel() {
+                order += "cancel"
+                delegate.cancel()
+            }
+        }
+
+        val client = client(audioSink = sink)
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val binding = (
+            client.beginTurn(
+                AndroidTurnRequest(
+                    AndroidProfile(PROFILE_ID, "Amanda"),
+                    AndroidTurnInput.Typed("stop me"),
+                ),
+            ) as AndroidInitiationResult.Accepted
+            ).binding
+        order.clear()
+
+        assertTrue(client.interruptTurn(binding))
+        assertFalse("a second tap sent a second interrupt", client.interruptTurn(binding))
+        assertTrue(interruptSeen.await(5, TimeUnit.SECONDS))
+
+        assertEquals(listOf("cancel", "frame"), order.toList())
+        assertEquals(1, interruptFrames.get())
+        client.close()
+    }
+
+    @Test
     fun an_interrupt_is_refused_when_home_does_not_advertise_it() {
         server.enqueue(
             MockResponse().withWebSocketUpgrade(

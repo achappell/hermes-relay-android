@@ -144,7 +144,9 @@
     <string name="android_turn_interrupted">You stopped this turn. The partial response is kept.</string>
     <string name="android_structured_prompt_unavailable">Home requested a structured response. This Android surface preserves it but does not send an ordinary prompt in its place.</string>
     <string name="android_command_unavailable">Home advertised a command. This Android surface does not dispatch it without an explicit command control.</string>
-    <string name="android_interrupt">Stop responding</string>
+    <string name="android_interrupt">Interrupt</string>
+    <string name="android_interrupting">Interrupting…</string>
+    <string name="android_interrupt_unconfirmed">Hermes has not confirmed the interrupt yet. Local audio is stopped, and Hermes may still be working.</string>
     <string name="android_history_label">Local History</string>
     <string name="android_history_empty">No conversation is kept on this device yet.</string>
     <string name="android_history_you">You</string>

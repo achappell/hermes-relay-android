@@ -653,7 +653,8 @@ internal fun AndroidClientScreen(
                                 isConnected = isConnected,
                                 supportsInterrupt = clientPort.supportsInterrupt(),
                                 motionMode = motionMode,
-                                onInterrupt = { binding -> clientPort.interruptTurn(binding) },
+                                onInterrupt = { binding -> runtime.interruptAndListen(binding) },
+                                interruptStatus = runtime.interruptStatus,
                             )
                         }
                     }
