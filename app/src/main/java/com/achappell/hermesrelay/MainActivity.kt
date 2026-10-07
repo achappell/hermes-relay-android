@@ -7,8 +7,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.material3.Text
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -52,65 +50,53 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
 import com.achappell.hermesrelay.ui.theme.LocalHermesStateColors
-import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     /** A `hermes-home://pair` link waiting for the configuration sheet. */
     private var pendingPairingLink by mutableStateOf<String?>(null)
+
+    /** The process's single Home runtime; this Activity observes it and never owns it. */
+    private lateinit var runtime: HomeRuntime
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) acceptPairingLink(intent)
 
-        val credentials = KeystoreRelayCredentialStore(applicationContext)
-        val historyStore = FileAndroidHistoryStore(applicationContext)
-        val pairings = FileHomeClientPairingStore(applicationContext)
-        val clientService = HttpHomeClientService()
-        val configuration = RelayConfigurationController(
-            profiles = FileRelayProfileStore(applicationContext),
-            credentials = credentials,
-            history = historyStore,
-            homeClientPairings = pairings,
-        )
-        val homePairing = HomeClientPairingCoordinator(
-            store = pairings,
-            credentials = credentials,
-            service = clientService,
-            configuration = configuration,
-            deviceLabel = android.os.Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android",
-        )
-        // One port serves both states: it reports NotConfigured until a profile
-        // with a stored credential exists, so the shell stays honest about an
-        // unconfigured relay without needing a separate bootstrap adapter.
-        val clientPort = OkHttpRelaySessionClient(
-            collection = { configuration.collection },
-            credentials = credentials,
-            audioSink = AudioTrackAudioSink(
-                driverFactory = platformAudioTrackDriverFactory(AndroidPlatform.current(applicationContext)),
-            ),
-            clientClaims = HomeClientClaimProvider(pairings, credentials, clientService),
-        )
+        val application = application as HermesRelayApplication
+        val services = application.services
+        runtime = application.homeRuntimeBox.resolve()
+        runtime.activityCreated()
 
         setContent {
-            val speechInput = remember { PlatformSpeechInput(applicationContext) }
-            val selectedProfileId = configuration.collection.selectedId
+            val selectedProfileId = services.configuration.collection.selectedId
             val homeAdministration = remember(selectedProfileId) {
-                HomeDeviceAdministrationController(configuration, credentials)
+                HomeDeviceAdministrationController(services.configuration, services.credentials)
             }
             HermesRelayTheme {
                 AndroidClientScreen(
-                    clientPort = clientPort,
-                    configuration = configuration,
+                    runtime = runtime,
+                    configuration = services.configuration,
                     homeAdministration = homeAdministration,
-                    speechInput = speechInput,
-                    historyStore = historyStore,
-                    homePairing = homePairing,
+                    homePairing = services.homePairing,
                     pendingPairingLink = pendingPairingLink,
                     onPendingPairingLinkConsumed = { pendingPairingLink = null },
                 )
             }
         }
+    }
+
+    override fun onDestroy() {
+        // A recreation (rotation, font scale, theme, window resize) keeps the
+        // runtime; only a finishing Activity can end it, and only when no reply
+        // is in flight.
+        if (::runtime.isInitialized) {
+            runtime.activityDestroyed(
+                isFinishing = isFinishing,
+                isChangingConfigurations = isChangingConfigurations,
+            )
+        }
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -129,17 +115,16 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AndroidClientScreen(
-    clientPort: AndroidClientPort,
+    runtime: HomeRuntime,
     configuration: RelayConfigurationController? = null,
     homeAdministration: HomeDeviceAdministrationController? = null,
-    speechInput: AndroidSpeechInput? = null,
-    historyStore: AndroidHistoryStore? = null,
     homePairing: HomeClientPairingCoordinator? = null,
     pendingPairingLink: String? = null,
     onPendingPairingLinkConsumed: () -> Unit = {},
 ) {
+    val clientPort = runtime.clientPort
     var configurationRevision by remember { mutableStateOf(0) }
-    var recoveryState by remember { mutableStateOf(AndroidRecoveryState()) }
+    val recoveryState = runtime.recoveryState
     val snapshot = remember(
         clientPort,
         configurationRevision,
@@ -167,39 +152,20 @@ internal fun AndroidClientScreen(
         if (pendingPairingLink != null) configurationVisible = true
     }
     var historyVisible by rememberSaveable { mutableStateOf(false) }
-    val controller = remember(clientPort) { AndroidInitiationController(clientPort) }
     var prompt by rememberSaveable { mutableStateOf("") }
-    var initiationState by remember { mutableStateOf<AndroidInitiationState>(AndroidInitiationState.Idle) }
-    var turnState by remember { mutableStateOf(AndroidTurnState()) }
-    var lastRequest by remember { mutableStateOf<AndroidTurnRequest?>(null) }
-    var resendResult by remember { mutableStateOf<AndroidResendResult?>(null) }
-    val mainHandler = remember(clientPort) { Handler(Looper.getMainLooper()) }
-    val workExecutor = remember(clientPort) {
-        Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "hermes-android-work").apply { isDaemon = true }
-        }
-    }
-    var initiationInFlight by remember { mutableStateOf(false) }
-    var resendInFlight by remember { mutableStateOf(false) }
-    val recoveryController = remember(clientPort) {
-        AndroidRecoveryController(clientPort) { changed ->
-            mainHandler.post {
-                recoveryState = changed
-                changed.resumedTurnBinding?.let { binding ->
-                    initiationState = AndroidInitiationState.Accepted(binding)
-                    turnState = AndroidTurnState.awaitingEvents(binding)
-                }
-            }
-        }
-    }
-    var captureState by remember { mutableStateOf<AndroidCaptureState>(AndroidCaptureState.Idle) }
+    val initiationState = runtime.initiationState
+    val turnState = runtime.turnState
+    val resendResult = runtime.resendResult
+    val initiationInFlight = runtime.initiationInFlight
+    val captureState = runtime.captureState
     var permissionRevision by remember { mutableStateOf(0) }
-    var handsFree by remember { mutableStateOf(false) }
+    val handsFree = runtime.handsFree
     val promptFocus = remember { FocusRequester() }
-    val recorder = remember(historyStore) { historyStore?.let { AndroidHistoryRecorder(it) } }
-    var promptHistory by remember { mutableStateOf(AndroidPromptHistory()) }
+    val recorder = runtime.recorder
+    val captureController = runtime.captureController
+    val promptHistory = runtime.promptHistory
     val exporter = remember { TranscriptExporter() }
-    var historyRevision by remember { mutableStateOf(0) }
+    val historyRevision = runtime.historyRevision
 
     // Local History follows the selected Profile: switching Profiles opens that
     // Profile's conversation and never shows another's.
@@ -207,22 +173,14 @@ internal fun AndroidClientScreen(
     LaunchedEffect(recorder, selectedProfileId, configurationRevision) {
         recorder?.open(selectedProfileId)
         recorder?.let { prompt = it.history.draft }
-        historyRevision += 1
+        runtime.historyRevision += 1
     }
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
     val isConnected = recoveryState.connection == AndroidConnectionState.Connected
     val hasUnresolvedTurn = recoveryState.hasUnconfirmedTurn ||
         recoveryState.unresolvedHomeTurn
-    val latestIsAuthorized by rememberUpdatedState(isAuthorized)
-    val latestIsConnected by rememberUpdatedState(isConnected)
-    val latestTurnState by rememberUpdatedState(turnState)
-    val latestHandsFree by rememberUpdatedState(handsFree)
-    val acceptedBinding = (initiationState as? AndroidInitiationState.Accepted)?.binding
-    val latestAcceptedBinding by rememberUpdatedState(acceptedBinding)
-    val latestRequest by rememberUpdatedState(lastRequest)
-    val hasAcceptedTurn = acceptedBinding != null &&
-        (!turnState.isTerminal || clientPort.hasActiveTurn())
+    val hasAcceptedTurn = runtime.hasAcceptedTurn
     val canAttemptConnection = snapshot.selectedProfile != null &&
         snapshot.unavailableReason !in setOf(
             AndroidHomeUnavailableReason.MissingBinding,
@@ -238,158 +196,6 @@ internal fun AndroidClientScreen(
             AndroidHomeUnavailableReason.CapabilityUnavailable,
         )
 
-    // Set once recover() exists below; lets the connection observer reconnect
-    // a paired Profile whose socket Android cut while the app was away.
-    val reconnectIfForeground = remember { mutableStateOf<() -> Unit>({}) }
-    DisposableEffect(clientPort) {
-        val connectionObservation = clientPort.observeConnection { event ->
-            mainHandler.post {
-                recoveryController.transportLost(
-                    reason = event.reason,
-                    inFlightTurn = latestRequest?.let { request ->
-                        AndroidUnconfirmedTurn(latestAcceptedBinding, request)
-                    },
-                )
-                reconnectIfForeground.value()
-            }
-        }
-        onDispose {
-            connectionObservation.cancel()
-            workExecutor.shutdownNow()
-            clientPort.close()
-        }
-    }
-
-    DisposableEffect(clientPort, acceptedBinding) {
-        val observation = acceptedBinding?.let { binding ->
-            clientPort.observeTurn(binding) { event ->
-                mainHandler.post {
-                    val previous = turnState
-                    turnState = AndroidTurnStateReducer.reduce(previous, event)
-                    if (
-                        event is AndroidNormalizedEvent.TurnCompleted ||
-                        event is AndroidNormalizedEvent.TurnFailed ||
-                        event is AndroidNormalizedEvent.TurnInterrupted
-                    ) {
-                        recoveryState = recoveryController.resolveHomeTurn()
-                    }
-                    // A new conversation only has a Home reference once a turn
-                    // was accepted; learn it so the next launch can continue it.
-                    if (event is AndroidNormalizedEvent.TurnCompleted) {
-                        homeConversations?.let { conversations ->
-                            workExecutor.execute { conversations.learnCurrentConversation() }
-                        }
-                    }
-                }
-            }
-        }
-        onDispose {
-            observation?.cancel()
-        }
-    }
-
-    fun applyInitiationState(
-        state: AndroidInitiationState,
-        recordAcceptedInput: Boolean,
-        clearTypedPrompt: Boolean = false,
-    ) {
-        initiationState = state
-        if (state is AndroidInitiationState.Accepted) {
-            resendResult = null
-            turnState = AndroidTurnState.awaitingEvents(state.binding)
-            if (recordAcceptedInput) {
-                (lastRequest?.input as? AndroidTurnInput.Typed)?.let { typed ->
-                    recorder?.recordDraft("")
-                    recorder?.recordUserTurn(typed.text)
-                    promptHistory = promptHistory.record(typed.text)
-                    // The composer empties once the turn is accepted; a sent
-                    // prompt lingering in the box reads as unsent.
-                    if (clearTypedPrompt) prompt = ""
-                    historyRevision += 1
-                }
-            }
-        } else if (state is AndroidInitiationState.Uncertain) {
-            lastRequest = state.request
-            turnState = AndroidTurnState()
-            recoveryController.transportLost(
-                reason = state.reason.name,
-                inFlightTurn = AndroidUnconfirmedTurn(
-                    binding = null,
-                    request = state.request,
-                ),
-            )
-        } else if (state is AndroidInitiationState.Rejected) {
-            lastRequest = null
-        }
-    }
-
-    fun initiate(input: AndroidTurnInput) {
-        if (initiationInFlight) return
-        initiationInFlight = true
-        val profile = snapshot.selectedProfile
-        profile?.let { lastRequest = AndroidTurnRequest(it, input) }
-        workExecutor.execute {
-            val state = controller.initiate(input)
-            mainHandler.post {
-                initiationInFlight = false
-                applyInitiationState(
-                    state = state,
-                    recordAcceptedInput = true,
-                    clearTypedPrompt = input is AndroidTurnInput.Typed,
-                )
-            }
-        }
-    }
-
-    val captureController = remember(clientPort, speechInput) {
-        speechInput?.let { input ->
-            AndroidCaptureController(
-                speech = input,
-                initiation = controller,
-                isConnected = { latestIsConnected },
-                isAuthorized = {
-                    val current = clientPort.snapshot()
-                    latestIsAuthorized && current.selectedProfile != null &&
-                        current.authorizationState == AndroidAuthorizationState.Verified
-                },
-                currentSessionId = { recoveryController.state.connectionId },
-                onStateChange = { changed ->
-                    mainHandler.post {
-                        captureState = changed
-                        if (changed is AndroidCaptureState.Submitted) {
-                            clientPort.snapshot().selectedProfile?.let { profile ->
-                                lastRequest = AndroidTurnRequest(
-                                    profile,
-                                    AndroidTurnInput.Typed(changed.transcript),
-                                )
-                            }
-                        }
-                        // Hands-free reopens the microphone after a turn settles.
-                        // Leaving the settled turn's phase on screen would claim the
-                        // conversation had ended while the microphone was live, so
-                        // the reopened window becomes the next turn's Listening
-                        // phase. Only a settled turn is replaced; an active one is
-                        // never overwritten.
-                        val capturing = changed == AndroidCaptureState.Starting ||
-                            changed == AndroidCaptureState.Listening ||
-                            changed is AndroidCaptureState.Transcribing
-                        if (latestHandsFree && capturing && latestTurnState.isTerminal) {
-                            turnState = AndroidTurnState(phase = AndroidTurnPhase.Listening)
-                        }
-                    }
-                },
-                onHandsFreeChange = { armed -> mainHandler.post { handsFree = armed } },
-                onInitiation = { result ->
-                    mainHandler.post {
-                        applyInitiationState(
-                            state = result,
-                            recordAcceptedInput = true,
-                        )
-                    }
-                },
-            )
-        }
-    }
 
     val microphonePermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -430,21 +236,18 @@ internal fun AndroidClientScreen(
         recorder?.recordDraft(value)
     }
 
-    fun recover() {
-        if (recoveryState.isRecovering) return
-        workExecutor.execute { recoveryController.recover() }
-    }
+    fun recover() = runtime.recover()
 
     fun loadConversations() {
         val conversations = homeConversations ?: return
         conversationsState = HomeConversationsState.Loading
-        workExecutor.execute {
+        runtime.runOnWork {
             val listed = when (val result = conversations.listConversations()) {
                 is HomeClientClaimProvider.Sessions.Listed -> HomeConversationsState.Listed(result.sessions)
                 is HomeClientClaimProvider.Sessions.Unavailable ->
                     HomeConversationsState.Unavailable(result.message)
             }
-            mainHandler.post { conversationsState = listed }
+            runtime.runOnMain { conversationsState = listed }
         }
     }
 
@@ -455,14 +258,14 @@ internal fun AndroidClientScreen(
             return
         }
         if (showLoading) approvalsState = HomeApprovalsState.Loading
-        workExecutor.execute {
+        runtime.runOnWork {
             val loaded = when (val result = approvals.approvals()) {
                 is HomeClientClaimProvider.Approvals.Loaded ->
                     HomeApprovalsState.Loaded(result.pending, result.holders)
                 is HomeClientClaimProvider.Approvals.Unavailable ->
                     HomeApprovalsState.Unavailable(result.message)
             }
-            mainHandler.post {
+            runtime.runOnMain {
                 approvalsState = loaded
                 if (loaded is HomeApprovalsState.Loaded) pendingApprovals = loaded.pending.size
             }
@@ -470,16 +273,11 @@ internal fun AndroidClientScreen(
     }
 
     fun switchConversation(intent: HomeConversationIntent, divider: String) {
-        val conversations = homeConversations ?: return
+        if (homeConversations == null) return
         conversationsVisible = false
         conversationMessage = null
         pendingDivider = divider
-        initiationState = AndroidInitiationState.Idle
-        turnState = AndroidTurnState()
-        workExecutor.execute {
-            conversations.requestConversation(intent)
-            recoveryController.recover()
-        }
+        runtime.switchConversation(intent)
     }
 
     // A paired Profile claims a fresh conversation on every connect, so there
@@ -516,7 +314,7 @@ internal fun AndroidClientScreen(
             }
             requested != null -> recorder?.recordDivider(requested)
         }
-        historyRevision += 1
+        runtime.historyRevision += 1
     }
 
     // No push yet: check for owner requests on connect and on every return to
@@ -541,12 +339,16 @@ internal fun AndroidClientScreen(
         }
     })
     SideEffect {
-        reconnectIfForeground.value = {
+        runtime.reconnectIfForeground = {
             val resumed = lifecycleOwner.lifecycle.currentState
                 .isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
             // An unresolved turn waits for the user's explicit resend/discard.
             if (resumed && !hasUnresolvedTurn) latestResumeConnection()
         }
+    }
+    // No screen, no foreground reconnect: the runtime outlives this composition.
+    DisposableEffect(runtime) {
+        onDispose { runtime.reconnectIfForeground = {} }
     }
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -559,50 +361,25 @@ internal fun AndroidClientScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    fun resendUnconfirmedTurn() {
-        if (resendInFlight) return
-        resendInFlight = true
-        workExecutor.execute {
-            val result = recoveryController.resendUnconfirmedTurn()
-            mainHandler.post {
-                resendInFlight = false
-                resendResult = result
-                if (result is AndroidResendResult.Sent) {
-                    lastRequest = recoveryController.state.unconfirmedTurn?.request ?: lastRequest
-                    initiationState = AndroidInitiationState.Accepted(result.binding)
-                    turnState = AndroidTurnState.awaitingEvents(result.binding)
-                }
-            }
-        }
-    }
+    fun resendUnconfirmedTurn() = runtime.resendUnconfirmedTurn()
 
-    fun discardUnconfirmedTurn() {
-        recoveryController.discardUnconfirmedTurn()
-        lastRequest = null
-        initiationState = AndroidInitiationState.Idle
-        turnState = AndroidTurnState()
-        resendResult = null
-    }
+    fun discardUnconfirmedTurn() = runtime.discardUnconfirmedTurn()
 
     // Focus restoration: when a turn settles, return focus to the composer so
     // the next action is reachable without traversing the whole screen again.
-    LaunchedEffect(turnState.isTerminal, initiationState) {
-        if (turnState.isTerminal && initiationState is AndroidInitiationState.Accepted) {
-            // Whatever was said is kept, including a partial answer from an
-            // interrupted turn.
-            if (turnState.responseText.isNotBlank()) {
-                recorder?.recordResponse(turnState.responseText)
-                historyRevision += 1
-            }
-            if (turnState.phase != AndroidTurnPhase.Disconnected) {
-                lastRequest = null
-            }
-            // FR5: a completed turn reopens the window; anything else ends it.
-            captureController?.onTurnSettled(turnState.phase)
-            if (!handsFree) {
-                runCatching { promptFocus.requestFocus() }
-            }
+    // The runtime settles each turn once; a screen recreated after the settle
+    // must not steal focus for it.
+    val settleRevisionAtEntry = remember { runtime.settleRevision }
+    LaunchedEffect(runtime.settleRevision) {
+        if (runtime.settleRevision != settleRevisionAtEntry && !runtime.handsFree) {
+            runCatching { promptFocus.requestFocus() }
         }
+    }
+    // The composer empties once a typed turn is accepted, whichever screen
+    // instance is showing when Home accepts it.
+    val composerClearRevisionAtEntry = remember { runtime.composerClearRevision }
+    LaunchedEffect(runtime.composerClearRevision) {
+        if (runtime.composerClearRevision != composerClearRevisionAtEntry) prompt = ""
     }
 
     val stateColors = LocalHermesStateColors.current
@@ -678,12 +455,12 @@ internal fun AndroidClientScreen(
                                 onPromptChange = ::updatePrompt,
                                 promptFocus = promptFocus,
                                 promptHistory = promptHistory,
-                                onPromptHistoryChange = { promptHistory = it },
+                                onPromptHistoryChange = { runtime.promptHistory = it },
                                 canEditPrompt = canEditPrompt,
                                 isConnected = isConnected,
                                 composerBlock = composerBlock,
                                 isInitiating = initiationInFlight,
-                                onSend = { initiate(AndroidTurnInput.Typed(prompt)) },
+                                onSend = { runtime.initiate(AndroidTurnInput.Typed(prompt)) },
                             )
 
                             if (captureController == null) {
@@ -692,7 +469,7 @@ internal fun AndroidClientScreen(
                                         !hasAcceptedTurn &&
                                         !hasUnresolvedTurn &&
                                         !initiationInFlight,
-                                    onTapToSpeak = { initiate(AndroidTurnInput.TapToSpeak) },
+                                    onTapToSpeak = { runtime.initiate(AndroidTurnInput.TapToSpeak) },
                                 )
                             } else if (captureController.isCapturing) {
                                 ActiveCaptureZone(
@@ -890,9 +667,9 @@ internal fun AndroidClientScreen(
                 },
                 onRename = { title ->
                     renameMessage = null
-                    workExecutor.execute {
+                    runtime.runOnWork {
                         val renamed = homeConversations.renameConversation(title)
-                        mainHandler.post {
+                        runtime.runOnMain {
                             renameMessage = if (renamed) renamedText else renameFailedText
                             if (renamed) loadConversations()
                         }
@@ -920,9 +697,9 @@ internal fun AndroidClientScreen(
                 onDecide = { holder, action ->
                     approvalsBusy = true
                     approvalsMessage = null
-                    workExecutor.execute {
+                    runtime.runOnWork {
                         val result = homeApprovals.decideGrant(holder.grantId, action)
-                        mainHandler.post {
+                        runtime.runOnMain {
                             approvalsBusy = false
                             approvalsMessage = when (result) {
                                 HomeGrantActionResult.Done -> doneTexts.getValue(action)
@@ -951,7 +728,7 @@ internal fun AndroidClientScreen(
                         profileDisplayName = snapshot.selectedProfile?.displayName,
                         onClear = {
                             history.clear()
-                            historyRevision += 1
+                            runtime.historyRevision += 1
                         },
                         sheetVisibility = true,
                         onDismiss = { historyVisible = false },
