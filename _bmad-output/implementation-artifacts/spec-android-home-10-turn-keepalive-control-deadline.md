@@ -50,10 +50,25 @@ Part 1 — opt-in and decode (independently shippable, no behavior change otherw
 - Decode capability `turn_keepalive` (exact boolean, optional; a malformed value decodes as absent and never fails ready).
 - Decode `turn.alive` into an internal liveness event carrying `phase` (`running` | `awaiting_input`), `turn_id` and `correlation_id`. An event for a different `turn_id` or conversation is ignored under the existing mismatch rules. A malformed `turn.alive` is dropped as liveness-only (diagnostic only) and never fails the turn. `turn.alive` is never rendered, never recorded in Local History, never put in the transcript.
 
-Part 2 — deadline (new Android capability; confirm with the owner before implementing because Android currently waits unboundedly):
+Part 2 — idle control lease (approved by Amanda, 2026-10-06; Android has no control deadline today):
 
-- Without the `turn_keepalive` capability: a fixed `controlTerminal` of 120 s from acceptance (iOS value; matches Home's 120 s reconnect grace).
-- With the capability: `controlIdle` 45 s (three missed 15 s beats) with no current-turn activity; the idle clock restarts on any current-turn Standard event, `turn.alive`, scoped activity, or Home audio start, PCM or terminal; it is **suspended** while a structured prompt is pending or the last keep-alive phase is `awaiting_input`; plus an overall `controlBackstop` of 1800 s from acceptance that is never extended (matches Standard's `agent.gateway_timeout`).
+**Definition.** The *idle control lease* is the single timer that decides whether an accepted Home turn is still alive on the control channel. It is granted at `prompt.submit` acceptance, renewed by turn evidence driven by `turn.alive` keep-alives, and expires into the existing uncertain-turn path. It is defined separately from, and must not be merged with or substituted for: the post-text audio-start wait (`ANDROID-HOME-05`, armed only after text/speech is requested, never at acceptance), audio and playback timeouts during reply delivery (`ANDROID-HOME-09`, Home's per-sentence speak-stream timeout), socket-level liveness (`ANDROID-NET-01`), and the 60 s background idle timeout (`ANDROID-HOME-08`). Each of those keeps its own owner and values; none renews or expires the lease.
+
+**Values (mirrored, not chosen here).** iOS and Home already define them, so Android mirrors them and Amanda's approval does not introduce an Android-specific number:
+
+| Value | Meaning | Source |
+|---|---|---|
+| `controlIdle` 45 s | lease with the capability: expires after this long with no current-turn activity (three missed 15 s beats) | iOS `HomeTurnAudioDeadlines` (`HermesRelay/Models/HomeBridgeModels.swift`, `controlIdle: .seconds(45)`) at iOS `origin/main` `dbe4bdd`; `spec-ios-home-07-slow-turn-control-deadline.md` follow-up |
+| `controlBackstop` 1800 s | overall cap from acceptance, never extended | same type (`controlBackstop: .seconds(1800)`) |
+| `controlTerminal` 120 s | fixed deadline from acceptance without the capability | same type (`controlTerminal: .seconds(120)`); matches Home `DEFAULT_CLIENT_RECONNECT_GRACE_SECONDS` |
+| 15 s | Home keep-alive cadence | Home `TURN_KEEPALIVE_INTERVAL_SECONDS` (`bridge/endpoint.py`) and `bridge-contract.md` "Turn keep-alive"; Home PR #75 |
+
+Changing any of these is an owner decision and a matching iOS change, not an Android-only edit.
+
+**Behavior.**
+
+- Without the `turn_keepalive` capability: a fixed `controlTerminal` of 120 s from acceptance.
+- With the capability: the lease is `controlIdle`. It renews on any current-turn Standard event, `turn.alive`, scoped activity, or Home audio start, PCM or terminal; it is **suspended** while a structured prompt is pending or the last keep-alive phase is `awaiting_input`; and it is bounded by `controlBackstop` from acceptance, which is never extended.
 - Every expiry takes the existing "uncertain, reconnect, never replay" path: the turn is marked unconfirmed, the transport is closed and reconnected through the `ANDROID-HOME-04` ladder, the prompt stays offered for Resend/Discard, and exactly one submission has been made. Never arm an audio-start deadline at acceptance (`ANDROID-HOME-05`).
 - All values come from one injectable `HomeTurnDeadlines` value type.
 
@@ -90,4 +105,4 @@ With Home `0effbf9`: submit a prompt that runs >60 s (and one with a long silent
 
 ## References
 
-iOS: `spec-ios-home-07-slow-turn-control-deadline.md`, `validation-ios-home-07.md` ("Follow-up: activity-based control deadline…"); `HomeBridgeClientOptIn` in `HomeBridgeSessionClient.swift`; Home: `_bmad-output/specs/spec-home-bridge-route-roaming/bridge-contract.md`.
+iOS: `spec-ios-home-07-slow-turn-control-deadline.md`, `validation-ios-home-07.md` ("Follow-up: activity-based control deadline…"); `HomeTurnAudioDeadlines` in `HermesRelay/Models/HomeBridgeModels.swift` and `scheduleHomeControlDeadline` in `ConversationStore.swift`; `HomeBridgeClientOptIn` in `HomeBridgeSessionClient.swift`; Home: `_bmad-output/specs/spec-home-bridge-route-roaming/bridge-contract.md`, `src/hermes_home/bridge/endpoint.py` (`TURN_KEEPALIVE_INTERVAL_SECONDS`).
