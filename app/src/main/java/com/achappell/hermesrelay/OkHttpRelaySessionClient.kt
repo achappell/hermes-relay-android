@@ -229,7 +229,10 @@ internal class OkHttpRelaySessionClient(
         // A paired Profile has no stored binding: it claims one per connect.
         val hasBinding = if (isPaired) clientClaims != null else profile?.homeBinding != null
         val homeCredential = profile?.let(::credentialFor)
-        val homeAdministrationNotReady = profile?.homeAdministration?.let {
+        // Operator Device administration is for operator-handle Profiles. A paired
+        // Profile claims per connect, so stale administration state on it (for
+        // example a failed step left `Unavailable`) must never gate it.
+        val homeAdministrationNotReady = !isPaired && profile?.homeAdministration?.let {
             val expiresAt = it.credentialExpiresAt
             it.phase != RelayHomeAdministrationPhase.Ready ||
                 expiresAt == null ||
@@ -545,7 +548,7 @@ internal class OkHttpRelaySessionClient(
                     AndroidHomeUnavailableReason.MissingBinding,
                 )
         }
-        if (profile.homeAdministration?.let {
+        if (pairedGrant == null && profile.homeAdministration?.let {
                 val expiresAt = it.credentialExpiresAt
                 it.phase != RelayHomeAdministrationPhase.Ready ||
                     expiresAt == null ||

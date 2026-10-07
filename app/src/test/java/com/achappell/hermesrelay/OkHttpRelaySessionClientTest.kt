@@ -1369,6 +1369,35 @@ class OkHttpRelaySessionClientTest {
         paired.client.close()
     }
 
+    /**
+     * Found on a Pixel 6a (2026-10-06): an operator Device-administration step run
+     * against a paired Profile left `phase=Unavailable, last_error=InvalidEndpoint`
+     * on it, and the Profile then never connected ("Authorization: Unavailable").
+     * A paired Profile claims per connect and has no administration binding, so
+     * that operator state must never gate it.
+     */
+    @Test
+    fun a_paired_profile_is_not_gated_by_stale_device_administration_state() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        val closed = CountDownLatch(1)
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, closed)))
+        val paired = pairedClient(
+            homeAdministration = RelayHomeAdministration(
+                phase = RelayHomeAdministrationPhase.Unavailable,
+                lastError = HomeAdministrationError.InvalidEndpoint.name,
+            ),
+        )
+
+        val snapshot = paired.client.snapshot()
+        assertEquals(AndroidAuthorizationState.Verifying, snapshot.authorizationState)
+        assertNull(snapshot.unavailableReason)
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertEquals(AndroidAuthorizationState.Verified, paired.client.snapshot().authorizationState)
+
+        paired.client.close()
+    }
+
     @Test
     fun a_paired_profile_refuses_a_bridge_route_other_than_the_pinned_one() {
         server.enqueue(
@@ -1450,6 +1479,7 @@ class OkHttpRelaySessionClientTest {
         pinnedRoute: String? = null,
         claimResult: HomeClientClaimResult = HomeClientClaimResult.Granted(CONVERSATION_HANDLE),
         withClaims: Boolean = true,
+        homeAdministration: RelayHomeAdministration? = null,
     ): PairedClient {
         val homeUrl = server.url("/").toString().trimEnd('/')
         val store = InMemoryHomeClientPairingStore(
@@ -1541,6 +1571,7 @@ class OkHttpRelaySessionClientTest {
                     deviceId = "id-7",
                     displayName = "Amanda · localhost",
                     homeClientGrant = RelayHomeClientGrantRef("pairing-1", "grant-a"),
+                    homeAdministration = homeAdministration,
                 ),
             ),
             selectedId = PROFILE_ID,
