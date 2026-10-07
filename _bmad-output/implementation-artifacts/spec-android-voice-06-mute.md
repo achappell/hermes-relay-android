@@ -19,7 +19,7 @@ Source: user feedback, 2026-10-07. Parity tag `FB-MUTE`; iOS and macOS twin `IOS
 
 ## Background
 
-The user sometimes needs Hermes to stop talking without stopping Hermes. Today the only way to silence a reply is Interrupt, which ends the turn. A sticky mute that gates only local playback: audio frames are still consumed and dropped, no interrupt is sent, text keeps streaming. Two defaults are proposed for owner confirmation.
+The user sometimes needs Hermes to stop talking without stopping Hermes. Today the only way to silence a reply is Interrupt, which ends the turn. A sticky mute that gates only local playback: audio frames are still consumed and dropped, no interrupt is sent, text keeps streaming. Launches unmuted; unmuting resumes live.
 
 **Parity:** tag `FB-MUTE`. iOS and macOS: `IOS-UX-F8` (hermes-relay-ios). Android: `ANDROID-VOICE-06` (hermes-relay-android). The acceptance criteria below are worded identically in both repos; only the platform notes differ. Mac and iPad stay the most alike.
 
@@ -34,6 +34,8 @@ Checked against `origin/main` (64f12cb), and the interrupt from `origin/feat/and
 
 **Layout classes (shared by FB-THINK, FB-TYPE, FB-MUTE, FB-LAYOUT).** *Compact* is a window whose horizontal size class is compact: iPhone, and an Android phone (`WindowWidthSizeClass` Compact). *Large* is a window whose horizontal size class is regular: iPad, Mac, and Android tablets and unfolded foldables (`WindowWidthSizeClass` Medium or Expanded). The class comes from the window's size class (SwiftUI `horizontalSizeClass`, Android `WindowSizeClass`), never from a device model or idiom check. A window that changes class (Split View, Stage Manager, window resize, fold or unfold, rotation) switches layout without losing the draft, the transcript scroll position or screen-reader focus.
 
+**One layout-class resolver.** The layout class is computed in exactly one place per app and read everywhere else; views never branch on platform or device. On macOS the resolver always returns large. (SDK check: `EnvironmentValues.horizontalSizeClass` is available on macOS 10.15+ per the macOS `SwiftUICore` swiftinterface in Xcode 27.2 beta 2, lines 22064-22066, but nothing there defines its value on macOS, so the resolver does not read it there.)
+
 The compact criteria are buildable now; the large-format criteria wait for `ANDROID-UX-15` (FB-LAYOUT) approval.
 
 ## Acceptance criteria
@@ -44,8 +46,8 @@ Shared wording, identical in `IOS-UX-F8`:
 2. Muting during a reply silences output at once. No interrupt is sent; reply text keeps streaming; the turn finishes normally and its phase and completion are unchanged.
 3. While muted, incoming reply audio is still received and consumed, then dropped. Nothing is buffered for later playback, and end-of-reply does not wait for dropped audio to play.
 4. Mute is sticky: it applies to every following reply until the user taps unmute.
-5. [Proposed default, owner to confirm] Mute is not kept across app restarts; the app always launches unmuted.
-6. [Proposed default, owner to confirm] Unmuting mid-reply resumes live audio from the current point; dropped audio is never replayed.
+5. Mute is not kept across app restarts; the app always launches unmuted.
+6. Unmuting mid-reply resumes live audio from the current point; dropped audio is never replayed.
 7. The muted state is always visible: the control shows a muted glyph and "Muted" appears in the status line. Screen readers read the control as "Mute Hermes" or "Unmute Hermes" and announce the new state once per change.
 8. While muted, reply text is shown as it streams rather than waiting for speech that will not play.
 9. Interrupt still works while muted and still ends the turn. Mute does not change capture, hands-free or barge-in rules, system volume, or other apps' audio.
@@ -54,7 +56,7 @@ Shared wording, identical in `IOS-UX-F8`:
 
 ## Android design notes
 
-- Mute state lives in `HomeRuntime` (process-scoped, so it survives Activity recreation and is not persisted, matching criterion 5) and is read by the session client at the write gate.
+- Mute state lives in `HomeRuntime` (process-scoped, so it survives Activity recreation and is never persisted (criterion 5)) and is read by the session client at the write gate.
 - Journal line (AGENTS.md Diagnostics journal): `home audio mute state=on|off reply=playing|idle`, written once per change, never per frame, asserted in a JVM test through `RecordingJournal`.
 - Audio focus: mute neither requests nor abandons focus (existing focus rules stay).
 - Unmute mid-reply (criterion 6): the `AudioTrack` stays started while muted so the next written frame plays from the live point.

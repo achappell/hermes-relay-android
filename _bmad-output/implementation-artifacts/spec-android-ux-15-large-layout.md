@@ -31,6 +31,8 @@ Checked against `origin/main` (64f12cb): one single-pane `Scaffold` in `MainActi
 
 **Layout classes (shared by FB-THINK, FB-TYPE, FB-MUTE, FB-LAYOUT).** *Compact* is a window whose horizontal size class is compact: iPhone, and an Android phone (`WindowWidthSizeClass` Compact). *Large* is a window whose horizontal size class is regular: iPad, Mac, and Android tablets and unfolded foldables (`WindowWidthSizeClass` Medium or Expanded). The class comes from the window's size class (SwiftUI `horizontalSizeClass`, Android `WindowSizeClass`), never from a device model or idiom check. A window that changes class (Split View, Stage Manager, window resize, fold or unfold, rotation) switches layout without losing the draft, the transcript scroll position or screen-reader focus.
 
+**One layout-class resolver.** The layout class is computed in exactly one place per app and read everywhere else; views never branch on platform or device. On macOS the resolver always returns large. (SDK check: `EnvironmentValues.horizontalSizeClass` is available on macOS 10.15+ per the macOS `SwiftUICore` swiftinterface in Xcode 27.2 beta 2, lines 22064-22066, but nothing there defines its value on macOS, so the resolver does not read it there.)
+
 This is an investigation; its output is the approved proposal, not code.
 
 ## Acceptance criteria
@@ -81,7 +83,7 @@ Narrowing toward compact: the sidebar collapses first, then the thinking pane be
 ## Android design notes
 
 - Android large is `WindowWidthSizeClass` Medium or Expanded; foldables follow the fold posture only where the proposal says so.
-- The approved proposal is linked from this spec once it exists (it is written once for all platforms in hermes-relay-ios); Android-specific deviations are recorded here.
+- The shared proposal is written once in hermes-relay-ios (`IOS-UX-F9`, under `_bmad-output/planning-artifacts/ux-designs/`) and linked from this spec by URL once it exists; Android-specific deviations are recorded here.
 
 ## Dependencies
 
