@@ -116,6 +116,7 @@ class AndroidHandsFreeTest {
         var connected = true
         val controller = AndroidCaptureController(
             speech = speech,
+            timers = ManualVoiceTimers(),
             initiation = AndroidInitiationController(FakePort()),
             isConnected = { connected },
             isAuthorized = { true },
@@ -221,6 +222,7 @@ class AndroidHandsFreeTest {
         connected: Boolean = true,
     ) = AndroidCaptureController(
         speech = speech,
+        timers = ManualVoiceTimers(),
         initiation = AndroidInitiationController(port),
         isConnected = { connected },
         isAuthorized = { true },

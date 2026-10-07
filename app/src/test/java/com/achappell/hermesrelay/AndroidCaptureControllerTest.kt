@@ -121,6 +121,7 @@ class AndroidCaptureControllerTest {
         var connected = true
         val controller = AndroidCaptureController(
             speech = speech,
+            timers = ManualVoiceTimers(),
             initiation = AndroidInitiationController(port),
             isConnected = { connected },
             isAuthorized = { true },
@@ -205,6 +206,7 @@ class AndroidCaptureControllerTest {
         var initiation: AndroidInitiationState? = null
         val controller = AndroidCaptureController(
             speech = speech,
+            timers = ManualVoiceTimers(),
             initiation = AndroidInitiationController(port),
             isConnected = { true },
             isAuthorized = { true },
@@ -226,6 +228,7 @@ class AndroidCaptureControllerTest {
         var session = "session-1"
         val controller = AndroidCaptureController(
             speech = speech,
+            timers = ManualVoiceTimers(),
             initiation = AndroidInitiationController(port),
             isConnected = { true },
             isAuthorized = { true },
@@ -252,6 +255,7 @@ class AndroidCaptureControllerTest {
         val port = FakePort()
         val controller = AndroidCaptureController(
             speech = speech,
+            timers = ManualVoiceTimers(),
             initiation = AndroidInitiationController(port),
             isConnected = { true },
             isAuthorized = { true },
@@ -345,6 +349,7 @@ class AndroidCaptureControllerTest {
         onStateChange: (AndroidCaptureState) -> Unit = {},
     ) = AndroidCaptureController(
         speech = speech,
+        timers = ManualVoiceTimers(),
         initiation = AndroidInitiationController(port),
         isConnected = { connected },
         isAuthorized = { authorized },

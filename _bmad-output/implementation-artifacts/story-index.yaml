@@ -645,6 +645,7 @@ stories:
     parity_epic: ANDROID-PARITY-02
     parity_stream: S3
     spec: _bmad-output/implementation-artifacts/spec-android-voice-03-endpointing.md
+    validation: _bmad-output/implementation-artifacts/validation-android-voice-03.md
     depends_on:
       - android:ANDROID-VOICE-01
     github_issue: https://github.com/achappell/hermes-relay-android/issues/87

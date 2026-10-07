@@ -89,6 +89,8 @@ internal class FakeSpeechInput(
         private set
     var stopped: Boolean = false
         private set
+    var stopCount: Int = 0
+        private set
     var cancelled: Boolean = false
         private set
 
@@ -101,6 +103,7 @@ internal class FakeSpeechInput(
 
     override fun stop() {
         stopped = true
+        stopCount += 1
     }
 
     override fun cancel() {
