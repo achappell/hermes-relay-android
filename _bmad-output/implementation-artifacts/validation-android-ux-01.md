@@ -31,17 +31,19 @@ The spec's "header dot" wash callsite is removed from UX-01. The header status d
 - `HomeConversationsSheet.kt` stays untouched: HOME-03 (#130) is open and owns it.
 - Pairing/configuration UI (`RelayConfigurationScreen.kt`, `HomePairingSection.kt`, `HomePairingScanner.kt`, `HomeDeviceAdministration.kt`, `HomeApprovalsSheet.kt`) and runtime files were not migrated; the dp literals there are unreviewed.
 
-## Pending-device (queued for the device worker, after #129)
+## Device pass (Pixel 6a, Android 17, 2026-10-07; head `f37080d`)
 
-Screenshots, Pixel, home state, each in light and dark, at font scale 1.0 and again at 2.0 (8 images), before (main) and after (this branch) where comparison is wanted:
-1. Doorway state card, `NoProfile` state (identity wash on the title).
-2. Doorway state card, `Unavailable` with the connection line (unavailable wash).
-3. Doorway state card, `Ready` (live wash).
-4. Unconfirmed-turn notice and Home-unresolved-turn notice (needs a disconnected unconfirmed turn).
-5. Header with the overflow icon button, menu closed and open.
-Check at 2.0x: no clipped text in the wash block, card or overflow button; icon readable.
+Installed with `adb install -r` only (app data hashes unchanged after each install); system font scale and night mode were set per run through `settings put system font_scale` / `cmd uimode night` and restored afterwards (original: font scale 0.85, night mode `auto`).
 
-Instrumented classes to execute (connected): `OverflowMenuSemanticsTest` (new), `AccessibilityOrderTest` (must remain unchanged and passing). Both compile today; neither has been run.
+- **Instrumented via `am instrument`:** `OverflowMenuSemanticsTest` + `AccessibilityOrderTest`: **OK (7 tests)** (1 + 6; `AccessibilityOrderTest` unchanged).
+- **Screenshots (32 images, kept off-repo):** a throwaway instrumented harness (not committed) rendered the real `DoorwayHeaderZone`, `DoorwayStateZone` and `ConnectionRecoveryZone` with fake state and screenshotted the display with `UiAutomation`: `NoProfile`, `Unavailable` with the connection line (`Reconnect failed: transport_unavailable`), `Ready` (each with the overflow menu closed and open), the unconfirmed-turn notice and the Home-unresolved-turn notice, at font scale 1.0 and 2.0, light and dark. Main (`b865c0b`) was shot with the same harness at 1.0 and 2.0 (light) for comparison.
+- **Wash blocks, notices and buttons:** the state card title and connection line on the identity/live/unavailable washes, the unavailable-wash unconfirmed notice and the attention-wash unresolved notice are fully readable at 2.0x in light and dark, with no clipped text inside the card or notices; the overflow icon renders as the 17th vector icon and opens the menu (`Configure relay`, `Local History`) at 1.0x.
+- **Fails the spec's "no text clipped at 2.0" check — in the header, and identically on main:** with a real Profile label (`Spark · caticornqueen.taila59979.ts.net`) the header row runs out of width. At 1.0x the title reads `Hermes conve…`; at 2.0x the title and subtitle are truncated or dropped and the overflow icon is pushed out of view, so Configure/Conversations/History/Disconnect are unreachable at 2.0x with a long Profile label. The same harness on main shows the same header at 2.0x, so this is not a UX-01 regression; it is the large-font reachability risk owned by `ANDROID-HOME-11` (and the header rebuild in `ANDROID-UX-03`).
+
+## Remaining
+
+- UX-01's literal acceptance ("no text clipped at 2.0") is not met in the header because of the pre-existing layout above; either an owner exemption for the header (owned by HOME-11/UX-03) or a header fix is needed. UX-01 says not to restyle beyond adopting tokens, so no header change was made here.
+- Physical TalkBack was not run.
 
 ## Verification
 
