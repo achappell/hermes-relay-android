@@ -1,8 +1,6 @@
 package com.achappell.hermesrelay
 
-import android.Manifest
 import android.content.Intent
-import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -654,7 +652,9 @@ internal fun ColumnScope.IdleCaptureZone(
     isAuthorized: Boolean,
     isConnected: Boolean,
     permissionRevision: Int,
-    microphonePermission: ManagedActivityResultLauncher<String, Boolean>,
+    microphoneState: RuntimePermissionState,
+    onRequestMicrophone: () -> Unit,
+    onOpenMicrophoneSettings: () -> Unit,
     showBlockMessage: Boolean = true,
 ) {
     val block = remember(
@@ -677,33 +677,41 @@ internal fun ColumnScope.IdleCaptureZone(
             )
         }
 
-    OutlinedButton(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("android_tap_to_speak")
-            .a11yOrder(A11yOrder.ACTION),
-        onClick = {
-            if (block == AndroidCaptureBlock.PermissionRequired) {
-                microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-            } else {
-                captureController.beginCapture()
-            }
-        },
-        enabled = !hasAcceptedTurn &&
-            !hasUnconfirmedTurn &&
-            block != AndroidCaptureBlock.ProfileUnavailable &&
-            block != AndroidCaptureBlock.NotConnected &&
-            block != AndroidCaptureBlock.RecognizerUnavailable,
-    ) {
-        Text(
-            stringResource(
-                if (block == AndroidCaptureBlock.PermissionRequired) {
-                    R.string.android_capture_grant
-                } else {
-                    R.string.android_tap_to_speak
-                },
-            ),
+    val permissionBlocked = block == AndroidCaptureBlock.PermissionRequired
+    if (permissionBlocked && microphoneState == RuntimePermissionState.PermanentlyDenied) {
+        OpenSettingsButton(
+            tag = "android_microphone_open_settings",
+            onClick = onOpenMicrophoneSettings,
         )
+    } else {
+        OutlinedButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("android_tap_to_speak")
+                .a11yOrder(A11yOrder.ACTION),
+            onClick = {
+                if (permissionBlocked) {
+                    onRequestMicrophone()
+                } else {
+                    captureController.beginCapture()
+                }
+            },
+            enabled = !hasAcceptedTurn &&
+                !hasUnconfirmedTurn &&
+                block != AndroidCaptureBlock.ProfileUnavailable &&
+                block != AndroidCaptureBlock.NotConnected &&
+                block != AndroidCaptureBlock.RecognizerUnavailable,
+        ) {
+            Text(
+                stringResource(
+                    if (permissionBlocked) {
+                        R.string.android_capture_grant
+                    } else {
+                        R.string.android_tap_to_speak
+                    },
+                ),
+            )
+        }
     }
 
     if (block == null) {
@@ -737,7 +745,13 @@ internal fun ColumnScope.IdleCaptureZone(
             modifier = Modifier
                 .testTag("android_capture_block")
                 .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
-            text = stringResource(reason.messageRes()),
+            text = stringResource(
+                if (reason == AndroidCaptureBlock.PermissionRequired) {
+                    microphoneState.microphoneMessageRes()
+                } else {
+                    reason.messageRes()
+                },
+            ),
             style = MaterialTheme.typography.bodySmall,
         )
     }

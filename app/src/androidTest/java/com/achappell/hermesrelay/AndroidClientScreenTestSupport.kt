@@ -25,6 +25,8 @@ internal fun AndroidClientScreen(
     homePairing: HomeClientPairingCoordinator? = null,
     pendingPairingLink: String? = null,
     onPendingPairingLinkConsumed: () -> Unit = {},
+    microphonePermissionSource: RuntimePermissionSource? = null,
+    openApplicationSettings: ((android.content.Intent) -> Unit)? = null,
 ) {
     val runtime = remember(clientPort, speechInput, historyStore) {
         val mainHandler = Handler(Looper.getMainLooper())
@@ -49,5 +51,7 @@ internal fun AndroidClientScreen(
         homePairing = homePairing,
         pendingPairingLink = pendingPairingLink,
         onPendingPairingLinkConsumed = onPendingPairingLinkConsumed,
+        microphonePermissionSource = microphonePermissionSource,
+        openApplicationSettings = openApplicationSettings,
     )
 }

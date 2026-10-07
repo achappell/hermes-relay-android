@@ -2,6 +2,7 @@ package com.achappell.hermesrelay
 
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -174,6 +175,44 @@ class AccessibilityOrderTest {
 
         assertEquals(LiveRegionMode.Polite, liveRegionOf("android_capture_state"))
         assertNull(liveRegionOf("android_capture_partial"))
+    }
+
+    @Test
+    fun a_permanently_denied_microphone_reads_its_state_then_its_open_settings_action() {
+        val port = ConnectedFakePort()
+        val speech = FakeSpeechInput(AndroidSpeechAuthorization.NotDetermined)
+        val deniedForever = object : RuntimePermissionSource {
+            override fun isGranted() = false
+            override fun hasAsked() = true
+            override fun shouldShowRationale() = false
+            override fun markAsked() = Unit
+        }
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(
+                    clientPort = port,
+                    speechInput = speech,
+                    microphonePermissionSource = deniedForever,
+                )
+            }
+        }
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
+        composeRule.waitForIdle()
+
+        val stateIndex = traversalIndexOf("android_capture_block")
+        val actionIndex = traversalIndexOf("android_microphone_open_settings")
+        assertTrue("state ($stateIndex) must precede action ($actionIndex)", stateIndex < actionIndex)
+        assertEquals(LiveRegionMode.Polite, liveRegionOf("android_capture_block"))
+
+        // TalkBack reads the visible text of both, so the state and the action
+        // are spoken as written rather than from an unlabeled control.
+        composeRule.onNodeWithText("Open settings").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "Microphone access is turned off for Hermes, so Android will not ask again.",
+            substring = true,
+        ).performScrollTo().assertIsDisplayed()
     }
 
     @Test

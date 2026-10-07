@@ -627,6 +627,7 @@ stories:
     parity_epic: ANDROID-PARITY-02
     parity_stream: S3
     spec: _bmad-output/implementation-artifacts/spec-android-voice-02-mic-permission-ux.md
+    validation: _bmad-output/implementation-artifacts/validation-android-voice-02.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/86
     parity_source: 'PX-13 (matrix V3)'
