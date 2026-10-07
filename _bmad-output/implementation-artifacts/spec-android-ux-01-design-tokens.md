@@ -1,7 +1,7 @@
 ---
 id: ANDROID-UX-01
 title: 'Night Console design tokens: spacing, shapes, typography, state washes and vector icons'
-status: backlog
+status: in-progress
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-03
@@ -30,7 +30,7 @@ The Android palette already equals the iOS dark palette (`Palette.kt`, `StateCol
 ## Required behavior
 
 - Add `HermesSpacing` (4/8/12/16/24/32), `HermesShapes` (card 16 dp with a 0.5 dp outline at 22 % alpha, bar 24 dp, field 18 dp) and `HermesTypography` mapping the iOS semantic styles to Material roles in `sp` (orb status SemiBold titleMedium; header labelLarge; caption/footnote bodySmall/labelSmall; callout bodyLarge 16 sp; transcript title3 20 sp/28 lineHeight; role label labelSmall Bold, uppercase, 1 sp tracking). All sizes in `sp`.
-- Add state wash tokens (`live`/`attention`/`identity`/`unavailable` at 16 % over the surface) and use them for the header dot, notices and state cards.
+- Add state wash tokens (`live`/`attention`/`identity`/`unavailable` at 16 % over the surface) and use them for notices and state cards. Scope change 2026-10-07: the header dot moves to `ANDROID-UX-03`, which creates it.
 - Add a small vector icon set (about 16: mic, waveform, thinking dots, buffering, speaker, check, pause, warning, hand (interrupt), ear (listen), stop, settings, history, home, diagnostics, QR) as `ImageVector`s or drawables; avoid `material-icons-extended`.
 - Replace the "⋮" text with an icon button with a content description; do not restyle anything else in this ticket beyond adopting tokens in the existing surfaces.
 - Extend `PaletteContrastTest` with every text/wash pair, including text on the 12 % HUD gradient tint (blend the base with each state tint).

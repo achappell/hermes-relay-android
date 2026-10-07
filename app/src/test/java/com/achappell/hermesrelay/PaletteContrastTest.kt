@@ -1,6 +1,7 @@
 package com.achappell.hermesrelay
 
 import com.achappell.hermesrelay.ui.theme.Contrast
+import com.achappell.hermesrelay.ui.theme.HermesStateWashes
 import com.achappell.hermesrelay.ui.theme.Palette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -27,16 +28,80 @@ class PaletteContrastTest {
     }
 
     @Test
-    fun every_text_pair_meets_wcag_aa_for_body_text() {
-        val failures = Palette.textPairs.mapNotNull { (name, foreground, background) ->
+    fun every_text_pair_meets_wcag_aa() {
+        val allPairs =
+            Palette.textPairs + Palette.stateWashTextPairs() + Palette.hudGradientTextPairs()
+        val failures = allPairs.mapNotNull { (name, foreground, background) ->
             val ratio = Contrast.ratio(foreground, background)
-            if (ratio < 4.5) "%s = %.2f:1".format(name, ratio) else null
+            if (passesAa(foreground, background)) null else "%s = %.2f:1".format(name, ratio)
         }
 
         assertTrue(
             "these pairs fall below WCAG AA 4.5:1 for body text: $failures",
             failures.isEmpty(),
         )
+    }
+
+    @Test
+    fun a_known_bad_wash_pair_is_rejected_by_the_aa_guard() {
+        val foreground = 0xFF767676.toInt()
+        val background = HermesStateWashes.blendArgb(
+            0xFFBBBBBB.toInt(),
+            0xFFFFFFFF.toInt(),
+            HermesStateWashes.stateAlpha,
+        )
+
+        assertTrue(
+            "the known-bad gray-on-gray wash must not meet AA",
+            !passesAa(foreground, background),
+        )
+    }
+
+    @Test
+    fun state_role_ink_on_its_own_wash_meets_aa_on_base_and_panel() {
+        val pairs = Palette.stateInkWashPairs()
+        // 2 appearances x 4 roles x 2 surfaces.
+        assertEquals(16, pairs.size)
+        val failures = pairs.mapNotNull { (name, foreground, background) ->
+            if (passesAa(foreground, background)) {
+                null
+            } else {
+                "%s = %.2f:1".format(name, Contrast.ratio(foreground, background))
+            }
+        }
+        assertTrue("state ink on its wash falls below 4.5:1: $failures", failures.isEmpty())
+    }
+
+    @Test
+    fun every_state_wash_and_hud_gradient_pair_is_measured() {
+        val washNames = Palette.stateWashTextPairs().map { it.first }.toSet()
+        val gradientNames = Palette.hudGradientTextPairs().map { it.first }.toSet()
+        val washText = listOf("primaryInk", "secondaryInk")
+        val gradientText = listOf(
+            "primaryInk",
+            "secondaryInk",
+            "live",
+            "attention",
+            "identity",
+            "unavailable",
+        )
+        val states = listOf("live", "attention", "identity", "unavailable")
+        val surfaces = listOf("base", "consoleSurface", "panel", "raisedPanel")
+
+        for (appearance in listOf("dark", "light")) {
+            for (state in states) {
+                for (surface in surfaces) {
+                    for (ink in washText) {
+                        val pair = "$appearance $ink/$state wash over $surface"
+                        assertTrue("$pair is not measured", washNames.contains(pair))
+                    }
+                }
+                for (ink in gradientText) {
+                    val pair = "$appearance $ink/$state HUD gradient tint over base"
+                    assertTrue("$pair is not measured", gradientNames.contains(pair))
+                }
+            }
+        }
     }
 
     @Test
@@ -140,4 +205,8 @@ class PaletteContrastTest {
             )
         }
     }
+
+    private fun passesAa(foreground: Int, background: Int): Boolean =
+        Contrast.ratio(foreground, background) >= 4.5
+
 }

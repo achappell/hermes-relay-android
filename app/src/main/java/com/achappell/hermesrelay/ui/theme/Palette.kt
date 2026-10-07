@@ -155,6 +155,172 @@ internal object Palette {
         add(Triple("light onIdentity/identity", Light.ON_IDENTITY, Light.IDENTITY))
         add(Triple("light onUnavailable/unavailable", Light.ON_UNAVAILABLE, Light.UNAVAILABLE))
     }
+    /** Readable copy text over every state wash used by notice and status surfaces. */
+    fun stateWashTextPairs(): List<Triple<String, Int, Int>> = buildList {
+        addAll(
+            textPairsForTints(
+                appearance = "dark",
+                surfaces = listOf(
+                    "base" to Dark.BASE,
+                    "consoleSurface" to Dark.CONSOLE_SURFACE,
+                    "panel" to Dark.PANEL,
+                    "raisedPanel" to Dark.RAISED_PANEL,
+                ),
+                inks = listOf(
+                    "primaryInk" to Dark.PRIMARY_INK,
+                    "secondaryInk" to Dark.SECONDARY_INK,
+                ),
+                stateTints = listOf(
+                    "live" to Dark.LIVE,
+                    "attention" to Dark.ATTENTION,
+                    "identity" to Dark.IDENTITY,
+                    "unavailable" to Dark.UNAVAILABLE,
+                ),
+                alpha = HermesStateWashes.stateAlpha,
+                tintLabel = "wash",
+            ),
+        )
+        addAll(
+            textPairsForTints(
+                appearance = "light",
+                surfaces = listOf(
+                    "base" to Light.BASE,
+                    "consoleSurface" to Light.CONSOLE_SURFACE,
+                    "panel" to Light.PANEL,
+                    "raisedPanel" to Light.RAISED_PANEL,
+                ),
+                inks = listOf(
+                    "primaryInk" to Light.PRIMARY_INK,
+                    "secondaryInk" to Light.SECONDARY_INK,
+                ),
+                stateTints = listOf(
+                    "live" to Light.LIVE,
+                    "attention" to Light.ATTENTION,
+                    "identity" to Light.IDENTITY,
+                    "unavailable" to Light.UNAVAILABLE,
+                ),
+                alpha = HermesStateWashes.stateAlpha,
+                tintLabel = "wash",
+            ),
+        )
+    }
+
+    /**
+     * State-role ink on its own 16% wash, as the doorway state card and notices
+     * draw it. Measured over the surfaces those cards sit on (the page base and
+     * the card panel) only: over `consoleSurface` and `raisedPanel` several of
+     * these pairs fall under 4.5:1, so state-role ink on a wash must not be
+     * placed on those surfaces.
+     */
+    fun stateInkWashPairs(): List<Triple<String, Int, Int>> = buildList {
+        for (appearance in listOf("dark", "light")) {
+            val dark = appearance == "dark"
+            val surfaces = if (dark) {
+                listOf("base" to Dark.BASE, "panel" to Dark.PANEL)
+            } else {
+                listOf("base" to Light.BASE, "panel" to Light.PANEL)
+            }
+            val roles = if (dark) {
+                listOf(
+                    "live" to Dark.LIVE,
+                    "attention" to Dark.ATTENTION,
+                    "identity" to Dark.IDENTITY,
+                    "unavailable" to Dark.UNAVAILABLE,
+                )
+            } else {
+                listOf(
+                    "live" to Light.LIVE,
+                    "attention" to Light.ATTENTION,
+                    "identity" to Light.IDENTITY,
+                    "unavailable" to Light.UNAVAILABLE,
+                )
+            }
+            for (role in roles) {
+                addAll(
+                    textPairsForTints(
+                        appearance = appearance,
+                        surfaces = surfaces,
+                        inks = listOf(role),
+                        stateTints = listOf(role),
+                        alpha = HermesStateWashes.stateAlpha,
+                        tintLabel = "wash",
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Text is also checked over the four 12% state tints on the HUD base. */
+    fun hudGradientTextPairs(): List<Triple<String, Int, Int>> = buildList {
+        addAll(
+            textPairsForTints(
+                appearance = "dark",
+                surfaces = listOf("base" to Dark.BASE),
+                inks = listOf(
+                    "primaryInk" to Dark.PRIMARY_INK,
+                    "secondaryInk" to Dark.SECONDARY_INK,
+                    "live" to Dark.LIVE,
+                    "attention" to Dark.ATTENTION,
+                    "identity" to Dark.IDENTITY,
+                    "unavailable" to Dark.UNAVAILABLE,
+                ),
+                stateTints = listOf(
+                    "live" to Dark.LIVE,
+                    "attention" to Dark.ATTENTION,
+                    "identity" to Dark.IDENTITY,
+                    "unavailable" to Dark.UNAVAILABLE,
+                ),
+                alpha = HermesStateWashes.hudGradientAlpha,
+                tintLabel = "HUD gradient tint",
+            ),
+        )
+        addAll(
+            textPairsForTints(
+                appearance = "light",
+                surfaces = listOf("base" to Light.BASE),
+                inks = listOf(
+                    "primaryInk" to Light.PRIMARY_INK,
+                    "secondaryInk" to Light.SECONDARY_INK,
+                    "live" to Light.LIVE,
+                    "attention" to Light.ATTENTION,
+                    "identity" to Light.IDENTITY,
+                    "unavailable" to Light.UNAVAILABLE,
+                ),
+                stateTints = listOf(
+                    "live" to Light.LIVE,
+                    "attention" to Light.ATTENTION,
+                    "identity" to Light.IDENTITY,
+                    "unavailable" to Light.UNAVAILABLE,
+                ),
+                alpha = HermesStateWashes.hudGradientAlpha,
+                tintLabel = "HUD gradient tint",
+            ),
+        )
+    }
+
+    private fun textPairsForTints(
+        appearance: String,
+        surfaces: List<Pair<String, Int>>,
+        inks: List<Pair<String, Int>>,
+        stateTints: List<Pair<String, Int>>,
+        alpha: Float,
+        tintLabel: String,
+    ): List<Triple<String, Int, Int>> = buildList {
+        for ((surfaceName, surface) in surfaces) {
+            for ((stateName, tint) in stateTints) {
+                val washedSurface = HermesStateWashes.blendArgb(tint, surface, alpha)
+                for ((inkName, ink) in inks) {
+                    add(
+                        Triple(
+                            "$appearance $inkName/$stateName $tintLabel over $surfaceName",
+                            ink,
+                            washedSurface,
+                        ),
+                    )
+                }
+            }
+        }
+    }
 }
 
 /** WCAG 2.2 relative luminance and contrast ratio. */
