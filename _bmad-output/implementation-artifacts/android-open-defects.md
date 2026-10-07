@@ -137,3 +137,23 @@ this session's diagnosis rested entirely on platform `AudioFlinger` logs. A
 debug-only, opt-in log of phase transitions and transport outcomes would have
 made every defect here faster to find. Worth a deliberate decision rather than
 remaining an accident.
+
+## Paired Profile blocked by stale Device-administration state (fixed 2026-10-06)
+
+Found on a Pixel 6a (Android 17, API 37) the first time a paired Spark Profile was
+tried: the screen read "Home bridge: Disconnected · Authorization: Unavailable" and
+the Profile never connected, although the phone resolved and pinged the Home host
+and `GET /pair` returned 200. The Profile JSON carried
+`home_administration: {phase: Unavailable, last_error: InvalidEndpoint}`.
+`HomeDeviceAdministrationController.client()` throws `InvalidEndpoint` for any
+Profile without an operator `homeBinding`, which every paired Profile is, and its
+`persist` wrote that state onto the paired Profile. `snapshot()` and
+`reconnect()` then treated the state as "Home Device configuration is not ready"
+and refused to connect (no network attempt was made).
+
+Fix: operator Device administration no longer gates a paired Profile (client and
+`reconnect()`), and the Device-administration section is hidden for a paired
+Profile. A Profile already carrying the stale state heals without editing data.
+Regression: `a_paired_profile_is_not_gated_by_stale_device_administration_state`
+failed on `main` (AssertionError) and passes. The step that wrote the state
+(which control Amanda tapped) was not identified from the device.

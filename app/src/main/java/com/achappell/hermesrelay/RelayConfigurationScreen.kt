@@ -187,7 +187,9 @@ internal fun RelayConfigurationScreen(
             Text(stringResource(R.string.android_relay_save))
         }
 
-        homeAdministration?.let {
+        // Device administration belongs to operator-handle Profiles; a paired
+        // Profile has no administration binding to act on.
+        homeAdministration?.takeIf { collection.selected?.homeClientGrant == null }?.let {
             HomeDeviceAdministrationScreen(
                 controller = it,
                 selectedProfileId = collection.selectedId,
