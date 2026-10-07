@@ -84,7 +84,8 @@ class HomeConversationsSheetTest {
         composeRule.onNodeWithText("Open on Home (3 open · max 2)").assertIsDisplayed()
         composeRule.onNodeWithText("Current conversation", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("Groceries", useUnmergedTree = true).assertIsDisplayed()
-        composeRule.onNodeWithText("Untitled conversation", useUnmergedTree = true).assertIsDisplayed()
+        // The current claim and the third claim both have no title.
+        composeRule.onAllNodesWithText("Untitled conversation", useUnmergedTree = true).assertCountEquals(2)
         composeRule.onNodeWithText("Profile name unavailable", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onAllNodesWithTag("android_home_claim_close_0").assertCountEquals(0)
         composeRule.onNodeWithTag("android_home_claim_close_1").assertIsEnabled()
