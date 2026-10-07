@@ -31,7 +31,7 @@ The spec's "header dot" wash callsite is removed from UX-01. The header status d
 - `HomeConversationsSheet.kt` stays untouched: HOME-03 (#130) is open and owns it.
 - Pairing/configuration UI (`RelayConfigurationScreen.kt`, `HomePairingSection.kt`, `HomePairingScanner.kt`, `HomeDeviceAdministration.kt`, `HomeApprovalsSheet.kt`) and runtime files were not migrated; the dp literals there are unreviewed.
 
-## Device pass (Pixel 6a, Android 17, 2026-10-07; head `f37080d`)
+## Historical device pass (Pixel 6a, Android 17, 2026-10-07; head `f37080d`)
 
 Installed with `adb install -r` only (app data hashes unchanged after each install); system font scale and night mode were set per run through `settings put system font_scale` / `cmd uimode night` and restored afterwards (original: font scale 0.85, night mode `auto`).
 
@@ -45,10 +45,18 @@ Installed with `adb install -r` only (app data hashes unchanged after each insta
 - **Independent header OWNER EXEMPTION (2026-10-07):** “Exempt pre-existing header clipping from #127 acceptance.” This exception covers only the pre-existing session-header clipping documented above, reproduced unchanged on `main`, and tracked for UX-03 (#134) with HOME-11 reachability coordination; it is not a UX-01 regression. The exemption remains intact and is separate from the TalkBack waiver.
 - **Amanda's TalkBack waiver (2026-10-07):** manual physical TalkBack spoken-output/focus-gesture acceptance for PR #127 is waived. Physical TalkBack was not run; spoken output and focus gestures remain unverified, with known residual spoken-label, focus-order and gesture risk. Automated semantics and focus-order tests do not establish manual spoken-output or gesture acceptance.
 - **Superseded history:** before this owner decision, physical TalkBack was not waived and remained an open device-verification gate. That requirement no longer blocks review; it is not a historical pass.
-- **Status:** `review`, ready for review only after final exact-head CI succeeds, not `done` or fully TalkBack verified. The recorded automated/device/layout evidence and independent header exemption cover the other UX-01 gates; no additional unmet gate is recorded. Deferred callsites and the header correction remain owned by their separate stories, not silently accepted here.
+- **Status:** `review`, not `done` or fully TalkBack verified. The recorded automated/device/layout evidence and independent header exemption retain their original scope. The newer owner-directed integration of current `main` requires final exact-head CI and refreshed automatic header/menu checks before claiming current-head integration acceptance; deferred callsites remain with their separate owners.
 
 ## Verification
 
 - Historical exact-head CI: GitHub Actions run `37641920909` for superseded head `fb26d10de9976e2c7fd6a596cbecb2e30a4042c0` passed both `Build, test, lint, and inspect APK` and `Validate BMAD issue tracking`. The legacy commit-status endpoint had `pending` with zero contexts; it was not a failed check.
 - Pre-waiver exact-head CI: GitHub Actions run `37650526534` for `41a1d7e2a9d36b777329fc7cc331bbafca9dc938` passed both checks. It is historical evidence, not final waiver-commit CI; the final head/run is recorded in [PR #127](https://github.com/achappell/hermes-relay-android/pull/127).
 - Existing local evidence at tested code head `f37080d`: `./gradlew testDebugUnitTest assembleDebug lintDebug compileDebugAndroidTestKotlin --no-daemon --console=plain` passed; `scripts/run-flake-gate.sh PaletteContrastTest,HermesDesignTokensTest 30` passed 30/30 runs (14 tests/run); 18 issue-tracking tests and the overrides check passed. No local tests/build/lint/format or device scenarios were rerun for this metadata-only waiver.
+
+## Current-main integration (2026-10-07)
+
+- Owner-directed conflict resolution merged `origin/main` at `e38b83e` into UX-01 in merge commit `db34461`, without rebasing or force-pushing. The only conflicted file was `DoorwayZones.kt`: the upstream responsive header's inset-aware `Surface`, weighted stacked title/description/Profile column and separate trailing labelled menu are retained; the header uses `HermesSpacing.lg/sm/xs`, and its overflow vector remains decorative under the existing singly labelled/clickable button. State washes and other token adoption merged without conflicts.
+- The historical clipped-header finding above is superseded as a description of current source by the upstream UX-03/HOME-11 responsive layout, not by invented UX-01 device evidence. Amanda's independent header exemption and separate TalkBack waiver remain intact.
+- Integration verification and parent-owned automatic device evidence are recorded against their actual code head; final exact-head CI and current delivery truth are linked in PR #127. No manual TalkBack spoken-output/focus-gesture pass is claimed.
+- Local integration gates at `db34461`: `testDebugUnitTest` restricted to `PaletteContrastTest` (9 tests) and `HermesDesignTokensTest` (5 tests), `lintDebug`, `assembleDebug` and `assembleDebugAndroidTest` passed; all 14 focused tests had zero failures/errors/skips. The 18 issue-tracking helper tests, override shell syntax and `--check` passed. Initial invocations stopped at missing Java/SDK environment prerequisites before tests ran; configuring the installed Android Studio JBR and Android SDK resolved those environment-only failures.
+- Optional local APK-metadata inspection could not run because this workstation SDK lacks `apkanalyzer`; final CI's `Verify APK metadata` step remains the authoritative gate, not a claimed local pass.
