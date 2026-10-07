@@ -77,7 +77,7 @@ development_status:
   android-home-01: done
   epic-4: backlog
   android-retire-01: backlog
-  android-rel-01: backlog
+  android-rel-01: review
   # Declined 2026-10-06 (disposition: declined in story-index.yaml): Play Store distribution stays out of
   # scope per README. `done` is the closest value in the shared status vocabulary; nothing was delivered.
   android-rel-02: done

@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.util.Log
-import androidx.core.content.pm.PackageInfoCompat
 import org.json.JSONObject
 import java.io.File
 import java.time.Instant
@@ -77,6 +76,10 @@ internal data class JournalEntry(val timeMillis: Long, val event: String) {
 internal data class DiagnosticsHeader(
     val appVersion: String,
     val versionCode: Long,
+    /** `debug` or `release` (`ANDROID-REL-01`). */
+    val buildType: String,
+    /** Short git revision of the build, or `unknown`. */
+    val revision: String,
     val androidRelease: String,
     val apiLevel: Int,
     val model: String,
@@ -86,6 +89,8 @@ internal data class DiagnosticsHeader(
         .put("kind", KIND)
         .put("app_version", appVersion)
         .put("version_code", versionCode)
+        .put("build_type", buildType)
+        .put("revision", revision)
         .put("system", "Android $androidRelease (API $apiLevel)")
         .put("model", model)
         .put("t", Instant.ofEpochMilli(exportedAtMillis).toString())
@@ -94,12 +99,12 @@ internal data class DiagnosticsHeader(
         const val KIND = "hermes-relay-diagnostics/1"
 
         fun current(context: Context, now: Long = System.currentTimeMillis()): DiagnosticsHeader {
-            val info = runCatching {
-                context.packageManager.getPackageInfo(context.packageName, 0)
-            }.getOrNull()
+            val build = AppBuildIdentity.current(context)
             return DiagnosticsHeader(
-                appVersion = info?.versionName ?: "unknown",
-                versionCode = info?.let { PackageInfoCompat.getLongVersionCode(it) } ?: 0L,
+                appVersion = build.versionName,
+                versionCode = build.versionCode,
+                buildType = build.buildType,
+                revision = build.revision,
                 androidRelease = Build.VERSION.RELEASE ?: "unknown",
                 apiLevel = Build.VERSION.SDK_INT,
                 model = Build.MODEL ?: "unknown",

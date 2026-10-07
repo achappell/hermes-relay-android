@@ -134,6 +134,8 @@ internal fun AndroidClientScreen(
 ) {
     val clientPort = runtime.clientPort
     val context = androidx.compose.ui.platform.LocalContext.current
+    // Computed once from the installed package (ANDROID-REL-01).
+    val versionLabel = remember { AppBuildIdentity.current(context).label() }
     var configurationRevision by remember { mutableStateOf(0) }
     val recoveryState = runtime.recoveryState
     val snapshot = remember(
@@ -645,6 +647,7 @@ internal fun AndroidClientScreen(
                                 configurationRevision += 1
                             },
                             homePairing = homePairing,
+                            versionLabel = versionLabel,
                             onShareDiagnostics = {
                                 context.startActivity(
                                     DiagnosticsShare.chooserIntent(context, runtime.journal),

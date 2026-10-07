@@ -22,6 +22,8 @@ class DiagnosticsJournalTest {
     private val header = DiagnosticsHeader(
         appVersion = "0.3.1",
         versionCode = 301,
+        buildType = "release",
+        revision = "3e10ae2",
         androidRelease = "14",
         apiLevel = 34,
         model = "Pixel 6a",
@@ -146,6 +148,8 @@ class DiagnosticsJournalTest {
         assertEquals("0.3.1", head.getString("app_version"))
         assertEquals(301L, head.getLong("version_code"))
         assertEquals("Android 14 (API 34)", head.getString("system"))
+        assertEquals("release", head.getString("build_type"))
+        assertEquals("3e10ae2", head.getString("revision"))
         assertEquals("Pixel 6a", head.getString("model"))
         assertEquals("2023-11-14T22:15:00Z", head.getString("t"))
         assertEquals("app phase=started", JSONObject(lines[1]).getString("e"))
@@ -157,7 +161,9 @@ class DiagnosticsJournalTest {
     fun the_header_carries_no_identity_beyond_build_and_device_model() {
         val keys = header.toJson().keys().asSequence().toSet()
 
-        assertEquals(setOf("kind", "app_version", "version_code", "system", "model", "t"), keys)
+        assertEquals(setOf(
+                "kind", "app_version", "version_code", "build_type", "revision", "system", "model", "t",
+            ), keys)
     }
 
     @Test

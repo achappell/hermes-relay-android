@@ -22,6 +22,17 @@ val appVersionCode = appVersionName.substringBefore('-').split('.').let { parts 
     major * 10_000 + minor * 100 + patch
 }
 
+// Short git revision baked into BuildConfig so two local builds of the same
+// version are told apart on the device and in a shared journal (ANDROID-REL-01).
+// Falls back to "unknown" without git (a source tarball). versionName and
+// versionCode are untouched, so scripts/check-apk-metadata.sh keeps passing.
+val gitRevision: String = runCatching {
+    providers.exec {
+        commandLine("git", "rev-parse", "--short", "HEAD")
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim()
+}.getOrDefault("").ifBlank { "unknown" }
+
 android {
     namespace = "com.achappell.hermesrelay"
     compileSdk = 37
@@ -41,6 +52,7 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        buildConfigField("String", "GIT_REVISION", "\"$gitRevision\"")
     }
 
     // Release signing comes from an external keystore so the APK is installable.
@@ -82,6 +94,8 @@ android {
 
     buildFeatures {
         compose = true
+        // Only for GIT_REVISION and DEBUG (ANDROID-REL-01).
+        buildConfig = true
     }
 
     packaging {
