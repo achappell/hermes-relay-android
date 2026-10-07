@@ -1046,6 +1046,19 @@ internal class OkHttpRelaySessionClient(
             audioRemainder = ByteArray(0)
         }
         audioSink.cancel()
+        return sendInterruptFrame(socket, binding, retryOnFailure = true)
+    }
+
+    /**
+     * Sends the single `session.interrupt` for [binding] and awaits its
+     * acknowledgement off the caller's thread. [retryOnFailure] re-arms a
+     * later interrupt when the active turn is still waiting on Home.
+     */
+    private fun sendInterruptFrame(
+        socket: WebSocket,
+        binding: AndroidTurnBinding,
+        retryOnFailure: Boolean,
+    ): Boolean {
         val requestId = rpcId("interrupt")
         val response = PendingRpc()
         pending[requestId] = response
@@ -1060,7 +1073,7 @@ internal class OkHttpRelaySessionClient(
         )
         if (!sent) {
             pending.remove(requestId)
-            interruptRequested.set(false)
+            if (retryOnFailure) interruptRequested.set(false)
             reportDisconnect(socket, "The Home bridge refused the interrupt request.")
         } else {
             requestTelemetry.recordInterruptRequest()
@@ -1081,7 +1094,7 @@ internal class OkHttpRelaySessionClient(
                 journal.record(
                     if (acknowledged) "home interrupt acknowledged" else "home interrupt unacknowledged",
                 )
-                if (!acknowledged) {
+                if (!acknowledged && retryOnFailure) {
                     interruptRequested.set(false)
                 }
             }.apply {
@@ -1093,11 +1106,16 @@ internal class OkHttpRelaySessionClient(
     }
 
     /**
-     * Home ended this turn, so there is nothing at Home to interrupt: stop the
-     * speech still buffered on this phone and end the turn here. Sends no frame.
+     * Home ended the text of this turn but still holds prompt admission until
+     * its response-audio sidecar ends. Stop the speech still buffered on this
+     * phone, then tell Home with one explicit `session.interrupt` for the same
+     * turn so it stops the sidecar and admits the next prompt. The frame goes
+     * out before the turn is released, so it precedes any following prompt on
+     * the same socket; without a usable socket the local stop still stands.
      */
     private fun stopBufferedSpeech(binding: AndroidTurnBinding): Boolean {
         if (!audioActive.get() && !audioDrainPending.get()) return false
+        if (!interruptRequested.compareAndSet(false, true)) return false
         val currentObserver = observer.get()
         audioActive.set(false)
         audioDrainPending.set(false)
@@ -1107,6 +1125,10 @@ internal class OkHttpRelaySessionClient(
         }
         audioSink.cancel()
         journal.record("home speech stopped locally")
+        val socket = activeSocket.get()
+        if (socket != null && supportsInterrupt()) {
+            sendInterruptFrame(socket, binding, retryOnFailure = false)
+        }
         if (currentObserver != null) {
             deliver(
                 currentObserver,

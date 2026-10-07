@@ -5,6 +5,7 @@
 ### Features
 - Add day/night-aware Android splash styling and enable platform predictive-back support for modal sheets.
 - Add 2-second interrupt acknowledgement and interrupt-and-listen behavior to Android voice controls.
+- Tell Home when Interrupt stops speech still buffered on the phone after the text turn ended, so Home releases the reply audio and accepts the next prompt.
 
 ## 0.3.1 (2026-09-12)
 

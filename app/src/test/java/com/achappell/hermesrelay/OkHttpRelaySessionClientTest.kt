@@ -1239,6 +1239,9 @@ class OkHttpRelaySessionClientTest {
         val completed = CountDownLatch(1)
         val interruptFrames = AtomicInteger(0)
         val clientClosed = CountDownLatch(1)
+        val interruptSeen = CountDownLatch(1)
+        val order = Collections.synchronizedList(mutableListOf<String>())
+        val interruptTurnIds = Collections.synchronizedList(mutableListOf<String>())
         server.enqueue(
             MockResponse().withWebSocketUpgrade(
                 object : WebSocketListener() {
@@ -1273,7 +1276,23 @@ class OkHttpRelaySessionClientTest {
                                     ),
                                 )
                             }
-                            "session.interrupt" -> interruptFrames.incrementAndGet()
+                            "session.interrupt" -> {
+                                interruptFrames.incrementAndGet()
+                                order += "frame"
+                                interruptTurnIds +=
+                                    request.getJSONObject("params").getString("turn_id")
+                                interruptSeen.countDown()
+                                webSocket.send(
+                                    rpcResult(
+                                        request.getString("id"),
+                                        JSONObject()
+                                            .put("schema", 1)
+                                            .put("conversation_handle", CONVERSATION_HANDLE)
+                                            .put("turn_id", "home-turn-tail")
+                                            .put("status", "accepted"),
+                                    ),
+                                )
+                            }
                         }
                     }
 
@@ -1299,6 +1318,7 @@ class OkHttpRelaySessionClientTest {
         val sink = object : AndroidAudioSink by delegate {
             override fun finish(onDrained: () -> Unit, onFailure: (String) -> Unit) = Unit
             override fun cancel() {
+                order += "cancel"
                 cancelled.incrementAndGet()
                 delegate.cancel()
             }
@@ -1321,19 +1341,20 @@ class OkHttpRelaySessionClientTest {
         assertTrue("Home never completed the turn", completed.await(5, TimeUnit.SECONDS))
         assertTrue("the spoken tail still holds the turn", client.hasActiveTurn())
         cancelled.set(0)
-
+        order.clear()
+        interruptTurnIds.clear()
         assertTrue("Interrupt did nothing while speech was still buffered", client.interruptTurn(binding))
+        assertTrue("Home never saw the interrupt", interruptSeen.await(5, TimeUnit.SECONDS))
 
-        assertEquals("local speech was not stopped", 1, cancelled.get())
+        assertEquals(listOf("cancel", "frame"), order.toList())
+        assertEquals(listOf(binding.turnId), interruptTurnIds.toList())
         assertFalse(client.hasActiveTurn())
         assertTrue(events.any { it is AndroidNormalizedEvent.TurnInterrupted })
         assertFalse("a second tap acted again", client.interruptTurn(binding))
         assertEquals(1, journal.count("home speech stopped locally"))
-        // Frames reach Home in order, so once it sees the close, any interrupt would
-        // have arrived before it.
         client.close()
         assertTrue(clientClosed.await(5, TimeUnit.SECONDS))
-        assertEquals("nothing is left at Home to interrupt", 0, interruptFrames.get())
+        assertEquals(1, interruptFrames.get())
     }
 
     @Test
