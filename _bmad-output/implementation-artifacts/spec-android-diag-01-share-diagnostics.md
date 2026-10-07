@@ -1,7 +1,7 @@
 ---
 id: ANDROID-DIAG-01
 title: Share content-free connection diagnostics from the app
-status: backlog
+status: review
 product_epic: 6
 release_scope: migration
 parity_epic: ANDROID-PARITY-01

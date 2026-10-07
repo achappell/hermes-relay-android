@@ -30,6 +30,8 @@ internal class HomeRuntime(
     private val postToMain: (Runnable) -> Unit,
     private val workExecutor: ExecutorService,
     private val onTornDown: () -> Unit = {},
+    /** Content-free connection journal (`ANDROID-DIAG-01`); never receives prompts or replies. */
+    val journal: DiagnosticsJournal = DiagnosticsJournal.None,
 ) {
     val homeConversations: AndroidHomeConversations? = clientPort as? AndroidHomeConversations
     val initiationController = AndroidInitiationController(clientPort)
@@ -322,6 +324,7 @@ internal class HomeRuntime(
     fun activityCreated() {
         attachedActivities += 1
         teardownWhenSettled = false
+        journal.record("app activity created attached=$attachedActivities")
     }
 
     /**
@@ -336,23 +339,31 @@ internal class HomeRuntime(
      */
     fun activityDestroyed(isFinishing: Boolean, isChangingConfigurations: Boolean) {
         attachedActivities = (attachedActivities - 1).coerceAtLeast(0)
+        journal.record(
+            "app activity destroyed finishing=$isFinishing config_change=$isChangingConfigurations " +
+                "remaining=$attachedActivities",
+        )
         // Another Activity instance is still showing this runtime.
         if (attachedActivities > 0) return
         if (isChangingConfigurations || !isFinishing) return
         if (hasAcceptedTurn) {
             teardownWhenSettled = true
+            journal.record("runtime teardown deferred reply=inFlight")
         } else {
-            tearDown()
+            tearDown("activityFinished")
         }
     }
 
     private fun tearDownIfDue() {
-        if (teardownWhenSettled && attachedActivities == 0 && turnState.isTerminal) tearDown()
+        if (teardownWhenSettled && attachedActivities == 0 && turnState.isTerminal) {
+            tearDown("replySettled")
+        }
     }
 
-    private fun tearDown() {
+    private fun tearDown(reason: String) {
         if (tornDown) return
         tornDown = true
+        journal.record("runtime teardown reason=$reason")
         connectionObservation.cancel()
         turnObservation?.cancel()
         turnObservation = null
@@ -377,6 +388,7 @@ internal class HomeRuntime(
  * than one per process, without an intervening teardown, is a regression.
  */
 internal class HomeRuntimeBox(
+    private val journal: DiagnosticsJournal = DiagnosticsJournal.None,
     private val create: (onTornDown: () -> Unit) -> HomeRuntime,
 ) {
     private var runtime: HomeRuntime? = null
@@ -388,6 +400,9 @@ internal class HomeRuntimeBox(
     fun resolve(): HomeRuntime = runtime ?: create(::release).also {
         runtime = it
         createdCount += 1
+        // Exactly one per process, across rotations. A second line without a
+        // `runtime teardown` between is a regression.
+        journal.record("runtime created")
     }
 
     @Synchronized

@@ -36,8 +36,30 @@ internal class HermesRelayServices(context: Context) {
 class HermesRelayApplication : Application() {
     internal val services: HermesRelayServices by lazy { HermesRelayServices(this) }
 
+    /**
+     * The content-free connection journal, kept in every build. Debug builds also
+     * echo each line to logcat under one tag.
+     */
+    internal val journal: DiagnosticsJournal by lazy {
+        val file = FileDiagnosticsJournal.forApplication(this)
+        if (LogcatEchoJournal.isDebuggable(this)) LogcatEchoJournal(file) else file
+    }
+
     /** Replaceable so an instrumented test can supply a runtime built on a fake Home. */
-    internal var homeRuntimeBox: HomeRuntimeBox = HomeRuntimeBox(::createHomeRuntime)
+    internal var homeRuntimeBox: HomeRuntimeBox
+        get() = boxOverride ?: processBox
+        set(value) {
+            boxOverride = value
+        }
+
+    private var boxOverride: HomeRuntimeBox? = null
+    private val processBox: HomeRuntimeBox by lazy { HomeRuntimeBox(journal, ::createHomeRuntime) }
+
+    override fun onCreate() {
+        super.onCreate()
+        // A leftover export copy from an earlier share is not needed any more.
+        DiagnosticsShare.clearExport(this)
+    }
 
     private fun createHomeRuntime(onTornDown: () -> Unit): HomeRuntime {
         // One port serves both states: it reports NotConfigured until a profile
@@ -54,6 +76,7 @@ class HermesRelayApplication : Application() {
                 services.credentials,
                 services.clientService,
             ),
+            journal = journal,
         )
         val mainHandler = Handler(Looper.getMainLooper())
         return HomeRuntime(
@@ -65,6 +88,7 @@ class HermesRelayApplication : Application() {
                 Thread(runnable, "hermes-android-work").apply { isDaemon = true }
             },
             onTornDown = onTornDown,
+            journal = journal,
         )
     }
 }

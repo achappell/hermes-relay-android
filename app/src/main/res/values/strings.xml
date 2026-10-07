@@ -230,4 +230,7 @@
     <string name="android_approvals_failed">Home did not accept that change.</string>
     <string name="android_approvals_banner">A device is asking to use one of your Profiles.</string>
     <string name="android_approvals_review">Review</string>
+    <string name="android_diagnostics_title">Troubleshooting</string>
+    <string name="android_diagnostics_share">Share diagnostics</string>
+    <string name="android_diagnostics_hint">Shares a short log of connection events. It never includes prompts, replies, tokens or conversation details.</string>
 </resources>
