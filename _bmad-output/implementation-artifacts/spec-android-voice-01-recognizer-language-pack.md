@@ -1,7 +1,7 @@
 ---
 id: ANDROID-VOICE-01
 title: Recognizer language-pack handling, error mapping and a confirmed spoken turn
-status: backlog
+status: review
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-02

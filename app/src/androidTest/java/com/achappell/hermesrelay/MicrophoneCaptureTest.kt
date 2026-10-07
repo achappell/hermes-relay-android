@@ -27,7 +27,7 @@ class MicrophoneCaptureTest {
     @Test
     fun the_platform_input_detects_the_installed_recognizer_without_claiming_permission() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val input = PlatformSpeechInput(context)
+        val input = PlatformSpeechInput(context, AndroidPlatform.current(context))
 
         // The manifest <queries> element must let the recognizer be seen, and the
         // result must mirror the permission rather than assume it. The grant

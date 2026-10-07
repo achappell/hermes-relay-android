@@ -526,6 +526,7 @@ internal fun AndroidClientScreen(
                                     motionMode = motionMode,
                                     onStop = { captureController.finishCapture() },
                                     onCancel = { captureController.cancelCapture() },
+                                    networkRecognitionAllowed = captureController.networkRecognitionAllowed,
                                 )
                             } else {
                                 IdleCaptureZone(

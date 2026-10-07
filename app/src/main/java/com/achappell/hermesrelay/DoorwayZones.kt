@@ -605,7 +605,9 @@ internal fun ColumnScope.ActiveCaptureZone(
     motionMode: AndroidMotionMode,
     onStop: () -> Unit,
     onCancel: () -> Unit,
+    networkRecognitionAllowed: Boolean = false,
 ) {
+    if (networkRecognitionAllowed) NetworkRecognitionNotice(onTurnOff = null)
     if (handsFree) {
         Text(
             modifier = Modifier
@@ -786,6 +788,52 @@ internal fun ColumnScope.IdleCaptureZone(
             color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall,
         )
+    }
+
+    // The one recovery for a missing speech pack is the user's explicit choice
+    // to let the system recognizer use the network; it is never taken for them.
+    if ((captureState as? AndroidCaptureState.Failed)?.reason ==
+        AndroidSpeechFailure.LanguageUnavailable && !captureController.networkRecognitionAllowed
+    ) {
+        OutlinedButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("android_capture_retry_online")
+                .a11yOrder(A11yOrder.ACTION),
+            onClick = captureController::allowNetworkRecognitionAndRetry,
+        ) {
+            Text(stringResource(R.string.android_capture_retry_online))
+        }
+    }
+
+    if (captureController.networkRecognitionAllowed) {
+        NetworkRecognitionNotice(onTurnOff = captureController::useDeviceRecognitionOnly)
+    }
+}
+
+/**
+ * Visible for as long as the system recognizer may use the network, so audio
+ * leaving the device is never a hidden state.
+ */
+@Composable
+internal fun NetworkRecognitionNotice(onTurnOff: (() -> Unit)?) {
+    Text(
+        modifier = Modifier
+            .testTag("android_network_recognition_indicator")
+            .a11yOrder(A11yOrder.STATE),
+        text = stringResource(R.string.android_network_recognition_on),
+        style = MaterialTheme.typography.bodySmall,
+    )
+    if (onTurnOff != null) {
+        TextButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("android_network_recognition_off")
+                .a11yOrder(A11yOrder.ACTION),
+            onClick = onTurnOff,
+        ) {
+            Text(stringResource(R.string.android_network_recognition_off))
+        }
     }
 }
 
@@ -1386,6 +1434,8 @@ internal fun AndroidSpeechFailure.messageRes(): Int = when (this) {
     AndroidSpeechFailure.NoSpeechHeard -> R.string.android_capture_failed_no_speech
     AndroidSpeechFailure.NetworkUnavailable -> R.string.android_capture_failed_network
     AndroidSpeechFailure.RecognizerBusy -> R.string.android_capture_failed_busy
+    AndroidSpeechFailure.LanguageUnavailable -> R.string.android_capture_failed_language
+    AndroidSpeechFailure.AudioUnavailable -> R.string.android_capture_failed_audio
     AndroidSpeechFailure.Unknown -> R.string.android_capture_failed_unknown
 }
 

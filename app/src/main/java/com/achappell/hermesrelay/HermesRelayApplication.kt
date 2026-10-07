@@ -81,7 +81,7 @@ class HermesRelayApplication : Application() {
         val mainHandler = Handler(Looper.getMainLooper())
         return HomeRuntime(
             clientPort = clientPort,
-            speechInput = PlatformSpeechInput(this),
+            speechInput = PlatformSpeechInput(this, platform),
             historyStore = services.historyStore,
             postToMain = { mainHandler.post(it) },
             workExecutor = Executors.newSingleThreadExecutor { runnable ->

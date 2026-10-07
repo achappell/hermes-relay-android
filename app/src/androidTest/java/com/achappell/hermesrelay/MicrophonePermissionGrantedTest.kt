@@ -29,7 +29,7 @@ class MicrophonePermissionGrantedTest {
         val source = PlatformRuntimePermissionSource(context, Manifest.permission.RECORD_AUDIO)
         assertEquals(RuntimePermissionState.Granted, source.state())
 
-        val input = PlatformSpeechInput(context)
+        val input = PlatformSpeechInput(context, AndroidPlatform.current(context))
         assumeTrue(
             "no speech recognizer is installed on this device",
             input.authorization() != AndroidSpeechAuthorization.Unavailable,

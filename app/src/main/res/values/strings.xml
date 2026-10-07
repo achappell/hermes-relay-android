@@ -120,7 +120,7 @@
     <string name="android_capture_stop">Stop and send</string>
     <string name="android_capture_cancel">Cancel</string>
     <string name="android_capture_grant">Allow microphone</string>
-    <string name="android_capture_block_permission">Tap-to-speak needs the microphone. Audio is transcribed on this device and never uploaded.</string>
+    <string name="android_capture_block_permission">Tap-to-speak needs the microphone. Audio is transcribed on this device and is not uploaded unless you allow network recognition.</string>
     <string name="android_capture_block_permission_rationale">Hermes transcribes your speech on this device and sends only the text. Tap-to-speak needs the microphone; allow it to continue.</string>
     <string name="android_capture_block_permission_settings">Microphone access is turned off for Hermes, so Android will not ask again. Open settings, choose Permissions, then allow the microphone.</string>
     <string name="android_permission_open_settings">Open settings</string>
@@ -132,6 +132,11 @@
     <string name="android_capture_failed_no_speech">No speech was heard, so no turn was sent.</string>
     <string name="android_capture_failed_network">Speech recognition needs a network connection it could not reach.</string>
     <string name="android_capture_failed_busy">The speech recognizer is busy. Try again in a moment.</string>
+    <string name="android_capture_failed_language">Install the offline speech pack for your language, or allow network recognition. With network recognition your speech is processed by Android\'s speech service, not by Hermes, and may leave this device.</string>
+    <string name="android_capture_retry_online">Allow network recognition and try again</string>
+    <string name="android_capture_failed_audio">The microphone could not be read. Another app may be using it. Nothing was captured.</string>
+    <string name="android_network_recognition_on">Network speech recognition is on for this session. Your speech may leave this device and is processed by Android\'s speech service.</string>
+    <string name="android_network_recognition_off">Use on-device recognition only</string>
     <string name="android_capture_failed_unknown">Speech capture failed, so no turn was sent.</string>
     <string name="android_capture_block_session_replaced">The Home bridge connection changed while you were speaking, so nothing was sent. Speak again to use the new connection.</string>
     <string name="android_capture_participant">You (transcribing)</string>

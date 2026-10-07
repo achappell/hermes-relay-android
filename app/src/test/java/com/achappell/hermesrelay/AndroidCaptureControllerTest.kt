@@ -1,6 +1,7 @@
 package com.achappell.hermesrelay
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -291,6 +292,49 @@ class AndroidCaptureControllerTest {
 
         // Idle carries no partial text, so a cancelled utterance leaves nothing.
         assertEquals(AndroidCaptureState.Idle, controller.state)
+    }
+
+    @Test
+    fun a_missing_speech_pack_is_reported_and_never_retried_online_on_its_own() {
+        val speech = FakeSpeechInput()
+        val controller = controller(speech, FakePort())
+
+        controller.beginCapture()
+        speech.emit(AndroidSpeechEvent.Failed(AndroidSpeechFailure.LanguageUnavailable))
+
+        assertEquals(
+            AndroidCaptureState.Failed(AndroidSpeechFailure.LanguageUnavailable),
+            controller.state,
+        )
+        assertFalse("network recognition was enabled silently", speech.networkRecognitionAllowed)
+        assertEquals("the microphone reopened without a user choice", 1, speech.startCount)
+    }
+
+    @Test
+    fun the_online_retry_is_an_explicit_choice_that_listens_again_and_stays_visible() {
+        val speech = FakeSpeechInput()
+        val controller = controller(speech, FakePort())
+        controller.beginCapture()
+        speech.emit(AndroidSpeechEvent.Failed(AndroidSpeechFailure.LanguageUnavailable))
+
+        controller.allowNetworkRecognitionAndRetry()
+
+        assertTrue(controller.networkRecognitionAllowed)
+        assertTrue(speech.networkRecognitionAllowed)
+        assertEquals(2, speech.startCount)
+        assertEquals(AndroidCaptureState.Starting, controller.state)
+    }
+
+    @Test
+    fun turning_network_recognition_off_returns_to_on_device_only() {
+        val speech = FakeSpeechInput()
+        val controller = controller(speech, FakePort())
+        controller.allowNetworkRecognitionAndRetry()
+
+        controller.useDeviceRecognitionOnly()
+
+        assertFalse(controller.networkRecognitionAllowed)
+        assertFalse(speech.networkRecognitionAllowed)
     }
 
     private fun controller(
