@@ -41,6 +41,7 @@ internal enum class AndroidHomeUnavailableReason {
     SecureStorageUnavailable,
     AuthorizationUnavailable,
     Unauthorized,
+    ClaimLimit,
     StaleConversation,
     ReconnectRequired,
     ConversationMismatch,
@@ -298,8 +299,32 @@ internal interface AndroidHomeConversations {
     /** True when the selected Profile is a paired Home personal client. */
     fun selectedIsPaired(): Boolean
 
+    /** Pairing identity of the currently selected Profile, if it is paired. */
+    fun selectedPairingId(): String?
+
     /** The selected grant's Home conversations, newest first. Blocking. */
     fun listConversations(): HomeClientClaimProvider.Sessions
+
+    /** Whether the selected Home has returned claim_ref on a successful create. */
+    fun supportsOpenClaims(): Boolean
+
+    /** Lists active claims for the selected pairing, or a specified pairing. */
+    fun listOpenClaims(pairingId: String? = null): HomeClientClaimProvider.OpenClaims
+
+    /** Adds best-effort titles after the claim list is already visible. */
+    fun enrichOpenClaimTitles(
+        pairingId: String,
+        claims: List<HomeClientClaim>,
+    ): List<HomeClientClaim>
+
+    /** Closes explicit references and always re-lists before returning. */
+    fun closeAndListOpenClaims(
+        pairingId: String,
+        claimRefs: List<String>,
+    ): HomeClientClaimProvider.CloseAndList
+
+    /** The active held claim reference, if this selected Profile created one. */
+    fun currentClaimRef(): String?
 
     /** The conversation the held claim is known to be using, if any. */
     fun currentConversationRef(): String?

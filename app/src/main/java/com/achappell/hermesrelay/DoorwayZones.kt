@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,10 +34,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -109,11 +109,20 @@ internal fun DoorwayHeaderZone(
         canDisconnect
     val menuDescription = stringResource(R.string.android_menu_content_description)
 
-    TopAppBar(
+    Surface(
         modifier = Modifier.testTag("android_doorway_header"),
-        title = {
-            androidx.compose.foundation.layout.Column(
-                modifier = Modifier.fillMaxWidth(),
+        color = stateColors.consoleSurface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = HermesSpacing.lg, vertical = HermesSpacing.sm),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
             ) {
                 Text(
                     modifier = Modifier.a11yHeading(A11yOrder.HEADER),
@@ -130,16 +139,11 @@ internal fun DoorwayHeaderZone(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-            }
-        },
-        actions = {
-            Row(
-                modifier = Modifier.padding(end = HermesSpacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(HermesSpacing.xs),
-            ) {
-                androidx.compose.foundation.layout.Column(
-                    horizontalAlignment = Alignment.End,
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = HermesSpacing.xs),
+                    horizontalAlignment = Alignment.Start,
                 ) {
                     Text(
                         modifier = Modifier.a11yHeading(A11yOrder.PROFILE),
@@ -168,104 +172,98 @@ internal fun DoorwayHeaderZone(
                         maxLines = 1,
                     )
                 }
-
-                if (showMenu) {
-                    Box {
-                        IconButton(
-                            modifier = Modifier
-                                .testTag("android_more_menu")
-                                .a11yOrder(A11yOrder.ACTION)
-                                .semantics {
-                                    contentDescription = menuDescription
+            }
+            if (showMenu) {
+                Box {
+                    IconButton(
+                        modifier = Modifier
+                            .testTag("android_more_menu")
+                            .a11yOrder(A11yOrder.ACTION)
+                            .semantics {
+                                contentDescription = menuDescription
+                            },
+                        onClick = { menuExpanded = true },
+                    ) {
+                        Icon(
+                            imageVector = HermesIcons.overflow,
+                            // The IconButton's semantics already carry the menu description.
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    DropdownMenu(
+                        modifier = Modifier.testTag("android_navigation_menu"),
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        if (canConfigure) {
+                            DropdownMenuItem(
+                                modifier = Modifier.testTag("android_menu_configure_relay"),
+                                text = {
+                                    Text(stringResource(R.string.android_configure_relay))
                                 },
-                            onClick = { menuExpanded = true },
-                        ) {
-                            Icon(
-                                imageVector = HermesIcons.overflow,
-                                // The IconButton's semantics already carry the menu description.
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                onClick = {
+                                    menuExpanded = false
+                                    onConfigure()
+                                },
                             )
                         }
-                        DropdownMenu(
-                            modifier = Modifier.testTag("android_navigation_menu"),
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                        ) {
-                            if (canConfigure) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.testTag("android_menu_configure_relay"),
-                                    text = {
-                                        Text(stringResource(R.string.android_configure_relay))
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onConfigure()
-                                    },
-                                )
-                            }
-                            if (canShowConversations) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.testTag("android_menu_conversations"),
-                                    text = {
-                                        Text(stringResource(R.string.android_conversations_label))
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onShowConversations()
-                                    },
-                                )
-                            }
-                            if (canShowApprovals) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.testTag("android_menu_approvals"),
-                                    text = {
-                                        Text(stringResource(R.string.android_approvals_label))
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onShowApprovals()
-                                    },
-                                )
-                            }
-                            if (canShowHistory) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.testTag("android_menu_history"),
-                                    text = {
-                                        Text(stringResource(R.string.android_history_label))
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onShowHistory()
-                                    },
-                                )
-                            }
-                            if (canDisconnect) {
-                                DropdownMenuItem(
-                                    modifier = Modifier
-                                        .testTag("android_menu_disconnect")
-                                        .semantics { role = Role.Button },
-                                    enabled = disconnectEnabled,
-                                    text = {
-                                        Text(stringResource(R.string.android_disconnect))
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onDisconnect()
-                                    },
-                                )
-                            }
+                        if (canShowConversations) {
+                            DropdownMenuItem(
+                                modifier = Modifier.testTag("android_menu_conversations"),
+                                text = {
+                                    Text(stringResource(R.string.android_conversations_label))
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onShowConversations()
+                                },
+                            )
+                        }
+                        if (canShowApprovals) {
+                            DropdownMenuItem(
+                                modifier = Modifier.testTag("android_menu_approvals"),
+                                text = {
+                                    Text(stringResource(R.string.android_approvals_label))
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onShowApprovals()
+                                },
+                            )
+                        }
+                        if (canShowHistory) {
+                            DropdownMenuItem(
+                                modifier = Modifier.testTag("android_menu_history"),
+                                text = {
+                                    Text(stringResource(R.string.android_history_label))
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onShowHistory()
+                                },
+                            )
+                        }
+                        if (canDisconnect) {
+                            DropdownMenuItem(
+                                modifier = Modifier
+                                    .testTag("android_menu_disconnect")
+                                    .semantics { role = Role.Button },
+                                enabled = disconnectEnabled,
+                                text = {
+                                    Text(stringResource(R.string.android_disconnect))
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDisconnect()
+                                },
+                            )
                         }
                     }
                 }
             }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = stateColors.consoleSurface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-    )
+        }
+    }
 }
 
 @Composable

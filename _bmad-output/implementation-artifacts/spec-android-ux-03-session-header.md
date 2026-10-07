@@ -1,7 +1,7 @@
 ---
 id: ANDROID-UX-03
 title: Session header card with status dot, profile, conversation title and duration
-status: backlog
+status: in-progress
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-03
@@ -12,6 +12,7 @@ depends_on:
   - android:ANDROID-HOME-12
 parity_source: 'PX-19 (matrix C1)'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/99
+validation: _bmad-output/implementation-artifacts/validation-android-ux-03.md
 ---
 
 # ANDROID-UX-03 — Session header card
@@ -26,6 +27,14 @@ The iOS header is a card: status dot, Profile name, session title (tap opens Con
 
 - `DoorwayHeaderZone` (`DoorwayZones.kt:87`) is a `TopAppBar` with title, `maxLines = 2` description and an actions row (profile label/name, menu).
 - No status dot, no timer, no conversation title, no tap target for Conversations other than the menu.
+
+## Current header reachability delivery
+
+This PR addresses clipping in the existing `DoorwayHeaderZone` as the first UX-03 delivery. It stacks the Profile block below the title/description and keeps the existing overflow menu as a dedicated trailing action. The header grows vertically instead of dropping text or the menu; the broader screen/scroll matrix remains owned by ANDROID-HOME-11.
+
+This does not complete the planned `SessionHeaderCard`: the status dot, elapsed timer, title-to-Conversations action, settings gear, and the final two-line card layout remain open UX-03 acceptance.
+
+PR #134's header reachability slice is ready for review (`review`), not done; this parent story remains `in-progress`. Amanda accepted on 2026-10-07 that manual physical TalkBack spoken-output/focus-gesture acceptance is waived for this slice. Actual spoken output/focus gestures remain unverified, with known residual spoken-label/focus-order/gesture risk. This supersedes the earlier blocking manual gate, not the evidence limitation or the full-card acceptance below. Existing font 1x/2x light/dark layout and automatic-order evidence remains in the validation record. No other gates are waived; the metadata-only closeout is explicitly exempt from bmad-build.
 
 ## Required behavior
 
