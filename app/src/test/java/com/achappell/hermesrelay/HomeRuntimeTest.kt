@@ -19,13 +19,16 @@ class HomeRuntimeTest {
     private val profile = AndroidProfile("amanda", "Amanda")
     private val binding = AndroidTurnBinding(profile.id, "conversation-1", "turn-1")
 
-    private class Fixture(initiation: AndroidInitiationResult) {
+    private class Fixture(
+        initiation: AndroidInitiationResult,
+        speech: AndroidSpeechInput? = null,
+    ) {
         val port = FakeHomePort(initiation)
         val store = InMemoryAndroidHistoryStore()
         val box = HomeRuntimeBox { onTornDown ->
             HomeRuntime(
                 clientPort = port,
-                speechInput = null,
+                speechInput = speech,
                 historyStore = store,
                 postToMain = { it.run() },
                 workExecutor = InlineExecutorService(),
@@ -256,8 +259,144 @@ class HomeRuntimeTest {
         override fun awaitTermination(timeout: Long, unit: TimeUnit) = shutdown
     }
 
+    // ANDROID-HOME-12: deliberate Disconnect.
+
+    private fun connectedRuntime(fixture: Fixture): HomeRuntime {
+        val runtime = fixture.box.resolve()
+        runtime.activityCreated()
+        runtime.recover()
+        assertEquals(AndroidConnectionState.Connected, runtime.recoveryState.connection)
+        return runtime
+    }
+
+    @Test
+    fun disconnect_ends_the_session_once_and_nothing_reconnects_until_connect() {
+        val fixture = Fixture(accepted())
+        val runtime = connectedRuntime(fixture)
+        assertEquals(1, fixture.port.reconnects)
+
+        runtime.disconnect()
+        runtime.disconnect()
+
+        assertEquals("one endSession however often it is tapped", listOf("endSession"), fixture.port.calls)
+        assertEquals(AndroidConnectionState.Disconnected, runtime.recoveryState.connection)
+        assertTrue(runtime.userDisconnected)
+        assertFalse(runtime.canDisconnect)
+
+        // Foreground reconnect, resume and Profile selection all go through recover().
+        runtime.recover()
+        runtime.reconnectIfForeground()
+        runtime.switchConversation(HomeConversationIntent.New)
+        assertEquals("no automatic reconnect", 1, fixture.port.reconnects)
+
+        runtime.connect()
+
+        assertEquals(2, fixture.port.reconnects)
+        assertFalse(runtime.userDisconnected)
+        assertEquals(AndroidConnectionState.Connected, runtime.recoveryState.connection)
+        assertTrue(runtime.canDisconnect)
+    }
+
+    @Test
+    fun disconnect_is_disabled_while_a_prompt_is_being_submitted() {
+        val fixture = Fixture(accepted())
+        val runtime = connectedRuntime(fixture)
+        var enabledDuringSubmit: Boolean? = null
+        fixture.port.onBeginTurn = {
+            enabledDuringSubmit = runtime.disconnectEnabled
+            runtime.disconnect()
+        }
+
+        runtime.initiate(AndroidTurnInput.Typed("hello"))
+
+        assertEquals(false, enabledDuringSubmit)
+        assertTrue("a disconnect mid-submit must be ignored", fixture.port.calls.none { it == "endSession" })
+        assertFalse(runtime.userDisconnected)
+    }
+
+    @Test
+    fun disconnect_mid_reply_needs_confirmation_then_interrupts_before_closing() {
+        val fixture = Fixture(accepted())
+        val runtime = connectedRuntime(fixture)
+        runtime.initiate(AndroidTurnInput.Typed("hello"))
+        fixture.port.emit(AndroidNormalizedEvent.ResponseTextDelta(binding, "Partial"))
+
+        assertTrue(runtime.disconnectEnabled)
+        assertTrue("a reply in flight must ask first", runtime.disconnectNeedsConfirmation)
+        assertTrue("asking must not close anything", fixture.port.calls.isEmpty())
+
+        runtime.disconnect()
+
+        assertEquals(listOf("interrupt", "endSession"), fixture.port.calls)
+        assertEquals(AndroidInitiationState.Idle, runtime.initiationState)
+        assertFalse(runtime.hasAcceptedTurn)
+        assertEquals(AndroidConnectionState.Disconnected, runtime.recoveryState.connection)
+    }
+
+    @Test
+    fun disconnect_without_a_reply_needs_no_confirmation() {
+        val fixture = Fixture(accepted())
+        val runtime = connectedRuntime(fixture)
+
+        assertFalse(runtime.disconnectNeedsConfirmation)
+        runtime.disconnect()
+
+        assertEquals(listOf("endSession"), fixture.port.calls)
+    }
+
+    @Test
+    fun an_unconfirmed_turn_survives_disconnect_and_connect_without_being_replayed() {
+        val request = AndroidTurnRequest(profile, AndroidTurnInput.Typed("hello"))
+        val fixture = Fixture(
+            AndroidInitiationResult.Uncertain(request, AndroidHomeUnavailableReason.TransportTimeout),
+        )
+        val runtime = connectedRuntime(fixture)
+        runtime.initiate(AndroidTurnInput.Typed("hello"))
+        val retained = runtime.recoveryController.state.unconfirmedTurn
+        assertEquals(AndroidUnconfirmedTurn(null, request), retained)
+        runtime.recover()
+
+        runtime.disconnect()
+        runtime.connect()
+
+        assertEquals(retained, runtime.recoveryController.state.unconfirmedTurn)
+        assertEquals("the turn is offered, never replayed", 1, fixture.port.beginTurns)
+    }
+
+    @Test
+    fun disconnect_stops_capture_and_clears_hands_free() {
+        val speech = FakeSpeechInput()
+        val fixture = Fixture(accepted(), speech)
+        val runtime = connectedRuntime(fixture)
+        val capture = checkNotNull(runtime.captureController)
+        capture.armHandsFree()
+        assertTrue(runtime.handsFree)
+
+        runtime.disconnect()
+
+        assertFalse(runtime.handsFree)
+        assertTrue(speech.cancelled)
+        assertEquals(AndroidCaptureState.Idle, runtime.captureState)
+    }
+
+    @Test
+    fun disconnect_is_not_offered_when_not_connected() {
+        val fixture = Fixture(accepted())
+        val runtime = fixture.box.resolve()
+
+        assertFalse(runtime.canDisconnect)
+        runtime.disconnect()
+
+        assertTrue(fixture.port.calls.isEmpty())
+        assertFalse(runtime.userDisconnected)
+    }
+
     private class FakeHomePort(private val initiation: AndroidInitiationResult) : AndroidClientPort {
         var closeCount = 0
+        val calls = mutableListOf<String>()
+        var reconnects = 0
+        var beginTurns = 0
+        var onBeginTurn: () -> Unit = {}
         var turnObservations = 0
         var connectionObservationsCancelled = 0
         private var turnListener: ((AndroidNormalizedEvent) -> Unit)? = null
@@ -271,7 +410,25 @@ class HomeRuntimeTest {
             authorizationState = AndroidAuthorizationState.Verified,
         )
 
-        override fun beginTurn(request: AndroidTurnRequest) = initiation
+        override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult {
+            beginTurns += 1
+            onBeginTurn()
+            return initiation
+        }
+
+        override fun reconnect(): AndroidReconnectOutcome {
+            reconnects += 1
+            return AndroidReconnectOutcome.Connected(connectionId = "connection-$reconnects")
+        }
+
+        override fun interruptTurn(binding: AndroidTurnBinding): Boolean {
+            calls += "interrupt"
+            return true
+        }
+
+        override fun endSession() {
+            calls += "endSession"
+        }
 
         override fun observeTurn(
             binding: AndroidTurnBinding,

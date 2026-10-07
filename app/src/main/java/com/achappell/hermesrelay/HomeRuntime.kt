@@ -67,6 +67,14 @@ internal class HomeRuntime(
         private set
 
     /**
+     * True from a deliberate Disconnect until the user chooses Connect
+     * (`ANDROID-HOME-12`). Every automatic path (foreground reconnect, resume,
+     * Profile selection) is a no-op meanwhile.
+     */
+    var userDisconnected by mutableStateOf(false)
+        private set
+
+    /**
      * Set by the visible screen: reconnects a paired Profile whose socket
      * Android cut, only while the screen is resumed. No screen, no automatic
      * reconnect (`ANDROID-HOME-04/06` own the background rules).
@@ -278,13 +286,60 @@ internal class HomeRuntime(
 
     /** Starts the bounded reconnect ladder off the main thread. */
     fun recover() {
-        if (recoveryState.isRecovering) return
+        if (userDisconnected || recoveryState.isRecovering) return
         runOnWork { recoveryController.recover() }
+    }
+
+    /** The user's explicit Connect: the only way out of a deliberate Disconnect. */
+    fun connect() {
+        userDisconnected = false
+        recover()
+    }
+
+    /** Disconnect is offered only while connected, and not while a prompt is being sent. */
+    val canDisconnect: Boolean
+        get() = recoveryState.connection == AndroidConnectionState.Connected && !userDisconnected
+
+    /** Disabled while a prompt submission (or a resend) is in flight. */
+    val disconnectEnabled: Boolean
+        get() = canDisconnect && !initiationInFlight && !resendInFlight
+
+    /** A reply the user is waiting on needs a confirmation before it is cut off. */
+    val disconnectNeedsConfirmation: Boolean
+        get() = hasAcceptedTurn
+
+    /**
+     * Ends the session deliberately: interrupts a reply in flight, sends
+     * `conversation.close`, closes the socket, stops audio and capture and
+     * clears hands-free. Never reconnects until [connect]. An unconfirmed turn
+     * stays offered; nothing is replayed.
+     */
+    fun disconnect() {
+        if (!disconnectEnabled) return
+        val interrupting = if (hasAcceptedTurn) acceptedBinding else null
+        // Set first and on the main thread so no automatic path can race the close.
+        userDisconnected = true
+        captureController?.let { capture ->
+            capture.disarmHandsFree()
+            capture.cancelCapture()
+        }
+        runOnWork {
+            interrupting?.let { clientPort.interruptTurn(it) }
+            clientPort.endSession()
+            runOnMain {
+                updateInitiation(AndroidInitiationState.Idle)
+                updateTurn(AndroidTurnState())
+                recoveryState = recoveryController.disconnectDeliberately()
+                // The unconfirmed turn (if any) lives in the recovery state.
+                lastRequest = null
+            }
+        }
     }
 
     /** Abandons the current turn display and reconnects into a requested conversation. */
     fun switchConversation(intent: HomeConversationIntent) {
         val conversations = homeConversations ?: return
+        if (userDisconnected) return
         updateInitiation(AndroidInitiationState.Idle)
         updateTurn(AndroidTurnState())
         runOnWork {

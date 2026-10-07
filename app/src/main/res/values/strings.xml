@@ -206,6 +206,12 @@
         <item quantity="one">%d message</item>
         <item quantity="other">%d messages</item>
     </plurals>
+    <string name="android_disconnect">Disconnect</string>
+    <string name="android_connect">Connect</string>
+    <string name="android_disconnect_confirm_title">Disconnect while Hermes is replying?</string>
+    <string name="android_disconnect_confirm_body">Hermes is still answering. Disconnecting stops the reply and ends this session. Connect again to continue.</string>
+    <string name="android_disconnect_confirm_yes">Stop and disconnect</string>
+    <string name="android_disconnect_confirm_no">Keep replying</string>
     <string name="android_approvals_label">Devices &amp; approvals</string>
     <string name="android_approvals_loading">Checking device requests…</string>
     <string name="android_approvals_pending_title">Waiting for your approval</string>
