@@ -117,6 +117,20 @@ internal sealed interface AndroidNormalizedEvent {
         val finalText: String? = null,
     ) : AndroidNormalizedEvent
 
+    /**
+     * The text turn is complete but Home advertised audio that has not started.
+     *
+     * Standard synthesises speech only once the text is done, so audio can start
+     * seconds (or, on a slow reply, a minute) after the control terminal
+     * (`ANDROID-HOME-05`). The turn is not terminal: it waits, honestly, until
+     * audio starts, Home reports audio unavailable, the transport drops or the
+     * user interrupts. Never armed from `prompt.submit` acceptance.
+     */
+    data class TextCompleted(
+        override val binding: AndroidTurnBinding,
+        val finalText: String? = null,
+    ) : AndroidNormalizedEvent
+
     data class TurnFailed(
         override val binding: AndroidTurnBinding,
         val reason: String,
@@ -250,6 +264,14 @@ internal object AndroidTurnStateReducer {
                     responseText = event.finalText ?: state.responseText,
                     turnCompleteObserved = true,
                 ),
+            )
+
+            is AndroidNormalizedEvent.TextCompleted -> advance(
+                state.copy(
+                    responseText = event.finalText ?: state.responseText,
+                    turnCompleteObserved = true,
+                ),
+                AndroidTurnPhase.Buffering,
             )
 
             is AndroidNormalizedEvent.TurnInterrupted -> state.copy(

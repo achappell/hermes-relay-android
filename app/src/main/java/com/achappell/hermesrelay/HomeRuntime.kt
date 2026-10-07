@@ -186,8 +186,11 @@ internal class HomeRuntime(
 
     private fun onTurnEvent(event: AndroidNormalizedEvent) {
         updateTurn(AndroidTurnStateReducer.reduce(turnState, event))
+        // Text-complete (audio still pending) resolves the Home turn as well: Home's
+        // control turn is over even though the reply is not yet terminal for the user.
         if (
             event is AndroidNormalizedEvent.TurnCompleted ||
+            event is AndroidNormalizedEvent.TextCompleted ||
             event is AndroidNormalizedEvent.TurnFailed ||
             event is AndroidNormalizedEvent.TurnInterrupted
         ) {
@@ -195,7 +198,7 @@ internal class HomeRuntime(
         }
         // A new conversation only has a Home reference once a turn was
         // accepted; learn it so the next launch can continue it.
-        if (event is AndroidNormalizedEvent.TurnCompleted) {
+        if (event is AndroidNormalizedEvent.TurnCompleted || event is AndroidNormalizedEvent.TextCompleted) {
             homeConversations?.let { conversations ->
                 runOnWork { conversations.learnCurrentConversation() }
             }
