@@ -706,6 +706,7 @@ stories:
     parity_epic: ANDROID-PARITY-02
     parity_stream: S4
     spec: _bmad-output/implementation-artifacts/spec-android-home-13-paired-homes-refresh-unpair.md
+    validation: _bmad-output/implementation-artifacts/validation-android-home-13.md
     depends_on:
       - android:ANDROID-HOME-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/91
