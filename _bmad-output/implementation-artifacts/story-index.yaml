@@ -613,6 +613,7 @@ stories:
     parity_epic: ANDROID-PARITY-02
     parity_stream: S3
     spec: _bmad-output/implementation-artifacts/spec-android-voice-01-recognizer-language-pack.md
+    validation: _bmad-output/implementation-artifacts/validation-android-voice-01.md
     depends_on:
       - android:5-A-3
     github_issue: https://github.com/achappell/hermes-relay-android/issues/85

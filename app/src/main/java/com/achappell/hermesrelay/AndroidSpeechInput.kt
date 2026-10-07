@@ -1,5 +1,9 @@
 package com.achappell.hermesrelay
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
 /**
  * Microphone authorization as the Client sees it.
  *
@@ -20,6 +24,16 @@ internal enum class AndroidSpeechFailure {
     NoSpeechHeard,
     NetworkUnavailable,
     RecognizerBusy,
+
+    /**
+     * The recognizer has no speech pack for the language and, unless the user
+     * allows it, may not use the network. Recoverable by an explicit,
+     * user-initiated choice, never by a silent fallback.
+     */
+    LanguageUnavailable,
+
+    /** The microphone could not be read, e.g. another app holds it. */
+    AudioUnavailable,
     Unknown,
 }
 
@@ -45,6 +59,14 @@ internal sealed interface AndroidSpeechEvent {
  * resulting text is ever submitted. No audio is retained, uploaded, or logged.
  */
 internal interface AndroidSpeechInput {
+    /**
+     * Whether the system recognizer may send audio to the network for this
+     * process. Off by default: audio stays on the device unless the user turns
+     * this on, because the privacy copy promises exactly that. Readable from
+     * composition.
+     */
+    var networkRecognitionAllowed: Boolean
+
     fun authorization(): AndroidSpeechAuthorization
 
     /** Begins listening. Events arrive on the main thread. */
@@ -62,6 +84,7 @@ internal class FakeSpeechInput(
     private val authorization: AndroidSpeechAuthorization = AndroidSpeechAuthorization.Granted,
 ) : AndroidSpeechInput {
     private var listener: ((AndroidSpeechEvent) -> Unit)? = null
+    override var networkRecognitionAllowed: Boolean by mutableStateOf(false)
     var startCount: Int = 0
         private set
     var stopped: Boolean = false

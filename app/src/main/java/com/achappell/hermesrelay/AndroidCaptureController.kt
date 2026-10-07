@@ -111,6 +111,25 @@ internal class AndroidCaptureController(
         else -> null
     }
 
+    /** Whether the system recognizer may use the network. Observable from composition. */
+    val networkRecognitionAllowed: Boolean
+        get() = speech.networkRecognitionAllowed
+
+    /**
+     * The user's explicit choice after a missing speech pack: allow network
+     * recognition and listen again. Never called implicitly.
+     */
+    fun allowNetworkRecognitionAndRetry() {
+        speech.networkRecognitionAllowed = true
+        if (!isCapturing) state = AndroidCaptureState.Idle
+        beginCapture()
+    }
+
+    /** Returns to on-device-only recognition. */
+    fun useDeviceRecognitionOnly() {
+        speech.networkRecognitionAllowed = false
+    }
+
     fun armHandsFree() {
         if (isHandsFree) return
         lastHandsFreeExit = null
