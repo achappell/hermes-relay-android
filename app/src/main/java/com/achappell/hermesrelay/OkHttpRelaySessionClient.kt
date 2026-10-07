@@ -1087,7 +1087,7 @@ internal class OkHttpRelaySessionClient(
     fun disconnect() = close()
 
     override fun endSession() {
-        releaseHeldClaim()
+        releaseHeldClaim("disconnect")
         closeTransport()
         activeTurn.set(null)
     }

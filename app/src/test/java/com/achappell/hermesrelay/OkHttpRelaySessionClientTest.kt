@@ -1584,7 +1584,8 @@ class OkHttpRelaySessionClientTest {
         }
         server.enqueue(MockResponse().withWebSocketUpgrade(bridge))
         server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
-        val paired = pairedClient()
+        val journal = RecordingJournal()
+        val paired = pairedClient(journal = journal)
         assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
         assertEquals("sref-learned", paired.client.learnCurrentConversation())
         val lost = AtomicInteger(0)
@@ -1604,6 +1605,10 @@ class OkHttpRelaySessionClientTest {
         assertEquals(1, paired.claims.get())
         assertEquals(1, server.requestCount)
         assertEquals(0, lost.get())
+        assertTrue(
+            "a deliberate disconnect must journal its release reason",
+            journal.lines.contains("home claim released reason=disconnect"),
+        )
         // A deliberate Connect afterwards opens a fresh claim.
         assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
         assertEquals(2, paired.claims.get())
@@ -1762,6 +1767,7 @@ class OkHttpRelaySessionClientTest {
         claimResult: HomeClientClaimResult = HomeClientClaimResult.Granted(CONVERSATION_HANDLE),
         withClaims: Boolean = true,
         homeAdministration: RelayHomeAdministration? = null,
+        journal: DiagnosticsJournal = DiagnosticsJournal.None,
     ): PairedClient {
         val homeUrl = server.url("/").toString().trimEnd('/')
         val store = InMemoryHomeClientPairingStore(
@@ -1867,6 +1873,7 @@ class OkHttpRelaySessionClientTest {
             helloTimeoutMillis = 5_000,
             requestTimeoutMillis = 5_000,
             clientClaims = if (withClaims) HomeClientClaimProvider(store, credentials, service) else null,
+            journal = journal,
         )
         return PairedClient(client, store, claims, choices)
     }
