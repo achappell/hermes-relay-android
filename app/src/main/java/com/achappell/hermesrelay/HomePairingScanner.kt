@@ -2,8 +2,6 @@ package com.achappell.hermesrelay
 
 import android.Manifest
 import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -15,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -84,22 +83,14 @@ internal fun HomePairingScanner(
     val hasCamera = remember {
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
     }
-    var permitted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED,
-        )
-    }
-    var denied by remember { mutableStateOf(false) }
+    val camera = rememberRuntimePermission(Manifest.permission.CAMERA)
+    val permitted = camera.state == RuntimePermissionState.Granted
     var sawOtherCode by remember { mutableStateOf(false) }
-    val permission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        permitted = granted
-        denied = !granted
-    }
+    // Opening the scanner is the user's action; ask once, and only while the
+    // platform will still show its dialog. Afterwards the explicit buttons
+    // below take over so a refused request is never repeated silently.
     LaunchedEffect(hasCamera) {
-        if (hasCamera && !permitted) permission.launch(Manifest.permission.CAMERA)
+        if (hasCamera && camera.state == RuntimePermissionState.NotAsked) camera.request()
     }
 
     Column(
@@ -108,9 +99,8 @@ internal fun HomePairingScanner(
     ) {
         val status = when {
             !hasCamera -> R.string.android_home_pair_scan_no_camera
-            denied -> R.string.android_home_pair_scan_denied
-            sawOtherCode -> R.string.android_home_pair_scan_other_code
-            else -> R.string.android_home_pair_scan_hint
+            sawOtherCode && permitted -> R.string.android_home_pair_scan_other_code
+            else -> camera.state.cameraMessageRes()
         }
         if (hasCamera && permitted) {
             CameraScanView(
@@ -125,6 +115,25 @@ internal fun HomePairingScanner(
             text = stringResource(status),
             style = MaterialTheme.typography.bodySmall,
         )
+        if (hasCamera) {
+            when (camera.state) {
+                RuntimePermissionState.DeniedWithRationale -> OutlinedButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("android_home_pair_scan_request"),
+                    onClick = camera::request,
+                ) {
+                    Text(stringResource(R.string.android_home_pair_scan_request))
+                }
+
+                RuntimePermissionState.PermanentlyDenied -> OpenSettingsButton(
+                    tag = "android_home_pair_scan_open_settings",
+                    onClick = camera::openSettings,
+                )
+
+                else -> Unit
+            }
+        }
         TextButton(
             modifier = Modifier.testTag("android_home_pair_scan_close"),
             onClick = onClose,

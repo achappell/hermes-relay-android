@@ -9,9 +9,7 @@ import androidx.compose.material3.Text
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -121,6 +119,8 @@ internal fun AndroidClientScreen(
     homePairing: HomeClientPairingCoordinator? = null,
     pendingPairingLink: String? = null,
     onPendingPairingLinkConsumed: () -> Unit = {},
+    microphonePermissionSource: RuntimePermissionSource? = null,
+    openApplicationSettings: ((android.content.Intent) -> Unit)? = null,
 ) {
     val clientPort = runtime.clientPort
     var configurationRevision by remember { mutableStateOf(0) }
@@ -158,7 +158,6 @@ internal fun AndroidClientScreen(
     val resendResult = runtime.resendResult
     val initiationInFlight = runtime.initiationInFlight
     val captureState = runtime.captureState
-    var permissionRevision by remember { mutableStateOf(0) }
     val handsFree = runtime.handsFree
     val promptFocus = remember { FocusRequester() }
     val recorder = runtime.recorder
@@ -197,12 +196,13 @@ internal fun AndroidClientScreen(
         )
 
 
-    val microphonePermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        permissionRevision += 1
-        if (granted) captureController?.beginCapture()
-    }
+    val microphone = rememberRuntimePermission(
+        permission = android.Manifest.permission.RECORD_AUDIO,
+        source = microphonePermissionSource,
+        openSettings = openApplicationSettings,
+        onResult = { granted -> if (granted) captureController?.beginCapture() },
+    )
+    val permissionRevision = microphone.revision
 
     val captureBlock = remember(
         captureController,
@@ -489,7 +489,9 @@ internal fun AndroidClientScreen(
                                     isAuthorized = isAuthorized,
                                     isConnected = isConnected,
                                     permissionRevision = permissionRevision,
-                                    microphonePermission = microphonePermission,
+                                    microphoneState = microphone.state,
+                                    onRequestMicrophone = microphone::request,
+                                    onOpenMicrophoneSettings = microphone::openSettings,
                                     showBlockMessage = doorwayState !is AndroidDoorwayState.NoProfile,
                                 )
                             }

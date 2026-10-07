@@ -121,6 +121,9 @@
     <string name="android_capture_cancel">Cancel</string>
     <string name="android_capture_grant">Allow microphone</string>
     <string name="android_capture_block_permission">Tap-to-speak needs the microphone. Audio is transcribed on this device and never uploaded.</string>
+    <string name="android_capture_block_permission_rationale">Hermes transcribes your speech on this device and sends only the text. Tap-to-speak needs the microphone; allow it to continue.</string>
+    <string name="android_capture_block_permission_settings">Microphone access is turned off for Hermes, so Android will not ask again. Open settings, choose Permissions, then allow the microphone.</string>
+    <string name="android_permission_open_settings">Open settings</string>
     <string name="android_capture_block_recognizer">This device has no speech recognizer available, so tap-to-speak is unavailable. Typed turns still work.</string>
     <string name="android_capture_block_not_connected">Connect to the Home bridge before speaking.</string>
     <string name="android_capture_block_profile">Select a verified Hermes Profile before speaking.</string>
@@ -182,8 +185,10 @@
     <string name="android_home_pair_code_invalid">The short code should be letters and digits, like K7Q-4MX.</string>
     <string name="android_home_pair_scan">Scan QR code</string>
     <string name="android_home_pair_scan_hint">Point the camera at the QR code on the Home pairing page.</string>
+    <string name="android_home_pair_scan_rationale">The scanner needs the camera only to read the pairing QR code; nothing is recorded or saved. Allow camera access, or paste the pairing link instead.</string>
+    <string name="android_home_pair_scan_settings">Camera access is turned off for Hermes, so Android will not ask again. Open settings and allow the camera, or paste the pairing link instead.</string>
+    <string name="android_home_pair_scan_request">Allow camera</string>
     <string name="android_home_pair_scan_other_code">That QR code is not a Home pairing code. Scan the code on the Home pairing page.</string>
-    <string name="android_home_pair_scan_denied">Camera access was not allowed. Paste the pairing link or type the short code instead.</string>
     <string name="android_home_pair_scan_no_camera">This device has no camera. Paste the pairing link or type the short code instead.</string>
     <string name="android_home_pair_scan_close">Close scanner</string>
     <string name="android_history_divider">Conversation</string>

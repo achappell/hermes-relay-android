@@ -29,9 +29,15 @@ class MicrophoneCaptureTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val input = PlatformSpeechInput(context)
 
-        // RECORD_AUDIO is not granted to the test process, and the manifest
-        // <queries> element must still let the recognizer be seen.
-        assertEquals(AndroidSpeechAuthorization.NotDetermined, input.authorization())
+        // The manifest <queries> element must let the recognizer be seen, and the
+        // result must mirror the permission rather than assume it. The grant
+        // test in MicrophonePermissionGrantedTest can leave RECORD_AUDIO granted.
+        val granted = PlatformRuntimePermissionSource(context, android.Manifest.permission.RECORD_AUDIO)
+            .isGranted()
+        assertEquals(
+            if (granted) AndroidSpeechAuthorization.Granted else AndroidSpeechAuthorization.NotDetermined,
+            input.authorization(),
+        )
     }
 
     @Test
