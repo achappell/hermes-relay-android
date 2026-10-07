@@ -23,6 +23,10 @@ class HomeRuntimeInterruptTest {
 
     private inner class Port : AndroidClientPort {
         var interrupts = 0
+        val requests = mutableListOf<AndroidTurnRequest>()
+        val observedBindings = mutableListOf<AndroidTurnBinding>()
+        var cancelledObservations = 0
+        var beforeSubmit: () -> Unit = {}
         private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
 
         override fun snapshot() = AndroidClientSnapshot(
@@ -33,15 +37,24 @@ class HomeRuntimeInterruptTest {
             authorizationState = AndroidAuthorizationState.Verified,
         )
 
-        override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult =
-            AndroidInitiationResult.Accepted(binding)
+        override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult {
+            beforeSubmit()
+            requests += request
+            return AndroidInitiationResult.Accepted(
+                binding.copy(turnId = "turn-${requests.size}"),
+            )
+        }
 
         override fun observeTurn(
             binding: AndroidTurnBinding,
             onEvent: (AndroidNormalizedEvent) -> Unit,
         ): AndroidTurnObservation {
+            observedBindings += binding
             listener = onEvent
-            return AndroidTurnObservation { listener = null }
+            return AndroidTurnObservation {
+                cancelledObservations += 1
+                listener = null
+            }
         }
 
         override fun reconnect() = AndroidReconnectOutcome.Connected("session-1")
@@ -58,8 +71,35 @@ class HomeRuntimeInterruptTest {
         fun emit(event: AndroidNormalizedEvent) = checkNotNull(listener)(event)
     }
 
+    /** Retains displaced callbacks, including callbacks delivered inside platform cancellation. */
+    private class RetainingSpeech : AndroidSpeechInput {
+        override var networkRecognitionAllowed = false
+        override fun authorization() = AndroidSpeechAuthorization.Granted
+        val callbacks = mutableListOf<(AndroidSpeechEvent) -> Unit>()
+        val startCount: Int get() = callbacks.size
+        var cancelCount = 0
+        var duringCancel: (AndroidSpeechEvent) -> Unit = {}
+
+        override fun start(onEvent: (AndroidSpeechEvent) -> Unit) {
+            callbacks += onEvent
+        }
+
+        override fun stop() = Unit
+
+        override fun cancel() {
+            cancelCount += 1
+            val callback = callbacks.last()
+            callback(AndroidSpeechEvent.Cancelled)
+            duringCancel(AndroidSpeechEvent.Cancelled)
+            callback(AndroidSpeechEvent.Final("late cancellation transcript"))
+        }
+
+        fun emit(event: AndroidSpeechEvent) = callbacks.last()(event)
+    }
+
     private class Rig(port: Port) {
-        val speech = FakeSpeechInput()
+        val speech = RetainingSpeech()
+        val journal = RecordingJournal()
         val timers = ManualVoiceTimers()
         val runtime = HomeRuntime(
             clientPort = port,
@@ -68,6 +108,7 @@ class HomeRuntimeInterruptTest {
             postToMain = { it.run() },
             workExecutor = Inline(),
             voiceTimers = timers,
+            journal = journal,
         ).also {
             it.activityCreated()
             it.recover()
@@ -130,5 +171,140 @@ class HomeRuntimeInterruptTest {
 
         assertEquals("the microphone opened after a deliberate disconnect", 0, rig.speech.startCount)
         assertEquals(InterruptStatus.None, rig.runtime.interruptStatus)
+    }
+
+    @Test
+    fun typed_send_retires_starting_capture_before_submission_and_ignores_late_callbacks() {
+        assertTypedOwnsNextTurn(AndroidCaptureState.Starting)
+    }
+
+    @Test
+    fun typed_send_retires_listening_capture_before_submission_and_ignores_late_callbacks() {
+        assertTypedOwnsNextTurn(AndroidCaptureState.Listening)
+    }
+
+    @Test
+    fun typed_send_retires_transcribing_capture_before_submission_and_ignores_late_callbacks() {
+        assertTypedOwnsNextTurn(AndroidCaptureState.Transcribing("provisional"))
+    }
+
+    private fun assertTypedOwnsNextTurn(captureState: AndroidCaptureState) {
+        val port = Port()
+        val rig = Rig(port)
+        rig.runtime.interruptAndListen(binding)
+        port.emit(AndroidNormalizedEvent.TurnInterrupted(binding, "user interrupted"))
+        when (captureState) {
+            AndroidCaptureState.Listening -> rig.speech.emit(AndroidSpeechEvent.Started)
+            is AndroidCaptureState.Transcribing -> {
+                rig.speech.emit(AndroidSpeechEvent.Started)
+                rig.speech.emit(AndroidSpeechEvent.Partial(captureState.partial))
+            }
+            else -> Unit
+        }
+        assertEquals(captureState, rig.runtime.captureState)
+        val oldCallback = rig.speech.callbacks.single()
+        rig.speech.duringCancel = {
+            assertEquals("capture must close before recognizer cancellation", captureState, rig.runtime.captureState)
+        }
+        port.beforeSubmit = {
+            assertEquals("recognizer must cancel before typed submission", 1, rig.speech.cancelCount)
+            assertEquals(AndroidCaptureState.Idle, rig.runtime.captureState)
+        }
+
+        rig.runtime.initiate(AndroidTurnInput.Typed("typed next"))
+        val nextBinding = binding.copy(turnId = "turn-2")
+        assertEquals(listOf("tell me a story", "typed next"), port.requests.map { (it.input as AndroidTurnInput.Typed).text })
+        assertEquals(AndroidInitiationState.Accepted(nextBinding), rig.runtime.initiationState)
+        assertEquals(nextBinding, rig.runtime.turnState.binding)
+        assertEquals(listOf(binding, nextBinding), port.observedBindings)
+        assertEquals(1, port.cancelledObservations)
+        assertEquals(
+            listOf("voice capture started", "voice capture cancelled reason=typed_prompt"),
+            rig.journal.lines.filter { it.startsWith("voice capture ") },
+        )
+
+        oldCallback(AndroidSpeechEvent.Started)
+        oldCallback(AndroidSpeechEvent.Partial("obsolete"))
+        oldCallback(AndroidSpeechEvent.Cancelled)
+        oldCallback(AndroidSpeechEvent.Final("obsolete final"))
+        rig.timers.advanceBy(10_000)
+        assertEquals(2, port.requests.size)
+        assertEquals(1, port.interrupts)
+        assertEquals(1, rig.speech.startCount)
+        assertEquals(AndroidCaptureState.Idle, rig.runtime.captureState)
+        assertEquals(AndroidInitiationState.Accepted(nextBinding), rig.runtime.initiationState)
+        assertEquals(1, port.cancelledObservations)
+        port.emit(AndroidNormalizedEvent.ResponseTextDelta(nextBinding, "typed response"))
+        port.emit(AndroidNormalizedEvent.AudioStarted(nextBinding))
+        port.emit(AndroidNormalizedEvent.AudioEnded(nextBinding))
+        port.emit(AndroidNormalizedEvent.TurnCompleted(nextBinding))
+        assertEquals("typed response", rig.runtime.turnState.responseText)
+        assertEquals(AndroidTurnPhase.Complete, rig.runtime.turnState.phase)
+
+        // Reopening must not let the displaced recognizer act on this fresh window.
+        port.beforeSubmit = {}
+        rig.runtime.captureController!!.beginCapture()
+        rig.speech.emit(AndroidSpeechEvent.Started)
+        oldCallback(AndroidSpeechEvent.Started)
+        oldCallback(AndroidSpeechEvent.Partial("old partial after reopen"))
+        oldCallback(AndroidSpeechEvent.Failed(AndroidSpeechFailure.NoSpeechHeard))
+        oldCallback(AndroidSpeechEvent.Cancelled)
+        oldCallback(AndroidSpeechEvent.Final("old final after reopen"))
+        assertEquals(AndroidCaptureState.Listening, rig.runtime.captureState)
+        assertEquals(2, port.requests.size)
+        assertEquals(AndroidInitiationState.Accepted(nextBinding), rig.runtime.initiationState)
+        assertEquals(1, port.cancelledObservations)
+        rig.speech.emit(AndroidSpeechEvent.Final("fresh voice"))
+        assertEquals(3, port.requests.size)
+        assertEquals(AndroidCaptureState.Submitted("fresh voice"), rig.runtime.captureState)
+        assertEquals(AndroidInitiationState.Accepted(binding.copy(turnId = "turn-3")), rig.runtime.initiationState)
+    }
+
+    @Test
+    fun typed_send_retires_pending_interrupt_deadline_before_work_is_submitted() {
+        val port = Port()
+        val rig = Rig(port)
+        rig.runtime.interruptAndListen(binding)
+        port.beforeSubmit = {
+            // Advancing inside beginTurn also proves retirement precedes executor work,
+            // not just the eventual Accepted result's existing coordinator reset.
+            rig.timers.advanceBy(2_000)
+            assertEquals(0, rig.speech.startCount)
+            assertEquals(InterruptStatus.None, rig.runtime.interruptStatus)
+        }
+
+        rig.runtime.initiate(AndroidTurnInput.Typed("typed before deadline"))
+        rig.timers.advanceBy(10_000)
+
+        assertEquals(0, rig.speech.startCount)
+        assertEquals(0, rig.speech.cancelCount)
+        assertEquals(1, port.interrupts)
+        assertEquals(2, port.requests.size)
+        assertEquals(emptyList<String>(), rig.journal.lines.filter { it.startsWith("voice capture ") })
+        val nextBinding = binding.copy(turnId = "turn-2")
+        port.emit(AndroidNormalizedEvent.ResponseTextDelta(nextBinding, "still observing"))
+        assertEquals("still observing", rig.runtime.turnState.responseText)
+    }
+
+    @Test
+    fun typed_send_cancels_capture_without_disarming_hands_free_continuation() {
+        val port = Port()
+        val rig = Rig(port)
+        rig.runtime.captureController!!.armHandsFree()
+        rig.speech.emit(AndroidSpeechEvent.Started)
+
+        rig.runtime.initiate(AndroidTurnInput.Typed("typed while hands free"))
+
+        assertEquals(1, rig.speech.cancelCount)
+        assertEquals(AndroidCaptureState.Idle, rig.runtime.captureState)
+        assertTrue(rig.runtime.handsFree)
+        assertTrue(rig.runtime.captureController!!.isHandsFree)
+        val nextBinding = binding.copy(turnId = "turn-2")
+        port.emit(AndroidNormalizedEvent.AudioStarted(nextBinding))
+        port.emit(AndroidNormalizedEvent.AudioEnded(nextBinding))
+        port.emit(AndroidNormalizedEvent.TurnCompleted(nextBinding))
+        assertEquals(2, rig.speech.startCount)
+        assertEquals(AndroidCaptureState.Starting, rig.runtime.captureState)
+        assertEquals(2, port.requests.size)
     }
 }

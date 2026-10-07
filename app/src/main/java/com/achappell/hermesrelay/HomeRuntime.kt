@@ -112,6 +112,9 @@ internal class HomeRuntime(
             onStateChange = { changed ->
                 postToMain {
                     captureState = changed
+                    if (changed == AndroidCaptureState.Starting) {
+                        journal.record("voice capture started")
+                    }
                     if (changed is AndroidCaptureState.Submitted) {
                         clientPort.snapshot().selectedProfile?.let { profile ->
                             lastRequest = AndroidTurnRequest(
@@ -295,6 +298,16 @@ internal class HomeRuntime(
 
     fun initiate(input: AndroidTurnInput) {
         if (initiationInFlight) return
+        if (input is AndroidTurnInput.Typed) {
+            // Explicit Send owns the next turn before any submission work starts.
+            interruptCoordinator.reset()
+            captureController?.let { capture ->
+                if (capture.isCapturing) {
+                    journal.record("voice capture cancelled reason=typed_prompt")
+                }
+                capture.cancelCapture()
+            }
+        }
         initiationInFlight = true
         clientPort.snapshot().selectedProfile?.let { lastRequest = AndroidTurnRequest(it, input) }
         runOnWork {
