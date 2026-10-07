@@ -52,6 +52,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -92,10 +94,14 @@ internal fun DoorwayHeaderZone(
     onShowConversations: () -> Unit = {},
     canShowApprovals: Boolean = false,
     onShowApprovals: () -> Unit = {},
+    canDisconnect: Boolean = false,
+    disconnectEnabled: Boolean = false,
+    onDisconnect: () -> Unit = {},
 ) {
     val stateColors = LocalHermesStateColors.current
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
-    val showMenu = canConfigure || canShowHistory || canShowConversations || canShowApprovals
+    val showMenu = canConfigure || canShowHistory || canShowConversations || canShowApprovals ||
+        canDisconnect
     val menuDescription = stringResource(R.string.android_menu_content_description)
 
     TopAppBar(
@@ -225,6 +231,21 @@ internal fun DoorwayHeaderZone(
                                     onClick = {
                                         menuExpanded = false
                                         onShowHistory()
+                                    },
+                                )
+                            }
+                            if (canDisconnect) {
+                                DropdownMenuItem(
+                                    modifier = Modifier
+                                        .testTag("android_menu_disconnect")
+                                        .semantics { role = Role.Button },
+                                    enabled = disconnectEnabled,
+                                    text = {
+                                        Text(stringResource(R.string.android_disconnect))
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onDisconnect()
                                     },
                                 )
                             }
@@ -781,6 +802,7 @@ internal fun ColumnScope.ConnectionRecoveryZone(
     isConnected: Boolean,
     canEditRelay: Boolean,
     onRecover: () -> Unit,
+    userDisconnected: Boolean = false,
     onEditRelay: () -> Unit,
     onResend: () -> Unit,
     onDiscard: () -> Unit,
@@ -796,7 +818,11 @@ internal fun ColumnScope.ConnectionRecoveryZone(
             onClick = onRecover,
             enabled = !recoveryState.isRecovering,
         ) {
-            Text(stringResource(R.string.android_recover))
+            Text(
+                stringResource(
+                    if (userDisconnected) R.string.android_connect else R.string.android_recover,
+                ),
+            )
         }
     }
 

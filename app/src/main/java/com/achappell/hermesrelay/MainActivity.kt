@@ -145,6 +145,7 @@ internal fun AndroidClientScreen(
     var configurationVisible by rememberSaveable { mutableStateOf(false) }
     val homeConversations = clientPort as? AndroidHomeConversations
     var conversationsVisible by rememberSaveable { mutableStateOf(false) }
+    var disconnectConfirmVisible by rememberSaveable { mutableStateOf(false) }
     var conversationsState by remember {
         mutableStateOf<HomeConversationsState>(HomeConversationsState.Loading)
     }
@@ -396,6 +397,33 @@ internal fun AndroidClientScreen(
     val stateColors = LocalHermesStateColors.current
     val motionMode = rememberAndroidMotionMode()
 
+    if (disconnectConfirmVisible) {
+        androidx.compose.material3.AlertDialog(
+            modifier = Modifier.testTag("android_disconnect_confirm"),
+            onDismissRequest = { disconnectConfirmVisible = false },
+            title = { Text(stringResource(R.string.android_disconnect_confirm_title)) },
+            text = { Text(stringResource(R.string.android_disconnect_confirm_body)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    modifier = Modifier.testTag("android_disconnect_confirm_yes"),
+                    onClick = {
+                        disconnectConfirmVisible = false
+                        runtime.disconnect()
+                    },
+                ) {
+                    Text(stringResource(R.string.android_disconnect_confirm_yes))
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { disconnectConfirmVisible = false },
+                ) {
+                    Text(stringResource(R.string.android_disconnect_confirm_no))
+                }
+            },
+        )
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -417,6 +445,15 @@ internal fun AndroidClientScreen(
                     onShowHistory = {
                         configurationVisible = false
                         historyVisible = true
+                    },
+                    canDisconnect = runtime.canDisconnect,
+                    disconnectEnabled = runtime.disconnectEnabled,
+                    onDisconnect = {
+                        if (runtime.disconnectNeedsConfirmation) {
+                            disconnectConfirmVisible = true
+                        } else {
+                            runtime.disconnect()
+                        }
                     },
                     canShowConversations = homeConversations?.selectedIsPaired() == true,
                     canShowApprovals = homeConversations?.selectedIsPaired() == true && homeApprovals != null,
@@ -592,7 +629,8 @@ internal fun AndroidClientScreen(
                                 isConnected = isConnected,
                                 canEditRelay = configuration != null &&
                                     snapshot.selectedProfile != null,
-                                onRecover = { recover() },
+                                onRecover = { runtime.connect() },
+                                userDisconnected = runtime.userDisconnected,
                                 onEditRelay = { configurationVisible = true },
                                 onResend = { resendUnconfirmedTurn() },
                                 onDiscard = { discardUnconfirmedTurn() },

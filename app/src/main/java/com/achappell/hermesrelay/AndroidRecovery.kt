@@ -142,6 +142,22 @@ internal class AndroidRecoveryController(
     }
 
     /**
+     * The user ended the session on purpose (`ANDROID-HOME-12`). The state is
+     * Disconnected and nothing reconnects it; an unconfirmed turn is kept so
+     * it is still offered after the user connects again, and never replayed.
+     */
+    fun disconnectDeliberately(): AndroidRecoveryState {
+        state = state.copy(
+            connection = AndroidConnectionState.Disconnected,
+            connectionId = null,
+            unresolvedHomeTurn = false,
+            resumedTurnBinding = null,
+            isRecovering = false,
+        )
+        return state
+    }
+
+    /**
      * Run the bounded reconnect ladder.
      *
      * A successful reconnect adopts a fresh local bridge connection identity.

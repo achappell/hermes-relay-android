@@ -1073,6 +1073,12 @@ internal class OkHttpRelaySessionClient(
     /** Compatibility entry point used by the pre-Home live tests. */
     fun disconnect() = close()
 
+    override fun endSession() {
+        releaseHeldClaim()
+        closeTransport()
+        activeTurn.set(null)
+    }
+
     override fun close() {
         journal.record("home client close")
         releaseHeldClaim("close")

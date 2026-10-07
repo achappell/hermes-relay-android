@@ -686,6 +686,7 @@ stories:
     parity_epic: ANDROID-PARITY-02
     parity_stream: S4
     spec: _bmad-output/implementation-artifacts/spec-android-home-12-disconnect-action.md
+    validation: _bmad-output/implementation-artifacts/validation-android-home-12.md
     depends_on:
       - android:ANDROID-HOME-07
       - android:ANDROID-ARCH-01

@@ -263,6 +263,14 @@ internal interface AndroidClientPort {
     /** Clears a client-side uncertain-delivery guard after an explicit user action. */
     fun prepareForExplicitResend() = Unit
 
+    /**
+     * Ends the Home session deliberately (`ANDROID-HOME-12`): sends
+     * `conversation.close` for the held claim, closes the socket and stops
+     * audio, but keeps the client usable so a later [reconnect] claims afresh.
+     * Unlike [close] it is not lifecycle teardown and keeps the observers.
+     */
+    fun endSession() = Unit
+
     /** Lifecycle owner calls this when the screen leaves the active lifecycle. */
     fun close() = Unit
 }

@@ -1388,6 +1388,62 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun a_deliberate_disconnect_sends_one_close_ends_the_claim_and_never_reconnects_by_itself() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        val closes = AtomicInteger(0)
+        val closed = CountDownLatch(1)
+        val socketClosings = AtomicInteger(0)
+        val bridge = object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val frame = JSONObject(text)
+                when (val method = frame.optString("method")) {
+                    "conversation.open", "conversation.reconnect" -> {
+                        methods += method
+                        webSocket.send(readyResponse(frame.getString("id")))
+                    }
+                    "conversation.close" -> {
+                        closes.incrementAndGet()
+                        closed.countDown()
+                    }
+                }
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                socketClosings.incrementAndGet()
+                webSocket.close(code, null)
+            }
+        }
+        server.enqueue(MockResponse().withWebSocketUpgrade(bridge))
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        val paired = pairedClient()
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertEquals("sref-learned", paired.client.learnCurrentConversation())
+        val lost = AtomicInteger(0)
+        paired.client.observeConnection { lost.incrementAndGet() }
+
+        paired.client.endSession()
+
+        assertTrue(closed.await(5, TimeUnit.SECONDS))
+        assertEquals("exactly one conversation.close", 1, closes.get())
+        // The socket closes gracefully, once, and the claim is released.
+        val deadline = System.currentTimeMillis() + 5_000
+        while (socketClosings.get() == 0 && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        assertEquals(1, socketClosings.get())
+        assertNull(paired.client.currentConversationRef())
+        // Nothing reconnects by itself: no second claim, no connection-lost event.
+        Thread.sleep(300)
+        assertEquals(1, paired.claims.get())
+        assertEquals(1, server.requestCount)
+        assertEquals(0, lost.get())
+        // A deliberate Connect afterwards opens a fresh claim.
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertEquals(2, paired.claims.get())
+        assertEquals(listOf("conversation.open", "conversation.open"), methods.toList())
+        paired.client.close()
+    }
+
+    @Test
     fun an_expired_held_claim_is_replaced_by_a_fresh_claim_in_one_reconnect() {
         val methods = Collections.synchronizedList(mutableListOf<String>())
         val handles = Collections.synchronizedList(mutableListOf<String>())

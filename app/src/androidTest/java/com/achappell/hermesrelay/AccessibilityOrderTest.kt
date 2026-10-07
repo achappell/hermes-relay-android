@@ -236,7 +236,48 @@ class AccessibilityOrderTest {
         )
     }
 
+    @Test
+    fun disconnect_is_a_labelled_button_after_history_in_the_overflow_menu_and_ends_the_session() {
+        val port = ConnectedFakePort()
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(clientPort = port, historyStore = InMemoryAndroidHistoryStore())
+            }
+        }
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("android_more_menu").performClick()
+        val history = composeRule.onNodeWithTag("android_menu_history").fetchSemanticsNode()
+        val disconnect = composeRule.onNodeWithTag("android_menu_disconnect").fetchSemanticsNode()
+        assertTrue(
+            "Disconnect must follow History in the overflow menu",
+            disconnect.positionInRoot.y > history.positionInRoot.y,
+        )
+        assertEquals(
+            androidx.compose.ui.semantics.Role.Button,
+            disconnect.config[SemanticsProperties.Role],
+        )
+        composeRule.onNodeWithText("Disconnect").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("android_menu_disconnect").performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(1, port.endSessions)
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithText("Connect").assertIsDisplayed()
+    }
+
     private class ConnectedFakePort : AndroidClientPort {
+        var endSessions = 0
+            private set
+
+        override fun endSession() {
+            endSessions += 1
+        }
+
         private val profile = AndroidProfile("amanda-laptop", "Amanda")
         val requests = mutableListOf<AndroidTurnRequest>()
         var lastBinding: AndroidTurnBinding? = null
