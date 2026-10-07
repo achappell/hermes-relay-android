@@ -1,8 +1,8 @@
 ---
 story: ANDROID-UX-01
 spec: spec-android-ux-01-design-tokens.md
-status: in-progress
-story_status: in-progress
+status: review
+story_status: review
 updated: 2026-10-07
 ---
 
@@ -40,11 +40,15 @@ Installed with `adb install -r` only (app data hashes unchanged after each insta
 - **Wash blocks, notices and buttons:** the state card title and connection line on the identity/live/unavailable washes, the unavailable-wash unconfirmed notice and the attention-wash unresolved notice are fully readable at 2.0x in light and dark, with no clipped text inside the card or notices; the overflow icon renders as the 17th vector icon and opens the menu (`Configure relay`, `Local History`) at 1.0x.
 - **Fails the spec's "no text clipped at 2.0" check — in the header, and identically on main:** with a real Profile label (`Spark · caticornqueen.taila59979.ts.net`) the header row runs out of width. At 1.0x the title reads `Hermes conve…`; at 2.0x the title and subtitle are truncated or dropped and the overflow icon is pushed out of view, so Configure/Conversations/History/Disconnect are unreachable at 2.0x with a long Profile label. The same harness on main shows the same header at 2.0x, so this is not a UX-01 regression; it is the large-font reachability risk owned by `ANDROID-HOME-11` (and the header rebuild in `ANDROID-UX-03`).
 
-## Remaining
+## Current acceptance decisions and review readiness
 
-- Owner approval (2026-10-07): “Exempt pre-existing header clipping from #127 acceptance.” This exception covers only the pre-existing session-header clipping documented above, reproduced unchanged on `main`, and tracked for UX-03 with HOME-11 reachability coordination; it is not a UX-01 regression.
-- Physical TalkBack was not run and is **not waived**. It remains an open device-verification gate; do not mark UX-01 `done` until recorded.
+- **Independent header OWNER EXEMPTION (2026-10-07):** “Exempt pre-existing header clipping from #127 acceptance.” This exception covers only the pre-existing session-header clipping documented above, reproduced unchanged on `main`, and tracked for UX-03 (#134) with HOME-11 reachability coordination; it is not a UX-01 regression. The exemption remains intact and is separate from the TalkBack waiver.
+- **Amanda's TalkBack waiver (2026-10-07):** manual physical TalkBack spoken-output/focus-gesture acceptance for PR #127 is waived. Physical TalkBack was not run; spoken output and focus gestures remain unverified, with known residual spoken-label, focus-order and gesture risk. Automated semantics and focus-order tests do not establish manual spoken-output or gesture acceptance.
+- **Superseded history:** before this owner decision, physical TalkBack was not waived and remained an open device-verification gate. That requirement no longer blocks review; it is not a historical pass.
+- **Status:** `review`, ready for review only after final exact-head CI succeeds, not `done` or fully TalkBack verified. The recorded automated/device/layout evidence and independent header exemption cover the other UX-01 gates; no additional unmet gate is recorded. Deferred callsites and the header correction remain owned by their separate stories, not silently accepted here.
 
 ## Verification
 
-- Exact-head CI: GitHub Actions run `37641920909` for `fb26d10de9976e2c7fd6a596cbecb2e30a4042c0` passed both `Build, test, lint, and inspect APK` and `Validate BMAD issue tracking`. The legacy commit-status endpoint has `pending` with zero contexts; it is not a failed check.
+- Historical exact-head CI: GitHub Actions run `37641920909` for superseded head `fb26d10de9976e2c7fd6a596cbecb2e30a4042c0` passed both `Build, test, lint, and inspect APK` and `Validate BMAD issue tracking`. The legacy commit-status endpoint had `pending` with zero contexts; it was not a failed check.
+- Pre-waiver exact-head CI: GitHub Actions run `37650526534` for `41a1d7e2a9d36b777329fc7cc331bbafca9dc938` passed both checks. It is historical evidence, not final waiver-commit CI; the final head/run is recorded in [PR #127](https://github.com/achappell/hermes-relay-android/pull/127).
+- Existing local evidence at tested code head `f37080d`: `./gradlew testDebugUnitTest assembleDebug lintDebug compileDebugAndroidTestKotlin --no-daemon --console=plain` passed; `scripts/run-flake-gate.sh PaletteContrastTest,HermesDesignTokensTest 30` passed 30/30 runs (14 tests/run); 18 issue-tracking tests and the overrides check passed. No local tests/build/lint/format or device scenarios were rerun for this metadata-only waiver.

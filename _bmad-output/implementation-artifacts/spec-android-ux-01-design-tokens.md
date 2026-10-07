@@ -1,7 +1,7 @@
 ---
 id: ANDROID-UX-01
 title: 'Night Console design tokens: spacing, shapes, typography, state washes and vector icons'
-status: in-progress
+status: review
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-03
@@ -44,7 +44,14 @@ The Android palette already equals the iOS dark palette (`Palette.kt`, `StateCol
 
 ## Owner decision: pre-existing header clipping
 
-Owner approval (2026-10-07): “Exempt pre-existing header clipping from #127 acceptance.” This exception is limited to the session-header clipping documented in the UX-01 device pass, reproduced unchanged on `main`, and tracked for correction under ANDROID-UX-03 with ANDROID-HOME-11 reachability coordination. It does not waive the physical TalkBack verification; TalkBack remains unverified.
+Owner approval (2026-10-07): “Exempt pre-existing header clipping from #127 acceptance.” This independent exception is limited to the session-header clipping documented in the UX-01 device pass, reproduced unchanged on `main`, and tracked for correction under ANDROID-UX-03 (#134) with ANDROID-HOME-11 reachability coordination. It does not waive physical TalkBack; the separate decision below does.
+
+## Owner decision: manual physical TalkBack acceptance waiver
+
+Amanda (2026-10-07) waived manual physical TalkBack spoken-output/focus-gesture acceptance for PR #127. Spoken output and focus gestures remain unverified, with known residual spoken-label, focus-order and gesture risk; automated semantics/focus-order checks are not a manual TalkBack pass. This supersedes the historical required/open TalkBack gate, not the independent header-clipping exemption or any other acceptance criterion.
+
+Delivery status is `review` (ready for review after final exact-head CI succeeds), not `done` or fully TalkBack verified. Existing automated and font-scale/light/dark device evidence retains its recorded scope; no new device scenarios or implementation changes are required by this waiver.
+
 
 ## Android design notes
 
