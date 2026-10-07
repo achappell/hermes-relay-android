@@ -15,7 +15,7 @@ Gates are kept separate. Nothing here claims device behaviour.
 | Local (JVM, deterministic) | Passed | Below |
 | Repetition gate (30 iterations) | Passed | Below |
 | Racy-fixture proof | Passed | Below |
-| CI | Pending the pull request | `ci.yml` runs the JVM suite, build, lint and APK metadata only |
+| CI | Passed on the pull request (run 37559247177: build/test/lint/APK metadata and issue tracking) | `ci.yml` runs the JVM suite, build, lint and APK metadata only |
 | Instrumented smoke on two API levels (26 and newest) | **Not run** | No emulator or device was available. `AndroidPlatformSmokeTest` compiles (`compileDebugAndroidTestKotlin`) and has never executed. |
 | Physical device | Not applicable to this ticket | The ticket adds seams and tooling only; no route, microphone, speaker or foreground-service behaviour is claimed |
 
