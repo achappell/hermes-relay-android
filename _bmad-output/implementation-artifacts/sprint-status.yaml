@@ -55,6 +55,9 @@ development_status:
   android-ux-01: backlog
   android-ux-02: backlog
   android-ux-03: in-progress
+  # PR #134 header reachability slice is ready for review (review), not done; broader story stays in-progress.
+  # Amanda 2026-10-07 waived manual physical TalkBack spoken-output/focus-gesture acceptance only.
+  # Spoken output/focus gestures unverified; residual spoken-label/focus-order/gesture risk remains.
   android-ux-04: backlog
   android-ux-05: backlog
   android-ux-06: backlog

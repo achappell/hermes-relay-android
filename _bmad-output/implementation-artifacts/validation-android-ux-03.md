@@ -1,6 +1,6 @@
 # ANDROID-UX-03 validation record
 
-Status: `in-progress`. This PR validates the existing header's layout/reachability only; the planned `SessionHeaderCard` and the parent story remain open. Baseline: `origin/main` `3681339073348d9986e7adc51a129f584a27b289`; device pass on a Pixel 6a (Android 17, API 37), 2026-10-07.
+Status: header reachability slice **ready for review** (`review`); parent ANDROID-UX-03 story `in-progress`. Not done or fully TalkBack verified. This PR validates the existing header's layout/reachability only; the planned `SessionHeaderCard` and the parent story remain open. Baseline: `origin/main` `3681339073348d9986e7adc51a129f584a27b289`; device pass on a Pixel 6a (Android 17, API 37), 2026-10-07.
 
 ## Implemented
 
@@ -23,8 +23,13 @@ Installed with `adb install -r` only (never uninstall, clear-data, re-pair or `c
 - Screenshots inspected (8 images: light/dark x 1x/2x x menu closed/open, kept off-repo and not committed). At 2.0x in light and dark: title `Hermes conversation` fully visible, description wraps to two lines, `Selected Hermes Profile`, the Profile name ellipsized to one line (`Long synthetic profile name for l...`, full text is in the accessible node), `Authorization: Verified`, and the overflow button visible at the top right; opening it shows `Conversations`. Nothing overlaps or is clipped.
 - Protected app data was byte-identical before and after (`relay-profiles.json` `a88712b1...`, `home-client-pairings.json` `3a85e5e1...`, the 2 `history-*.json` combined digest `535139a1...`). The original installed APK was pulled before the install and reinstalled afterwards; system settings are unchanged. The androidTest package from this run stays installed.
 
-## Open
+## Current review disposition — 2026-10-07
 
-- Exact-head GitHub CI for the PR's final head is recorded in the PR.
-- **TalkBack speech not captured.** adb cannot capture TalkBack speech, so physical TalkBack was not run and is **not waived**. The instrumented tests assert semantics (single menu label and click action, full Profile name in the accessible node, traversal bands) but do not replace it. Human step for Amanda, on the Pixel with TalkBack on and this build installed: open the app, swipe right through the header from the top and confirm each of these is announced once, in this order, with no silent or duplicated stop: `Hermes conversation` (heading), the subtitle, `Selected Hermes Profile`, the Profile name (announced in full even when visually ellipsized), `Authorization: Verified`, then the overflow button as `Open conversation menu` (double-tap opens the menu). This header has no status dot or duration; those arrive with the full `SessionHeaderCard`, whose traversal (status, Profile, title, duration, and an unlabeled dot never taking its own stop) must be re-checked on that work.
-- This does not complete the status dot, timer, title-to-Conversations tap, settings icon or Disconnect placement, or the full ANDROID-HOME-11 scale/scroll matrix.
+- Exact-head GitHub CI for the PR's final head is recorded in the PR; prior implementation-head run `37657324140` for `197a884429d93a9207920f8902252944617875b7` passed both CI jobs.
+- **Owner waiver accepted by Amanda on 2026-10-07:** manual physical TalkBack spoken-output/focus-gesture acceptance is waived. Actual spoken output and focus gestures remain unverified; known residual spoken-label/focus-order/gesture risk is accepted for review, not represented as a manual pass. Semantics and automated traversal assertions above support, but do not replace, physical TalkBack evidence.
+- Header reachability slice ready for review, not done. No other gates are waived. This metadata-only closeout is explicitly exempt from bmad-build; no local checks, device scenarios or implementation changes are repeated.
+- Status dot, timer, title-to-Conversations tap, settings icon, Disconnect placement and the full ANDROID-HOME-11 scale/scroll matrix remain outside this agreed slice. The broader story stays `in-progress`; these are not substantive PR #134 blockers.
+
+## Superseded gate history
+
+Before Amanda's 2026-10-07 decision, physical TalkBack had not run and was not waived; the review gate requested a human swipe/double-tap check of the heading, subtitle, Profile label/full name, authorization and overflow menu for single announcements and no silent or duplicate stops. That blocking requirement is superseded by the owner waiver above. Speech/focus-gesture evidence remains absent. This does not establish the planned full card's status/Profile/title/duration traversal or the dot's lack of a separate focus stop.

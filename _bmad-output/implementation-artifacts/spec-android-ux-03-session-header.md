@@ -34,6 +34,8 @@ This PR addresses clipping in the existing `DoorwayHeaderZone` as the first UX-0
 
 This does not complete the planned `SessionHeaderCard`: the status dot, elapsed timer, title-to-Conversations action, settings gear, and the final two-line card layout remain open UX-03 acceptance.
 
+PR #134's header reachability slice is ready for review (`review`), not done; this parent story remains `in-progress`. Amanda accepted on 2026-10-07 that manual physical TalkBack spoken-output/focus-gesture acceptance is waived for this slice. Actual spoken output/focus gestures remain unverified, with known residual spoken-label/focus-order/gesture risk. This supersedes the earlier blocking manual gate, not the evidence limitation or the full-card acceptance below. Existing font 1x/2x light/dark layout and automatic-order evidence remains in the validation record. No other gates are waived; the metadata-only closeout is explicitly exempt from bmad-build.
+
 ## Required behavior
 
 - Replace the top bar content with a compact `SessionHeaderCard`: status dot in a state colour, Profile name, conversation title (tap opens the Conversations sheet), status text plus elapsed time while connected, settings icon, and the Disconnect action from `ANDROID-HOME-12`.

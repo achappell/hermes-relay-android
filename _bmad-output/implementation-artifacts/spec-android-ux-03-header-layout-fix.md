@@ -2,7 +2,7 @@
 title: 'ANDROID-UX-03 header font-scale layout fix'
 type: 'bugfix'
 created: '2026-10-07'
-status: 'in-progress'
+status: 'review'
 route: 'oneshot'
 review_loop_iteration: 1
 context:
@@ -26,6 +26,15 @@ context:
 - Footprint: `DoorwayZones.kt`, a focused instrumented regression/screenshot test, the parent UX-03 spec and validation record, and `CHANGELOG.md`.
 - Initial code map: `DoorwayHeaderZone` placed the profile block in `TopAppBar.actions` beside the title/description. The fix reuses its existing `A11yOrder` modifiers, menu semantics/tag, and `DropdownMenu`; non-header runtime, Home, and #129 stay out of scope.
 - Implementation: a dynamically measured, status-bar-inset-aware `Surface` replaces the fixed-height app bar; title, description, and profile stay in a weighted vertical column with the existing accessible menu as a trailing action. The instrumented regression uses synthetic content across the 1×/2× and light/dark matrix and captures closed/open-menu screenshots off-repo.
+
+## Review disposition — 2026-10-07
+
+The header reachability slice in PR #134 is ready for review (`review`), not done or fully TalkBack verified. Existing local, Pixel 6a layout/semantics and automated-order evidence is preserved in `validation-android-ux-03.md`; final-head CI is recorded in the PR. Metadata-only closeout is explicitly exempt from bmad-build; no implementation or device scenarios are reopened.
+
+Amanda accepted the waiver on 2026-10-07: manual physical TalkBack spoken-output/focus-gesture acceptance is waived. Actual spoken output and focus gestures remain unverified, with known residual spoken-label/focus-order/gesture risk. This supersedes the earlier unwaived blocking gate, not the evidence limitation.
+
+The parent ANDROID-UX-03 story remains `in-progress`: status dot, timer, title tap, settings, Disconnect placement and the full ANDROID-HOME-11 scale/scroll matrix are outside this agreed slice and are not PR #134 blockers. No other acceptance gates are waived.
+
 
 ## Review Triage Log
 

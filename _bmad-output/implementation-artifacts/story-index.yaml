@@ -829,6 +829,10 @@ stories:
     parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-03-session-header.md
     validation: _bmad-output/implementation-artifacts/validation-android-ux-03.md
+    # PR #134 header reachability slice: ready for review (review), not done; parent stays in-progress.
+    # Amanda 2026-10-07 waived manual physical TalkBack spoken-output/focus-gesture acceptance.
+    # Spoken output/focus gestures remain unverified; residual spoken-label/focus-order/gesture risk.
+    # Full status/timer/title-tap/settings/Disconnect and HOME-11 matrix remain outside this slice.
     depends_on:
       - android:ANDROID-UX-01
       - android:ANDROID-HOME-12
