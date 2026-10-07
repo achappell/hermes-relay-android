@@ -77,9 +77,25 @@ Use the runtime's injected `DiagnosticsJournal` for the two bounded, content-fre
 
 ### Tasks & Acceptance
 
-- [ ] In `HomeRuntime.kt::initiate`, retire the prior interrupt handoff and capture before an explicit typed prompt is submitted.
-- [ ] Extend `HomeRuntimeInterruptTest` with deterministic Starting/Listening/Transcribing cases, including recognizer cancellation/final callbacks, preservation of accepted response observation, a pending deadline that must not reopen capture, and old callbacks after a fresh voice capture opens. No wall-clock waits.
-- [ ] Keep the saved `88ed7123da256459ae0c9087e1bfbe1022df7f26` protocol fixes: an actual Home text terminal followed by audio still permits a scoped tail interrupt; PCM in flight after a user stop is not a new failed stream.
-- [ ] Run failing-before ownership regression, full JVM/build/lint/tracking gates and the combined repetition gate.
-- [ ] Exercise tail and before-terminal speech interrupt followed immediately by legitimate typed Send during automatic listening on the Pixel; verify local audio stop, exactly one interrupt and next submit, no replay or false Unavailable, and one capture opening. Restore the baseline APK/data/settings.
+- [x] In `HomeRuntime.kt::initiate`, retire the prior interrupt handoff and capture before an explicit typed prompt is submitted.
+- [x] Extend `HomeRuntimeInterruptTest` with deterministic Starting/Listening/Transcribing cases, including recognizer cancellation/final callbacks, preservation of accepted response observation, a pending deadline that must not reopen capture, and old callbacks after a fresh voice capture opens. No wall-clock waits.
+- [x] Keep the saved `88ed7123da256459ae0c9087e1bfbe1022df7f26` protocol fixes: an actual Home text terminal followed by audio still permits a scoped tail interrupt; PCM in flight after a user stop is not a new failed stream.
+- [x] Run failing-before ownership regression, full JVM/build/lint/tracking gates and the combined repetition gate. The local metadata script cannot run without `apkanalyzer`; equivalent metadata and signing inspection passed, and CI runs the repository script.
+- [x] Exercise tail and before-terminal speech interrupt followed immediately by legitimate typed Send during automatic listening on the Pixel; verify local audio stop, exactly one interrupt and next submit, no replay or false Unavailable, and one capture opening. Restore the baseline APK/data/settings.
 - [ ] Publish exact-head CI and an honest validation/PR record. Physical TalkBack speech remains a separate human-only gate.
+
+## Review Triage Log — resumed closeout
+
+All three review layers ran. Edge-case and verification-gap reviews found no concrete defect in the interrupt/next-turn implementation. The blind reviewer examined the required historical diff from `baseline_commit`, which includes earlier, unrelated stories; each finding below is outside the user's explicit Android129-only continuation and those records were preserved.
+
+| Finding | Verdict and evidence | Route |
+|---|---|---|
+| UX-13 compact scope versus UX-15 dependency | medium: UX-13 declares compact buildable now but lists UX-15 for the whole backlog story. This pre-existing planning contradiction is not an interrupt/next-turn dependency. | Reject: explicit intent excludes unrelated UX backlog edits. |
+| UX-14 compact scope versus UX-02/15 dependencies | medium: UX-14 provides a current capture-zone fallback but lists both later UI dependencies globally. No UX-14 caller is changed here. | Reject: explicit intent excludes unrelated UX backlog edits. |
+| UX-09 approvals predictive-back evidence | medium: the earlier validation says nothing open while explicitly acknowledging that approvals had no device gesture pass. VOICE-04 does not claim that gate. | Reject: unrelated previously completed story record; preserved. |
+| UX-13 one-shot TalkBack mechanism | medium: the backlog spec requires a one-time thinking announcement but excludes the row's live region without naming the mechanism. No thinking-row implementation is in this continuation. | Reject: unrelated UX-13 design work. |
+| UX-14 hardware shortcut selection | medium: the backlog names a hardware shortcut but no key sequence. Interrupt/next-turn adds no shortcut. | Reject: unrelated UX-14 design work. |
+| UX-09 stale authorization code-map note | low: its earlier code map says device-blocked while its historical validation records device passes. Neither is an Android129 gate. | Reject: unrelated historical documentation. |
+| UX-09 off-repo splash recording | maybe-false: recordings are explicitly kept off-repo for privacy, and the reviewer cannot establish whether an attachment exists elsewhere. The written evidence is present; Android129 claims no splash recording. | Reject: unrelated historical artifact availability, no new acceptance claim. |
+
+The platform recognizer's shared-listener cancellation/restart behavior remains an inference, not established by a failing runtime scenario. This change tests retired controller callbacks, uses the existing recognizer cancellation boundary, and does not claim an arbitrary platform callback-generation proof.
