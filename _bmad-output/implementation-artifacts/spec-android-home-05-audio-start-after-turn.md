@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-05
 title: Play Home audio for replies slower than any client audio-start wait
-status: backlog
+status: review
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
