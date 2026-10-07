@@ -1519,6 +1519,13 @@ internal class OkHttpRelaySessionClient(
             is AndroidNormalizedEvent.TurnInterrupted,
             -> {
                 interruptTelemetry.recordTerminal()
+                journal.record(
+                    if (event is AndroidNormalizedEvent.TurnInterrupted) {
+                        "home turn terminal interrupted"
+                    } else {
+                        "home turn terminal failed"
+                    },
+                )
                 audioActive.set(false)
                 audioDrainPending.set(false)
                 audioBytesRemainder = 0
