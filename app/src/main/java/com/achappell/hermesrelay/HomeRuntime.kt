@@ -97,6 +97,7 @@ internal class HomeRuntime(
     val captureController: AndroidCaptureController? = speechInput?.let { input ->
         AndroidCaptureController(
             speech = input,
+            timers = MainLooperVoiceTimers,
             initiation = initiationController,
             isConnected = { recoveryState.connection == AndroidConnectionState.Connected },
             isAuthorized = {
