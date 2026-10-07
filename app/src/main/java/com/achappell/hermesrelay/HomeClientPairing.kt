@@ -164,6 +164,12 @@ internal data class HomeClientPairings(
     val records: List<HomeClientPairingRecord> = emptyList(),
     /** Stable per-install endpoint IDs keyed by Home, so pairing again replaces. */
     val endpointIds: Map<String, String> = emptyMap(),
+    /**
+     * The pairing identity of each Home this phone deliberately unpaired, keyed
+     * by Home. Its Profiles stay and still name that identity, so pairing the
+     * same Home again reuses it and they reattach (`ANDROID-HOME-13`).
+     */
+    val unpairedIds: Map<String, String> = emptyMap(),
 ) {
     fun find(pairingId: String) = records.firstOrNull { it.pairingId == pairingId }
 
@@ -171,9 +177,23 @@ internal data class HomeClientPairings(
 
     fun upsert(record: HomeClientPairingRecord) = copy(
         records = records.filterNot { it.pairingId == record.pairingId } + record,
+        unpairedIds = unpairedIds.filterValues { it != record.pairingId },
     )
 
-    fun remove(pairingId: String) = copy(records = records.filterNot { it.pairingId == pairingId })
+    /** Forgets the pairing for good, including the identity a re-pair would reuse. */
+    fun remove(pairingId: String) = copy(
+        records = records.filterNot { it.pairingId == pairingId },
+        unpairedIds = unpairedIds.filterValues { it != pairingId },
+    )
+
+    /** Forgets the record but keeps its identity so a later pairing reattaches the Profiles. */
+    fun unpair(pairingId: String): HomeClientPairings {
+        val record = find(pairingId) ?: return this
+        return copy(
+            records = records.filterNot { it.pairingId == pairingId },
+            unpairedIds = unpairedIds + (record.homeUrl to record.pairingId),
+        )
+    }
 
     fun toJson(): String = JSONObject()
         .put("schema", SCHEMA_VERSION)
@@ -203,6 +223,7 @@ internal data class HomeClientPairings(
             }
         })
         .put("endpoint_ids", JSONObject(endpointIds))
+        .put("unpaired_ids", JSONObject(unpairedIds))
         .toString()
 
     companion object {
@@ -230,9 +251,11 @@ internal data class HomeClientPairings(
                 }
             }
             val ids = root.optJSONObject("endpoint_ids") ?: JSONObject()
+            val unpaired = root.optJSONObject("unpaired_ids") ?: JSONObject()
             HomeClientPairings(
                 records = records,
                 endpointIds = ids.keys().asSequence().associateWith(ids::getString),
+                unpairedIds = unpaired.keys().asSequence().associateWith(unpaired::getString),
             )
         }.getOrElse { HomeClientPairings() }
     }
@@ -753,6 +776,47 @@ internal sealed interface HomePairingOutcome {
     data class Failed(val reason: HomeAdministrationError) : HomePairingOutcome
 }
 
+internal enum class PairedHomeStatus { Active, Pending, Expired }
+
+internal data class PairedHomeGrant(
+    val label: String,
+    val status: HomeClientGrantStatus,
+    val hasProfile: Boolean,
+)
+
+/** A paired Home as the list shows it. Carries no credential, handle or grant ID. */
+internal data class PairedHome(
+    val pairingId: String,
+    val host: String,
+    val status: PairedHomeStatus,
+    val credentialExpiresAt: Double,
+    val grants: List<PairedHomeGrant>,
+)
+
+internal sealed interface HomeRefreshOutcome {
+    /** [added] Profiles were created; zero means nothing was new. */
+    data class Refreshed(val added: Int) : HomeRefreshOutcome
+
+    /** The credential is missing, expired or no longer accepted. */
+    data object PairAgain : HomeRefreshOutcome
+
+    data object NotPaired : HomeRefreshOutcome
+
+    data class Failed(val reason: HomeAdministrationError) : HomeRefreshOutcome
+}
+
+internal sealed interface HomeUnpairOutcome {
+    data class Unpaired(val profilesKept: Int) : HomeUnpairOutcome
+
+    /** The credential could not be removed; the pairing is untouched. */
+    data object CredentialNotRemoved : HomeUnpairOutcome
+
+    /** The credential is gone but the record could not be removed; try again. */
+    data object RecordNotRemoved : HomeUnpairOutcome
+
+    data object NotPaired : HomeUnpairOutcome
+}
+
 /**
  * Drives one pairing from submission to saved Profiles. Every call blocks and
  * belongs on a worker thread.
@@ -813,7 +877,7 @@ internal class HomeClientPairingCoordinator(
         // Pairing the same Home again keeps its identity so its Profiles and
         // history stay attached; Home has already revoked the old generation.
         val existing = pairings.forHome(target.homeUrl)
-        val pairingId = existing?.pairingId ?: idFactory()
+        val pairingId = existing?.pairingId ?: pairings.unpairedIds[target.homeUrl] ?: idFactory()
         val slot = HomeClientPairingRecord.credentialSlot(pairingId)
         val previousCredential = credentials.readHomeCredential(slot)
         if (
@@ -843,6 +907,99 @@ internal class HomeClientPairingCoordinator(
             pendingOwnerLabels = approved.grants
                 .filter { it.status == HomeClientGrantStatus.PendingOwner }
                 .map { it.label },
+        )
+    }
+
+    /** Every paired Home with its status and grants, for the Paired Homes list. */
+    fun pairedHomes(): List<PairedHome> {
+        val now = clock()
+        val profiles = configuration.collection.profiles
+        return store.load().records.map { record ->
+            val credentialReadable = credentials.readHomeCredential(record.credentialSlot) != null
+            PairedHome(
+                pairingId = record.pairingId,
+                host = runCatching { URI(record.homeUrl).host }.getOrNull() ?: record.homeUrl,
+                status = when {
+                    now >= record.credentialExpiresAt || !credentialReadable -> PairedHomeStatus.Expired
+                    record.grants.none { it.status == HomeClientGrantStatus.Active } ->
+                        PairedHomeStatus.Pending
+                    else -> PairedHomeStatus.Active
+                },
+                credentialExpiresAt = record.credentialExpiresAt,
+                grants = record.grants.map { grant ->
+                    PairedHomeGrant(
+                        label = grant.label,
+                        status = grant.status,
+                        hasProfile = profiles.any {
+                            it.homeClientGrant == RelayHomeClientGrantRef(record.pairingId, grant.grantId)
+                        },
+                    )
+                },
+            )
+        }
+    }
+
+    /**
+     * Profiles that name a Home this phone no longer holds a pairing for
+     * (after Unpair). They stay saved and are offered again once the same Home
+     * is paired.
+     */
+    fun profilesNeedingPairing(): List<RelayProfile> {
+        val paired = store.load().records.map { it.pairingId }.toSet()
+        return configuration.collection.profiles.filter { profile ->
+            profile.homeClientGrant?.let { it.pairingId !in paired } == true
+        }
+    }
+
+    /**
+     * Re-reads this device's grants from Home and creates a Profile for each
+     * grant that is active and has none yet. Running it again adds nothing.
+     */
+    fun refreshGrants(pairingId: String): HomeRefreshOutcome {
+        val pairings = store.load()
+        val record = pairings.find(pairingId) ?: return HomeRefreshOutcome.NotPaired
+        val credential = credentials.readHomeCredential(record.credentialSlot)
+            ?: return HomeRefreshOutcome.PairAgain
+        if (clock() >= record.credentialExpiresAt) return HomeRefreshOutcome.PairAgain
+        val grants = try {
+            service.configuration(record.homeUrl, credential, record.deviceId).grants
+        } catch (error: HomeAdministrationException) {
+            return when (error.reason) {
+                HomeAdministrationError.Unauthorized,
+                HomeAdministrationError.Revoked,
+                HomeAdministrationError.Expired,
+                -> HomeRefreshOutcome.PairAgain
+                else -> HomeRefreshOutcome.Failed(error.reason)
+            }
+        }
+        val refreshed = record.copy(grants = grants)
+        if (!store.save(pairings.upsert(refreshed))) {
+            return HomeRefreshOutcome.Failed(HomeAdministrationError.SecureStorageUnavailable)
+        }
+        val added = configuration.addHomeClientProfiles(refreshed)
+            ?: return HomeRefreshOutcome.Failed(HomeAdministrationError.SecureStorageUnavailable)
+        return HomeRefreshOutcome.Refreshed(added.size)
+    }
+
+    /**
+     * Forgets this Home on this phone: the Keystore credential first, so a
+     * failure leaves the pairing record intact for another try, then the
+     * record. Its Profiles stay (they need pairing again) and keep the Home's
+     * identity so pairing the same Home again reattaches them. Home keeps
+     * listing the device until it is removed on the Home page; Home offers no
+     * device self-revoke.
+     */
+    fun unpair(pairingId: String): HomeUnpairOutcome {
+        val pairings = store.load()
+        val record = pairings.find(pairingId) ?: return HomeUnpairOutcome.NotPaired
+        if (!credentials.deleteHomeCredential(record.credentialSlot)) {
+            return HomeUnpairOutcome.CredentialNotRemoved
+        }
+        if (!store.save(pairings.unpair(pairingId))) return HomeUnpairOutcome.RecordNotRemoved
+        return HomeUnpairOutcome.Unpaired(
+            profilesKept = configuration.collection.profiles.count {
+                it.homeClientGrant?.pairingId == pairingId
+            },
         )
     }
 

@@ -61,8 +61,11 @@ internal fun RelayConfigurationScreen(
         mutableStateOf<Map<RelayProfileField, RelayProfileError>>(emptyMap())
     }
 
+    var pairedHomesRevision by remember { mutableStateOf(0) }
+
     fun refresh() {
         collection = controller.collection
+        pairedHomesRevision += 1
         onChanged()
     }
 
@@ -124,6 +127,11 @@ internal fun RelayConfigurationScreen(
                 pendingLink = pendingPairingLink,
                 onPendingLinkConsumed = onPendingPairingLinkConsumed,
                 onPaired = ::refresh,
+            )
+            PairedHomesSection(
+                coordinator = coordinator,
+                pairingRevision = pairedHomesRevision,
+                onChanged = ::refresh,
             )
         }
 

@@ -188,6 +188,36 @@
     <string name="android_home_pair_link_invalid">That is not a Home pairing link.</string>
     <string name="android_home_pair_address_invalid">The Home address must be an https:// address with a host name.</string>
     <string name="android_home_pair_code_invalid">The short code should be letters and digits, like K7Q-4MX.</string>
+    <string name="android_paired_homes_title">Paired Homes</string>
+    <string name="android_paired_homes_status_active">Paired</string>
+    <string name="android_paired_homes_status_pending">Waiting for an owner to approve</string>
+    <string name="android_paired_homes_status_expired">Expired. Pair with this Home again.</string>
+    <string name="android_paired_homes_expires">Pairing valid until %1$s</string>
+    <string name="android_paired_homes_grant_active">%1$s: Profile saved</string>
+    <string name="android_paired_homes_grant_pending">%1$s: waiting for owner approval</string>
+    <string name="android_paired_homes_grant_no_profile">%1$s: no Profile yet. Refresh Profiles.</string>
+    <string name="android_paired_homes_refresh">Refresh Profiles</string>
+    <string name="android_paired_homes_unpair">Unpair this Home</string>
+    <string name="android_paired_homes_unpair_title">Unpair %1$s?</string>
+    <string name="android_paired_homes_unpair_body">This phone forgets this Home and its stored credential. Its Profiles stay here and need pairing again; pairing the same Home again reattaches them. Home keeps listing this phone until an owner removes it on the Home page.</string>
+    <string name="android_paired_homes_unpair_confirm">Unpair</string>
+    <string name="android_paired_homes_unpair_cancel">Keep paired</string>
+    <string name="android_paired_homes_no_new">No new profiles.</string>
+    <plurals name="android_paired_homes_added">
+        <item quantity="one">%1$d new profile added.</item>
+        <item quantity="other">%1$d new profiles added.</item>
+    </plurals>
+    <plurals name="android_paired_homes_needs_pairing">
+        <item quantity="one">%1$d saved Profile needs pairing again.</item>
+        <item quantity="other">%1$d saved Profiles need pairing again.</item>
+    </plurals>
+    <string name="android_paired_homes_unpaired">Unpaired. Its Profiles stay and need pairing again.</string>
+    <string name="android_paired_homes_unpair_credential_failed">The Home credential could not be removed from secure storage, so this Home is still paired. Try again.</string>
+    <string name="android_paired_homes_unpair_record_failed">The credential was removed but the pairing record could not be, so try Unpair again.</string>
+    <string name="android_paired_homes_pair_again">This phone\'s pairing with Home is expired or no longer accepted. Pair with Home again.</string>
+    <string name="android_paired_homes_gone">This Home is no longer paired.</string>
+    <string name="android_paired_homes_storage_failed">The refreshed Profiles could not be saved. Try again.</string>
+    <string name="android_paired_homes_refresh_failed">Home did not answer the refresh. Nothing changed.</string>
     <string name="android_home_pair_scan">Scan QR code</string>
     <string name="android_home_pair_scan_hint">Point the camera at the QR code on the Home pairing page.</string>
     <string name="android_home_pair_scan_rationale">The scanner needs the camera only to read the pairing QR code; nothing is recorded or saved. Allow camera access, or paste the pairing link instead.</string>

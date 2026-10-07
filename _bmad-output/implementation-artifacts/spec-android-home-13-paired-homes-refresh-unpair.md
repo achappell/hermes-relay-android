@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-13
 title: 'Paired Homes screen: Refresh Profiles and Unpair Home'
-status: backlog
+status: review
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-02
