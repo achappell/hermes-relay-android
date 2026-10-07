@@ -199,7 +199,9 @@ class HomeClientPairingTest {
             claimId = "client-1",
         )
 
-        assertEquals("opaque-home-claim-1", (result as HomeClientClaimResult.Granted).conversationHandle)
+        val granted = result as HomeClientClaimResult.Granted
+        assertEquals("opaque-home-claim-1", granted.conversationHandle)
+        assertNull(granted.claimRef)
         val request = transport.requests.single()
         assertEquals("$HOME_URL/api/v1/client-claims", request.url)
         assertEquals("Device $VALID_CREDENTIAL", request.headers["Authorization"])
@@ -210,6 +212,86 @@ class HomeClientPairingTest {
         )
         assertEquals("new", body.getJSONObject("session").getString("mode"))
         assertFalse(result.toString().contains("opaque-home-claim-1"))
+    }
+
+    @Test
+    fun a_claim_response_with_claim_ref_is_parsed_without_exposing_it_in_to_string() {
+        val result = HttpHomeClientService(
+            RecordingTransport(
+                HomeHttpResponse(
+                    200,
+                    """{"schema":1,"claim_id":"client-1","decision":"granted",""" +
+                        """"conversation_handle":"opaque-home-claim-1","claim_ref":"claim-ref-1",""" +
+                        """"session":{"mode":"new"}}""",
+                ),
+            ),
+        ).claim(HOME_URL, VALID_CREDENTIAL, DEVICE_ID, 13, "grant-a", "client-1")
+            as HomeClientClaimResult.Granted
+
+        assertEquals("claim-ref-1", result.claimRef)
+        assertFalse(result.toString().contains("claim-ref-1"))
+        assertFalse(result.toString().contains("opaque-home-claim-1"))
+    }
+
+    @Test
+    fun client_claim_listing_parses_all_states_and_nullable_open_time() {
+        val transport = RecordingTransport(
+            HomeHttpResponse(
+                200,
+                """{"schema":1,"max_claims":2,"claims":[""" +
+                    """{"claim_ref":"ref-1","grant_id":"grant-a","profile_label":"Work","session_ref":"sref-1","created_at":100,"opened_at":null,"state":"connecting"},""" +
+                    """{"claim_ref":"ref-2","grant_id":"grant-b","profile_label":null,"session_ref":null,"created_at":200,"opened_at":201,"state":"idle"},""" +
+                    """{"claim_ref":"ref-3","grant_id":"grant-c","profile_label":"Family","session_ref":"sref-3","created_at":300,"opened_at":301,"state":"replying"},""" +
+                    """{"claim_ref":"ref-4","grant_id":"grant-d","profile_label":"Home","session_ref":"sref-4","created_at":400,"opened_at":401,"state":"waiting_to_reconnect"}]}""",
+            ),
+        )
+
+        val result = HttpHomeClientService(transport).listClientClaims(HOME_URL, VALID_CREDENTIAL)
+
+        assertEquals(2, result.maxClaims)
+        assertEquals(
+            listOf(
+                HomeClientClaim("ref-1", "grant-a", "Work", "sref-1", 100.0, null, HomeClientClaimState.Connecting),
+                HomeClientClaim("ref-2", "grant-b", null, null, 200.0, 201.0, HomeClientClaimState.Idle),
+                HomeClientClaim("ref-3", "grant-c", "Family", "sref-3", 300.0, 301.0, HomeClientClaimState.Replying),
+                HomeClientClaim("ref-4", "grant-d", "Home", "sref-4", 400.0, 401.0, HomeClientClaimState.WaitingToReconnect),
+            ),
+            result.claims,
+        )
+        assertEquals("GET", transport.requests.single().method)
+        assertEquals("$HOME_URL/api/v1/client-claims", transport.requests.single().url)
+        assertEquals("Device $VALID_CREDENTIAL", transport.requests.single().headers["Authorization"])
+    }
+
+    @Test
+    fun claim_close_posts_only_explicit_unique_refs_and_parses_both_results() {
+        val transport = RecordingTransport(
+            HomeHttpResponse(
+                200,
+                """{"schema":1,"results":[""" +
+                    """{"claim_ref":"ref-a","result":"closed"},{"claim_ref":"ref-b","result":"not_open"}]}""",
+            ),
+        )
+        val refs = listOf("ref-a", "ref-b")
+
+        val results = HttpHomeClientService(transport)
+            .closeClientClaims(HOME_URL, VALID_CREDENTIAL, refs)
+
+        assertEquals(
+            listOf(
+                HomeClientClaimCloseResult("ref-a", HomeClientClaimCloseStatus.Closed),
+                HomeClientClaimCloseResult("ref-b", HomeClientClaimCloseStatus.NotOpen),
+            ),
+            results,
+        )
+        val request = transport.requests.single()
+        assertEquals("POST", request.method)
+        assertEquals("$HOME_URL/api/v1/client-claims/close", request.url)
+        assertEquals("Device $VALID_CREDENTIAL", request.headers["Authorization"])
+        val body = JSONObject(request.body!!)
+        assertEquals(1, body.getInt("schema"))
+        val requestRefs = body.getJSONArray("claim_refs")
+        assertEquals(refs, (0 until requestRefs.length()).map { requestRefs.getString(it) })
     }
 
     @Test
@@ -596,6 +678,254 @@ class HomeClientPairingTest {
     }
 
     @Test
+    fun open_claims_are_hidden_until_a_successful_claim_returns_claim_ref() {
+        val fixture = pairedFixture()
+        val claims = fixture.claims()
+        val grant = fixture.grant()
+
+        assertTrue(claims.claim(grant) is HomeClientClaimOutcome.Claimed)
+        assertFalse(claims.supportsClaimManagement(grant.pairingId))
+        assertEquals(HomeClientClaimProvider.OpenClaims.Unsupported, claims.listOpenClaims(grant.pairingId))
+        assertFalse(fixture.service.calls.contains("listClaims"))
+
+        fixture.service.claimResults += HomeClientClaimResult.Granted(
+            conversationHandle = "opaque-home-claim-2",
+            claimRef = "claim-ref-2",
+        )
+        assertEquals(
+            "claim-ref-2",
+            (claims.claim(grant) as HomeClientClaimOutcome.Claimed).claimRef,
+        )
+        val listed = HomeClientClaimList(
+            maxClaims = 3,
+            claims = listOf(
+                HomeClientClaim(
+                    claimRef = "claim-ref-2",
+                    grantId = grant.grantId,
+                    profileLabel = "Jensen",
+                    sessionRef = null,
+                    createdAt = 200.0,
+                    openedAt = null,
+                    state = HomeClientClaimState.Connecting,
+                ),
+            ),
+        )
+        fixture.service.listedClaims = listed
+
+        assertTrue(claims.supportsClaimManagement(grant.pairingId))
+        assertEquals(
+            HomeClientClaimProvider.OpenClaims.Listed(grant.pairingId, 3, listed.claims),
+            claims.listOpenClaims(grant.pairingId),
+        )
+
+        fixture.service.claimResults += HomeClientClaimResult.Granted("opaque-legacy-handle")
+        assertTrue(claims.claim(grant) is HomeClientClaimOutcome.Claimed)
+        assertFalse(claims.supportsClaimManagement(grant.pairingId))
+        assertEquals(HomeClientClaimProvider.OpenClaims.Unsupported, claims.listOpenClaims(grant.pairingId))
+    }
+
+    @Test
+    fun claim_management_survives_cold_start_when_first_claim_hits_claim_limit() {
+        val fixture = pairedFixture()
+        val grant = fixture.grant()
+        fixture.service.claimResults += HomeClientClaimResult.Granted(
+            conversationHandle = "opaque-handle-secret",
+            claimRef = "claim-ref-secret",
+        )
+        assertTrue(fixture.claims().claim(grant) is HomeClientClaimOutcome.Claimed)
+
+        val serializedPairings = fixture.store.load().toJson()
+        assertTrue(fixture.store.load().find(grant.pairingId)!!.claimManagementSupported)
+        assertFalse(serializedPairings.contains("claim-ref-secret"))
+        assertFalse(serializedPairings.contains("opaque-handle-secret"))
+        val restartedStore = InMemoryHomeClientPairingStore(
+            HomeClientPairings.fromJson(serializedPairings),
+        )
+        val restartedClaims = HomeClientClaimProvider(
+            store = restartedStore,
+            credentials = fixture.credentials,
+            service = fixture.service,
+            clock = { fixture.now },
+        )
+        assertTrue(restartedClaims.supportsClaimManagement(grant.pairingId))
+
+        fixture.service.claimResults += HomeClientClaimResult.Denied("claim_limit")
+        val unavailable = restartedClaims.claim(grant) as HomeClientClaimOutcome.Unavailable
+        assertEquals(AndroidHomeUnavailableReason.ClaimLimit, unavailable.reason)
+        assertTrue(restartedClaims.supportsClaimManagement(grant.pairingId))
+
+        fixture.service.listedClaims = HomeClientClaimList(maxClaims = 8, claims = emptyList())
+        assertEquals(
+            HomeClientClaimProvider.OpenClaims.Listed(grant.pairingId, 8, emptyList()),
+            restartedClaims.listOpenClaims(grant.pairingId),
+        )
+    }
+
+    @Test
+    fun claim_close_submits_only_explicit_refs_and_not_open_is_a_safe_no_op() {
+        val fixture = pairedFixture()
+        val claims = fixture.claims()
+        val grant = fixture.grant()
+        fixture.service.claimResults += HomeClientClaimResult.Granted(
+            "opaque-home-claim-2",
+            claimRef = "claim-ref-2",
+        )
+        claims.claim(grant)
+        fixture.service.closeStatus = HomeClientClaimCloseStatus.NotOpen
+        val refs = listOf("claim-ref-a", "claim-ref-b")
+
+        assertEquals(
+            HomeClientClaimProvider.CloseClaims.Completed(requested = 2, closed = 0),
+            claims.closeOpenClaims(grant.pairingId, refs),
+        )
+        assertEquals(listOf(refs), fixture.service.closedClaimRefs)
+        assertEquals(
+            HomeClientClaimProvider.CloseClaims.Unavailable(
+                "Home did not accept the close request.",
+            ),
+            claims.closeOpenClaims(grant.pairingId, refs + refs.first()),
+        )
+        assertEquals(listOf(refs), fixture.service.closedClaimRefs)
+    }
+
+    @Test
+    fun close_and_list_refreshes_after_success_and_close_error() {
+        val fixture = pairedFixture()
+        val claims = fixture.claims()
+        val grant = fixture.grant()
+        fixture.service.claimResults += HomeClientClaimResult.Granted(
+            "opaque-home-claim-2",
+            claimRef = "claim-ref-2",
+        )
+        claims.claim(grant)
+        val openClaim = HomeClientClaim(
+            claimRef = "claim-ref-2",
+            grantId = grant.grantId,
+            profileLabel = "Jensen",
+            sessionRef = "sref-2",
+            createdAt = 200.0,
+            openedAt = 210.0,
+            state = HomeClientClaimState.Idle,
+        )
+        fixture.service.listedClaims = HomeClientClaimList(maxClaims = 4, claims = listOf(openClaim))
+
+        fixture.service.calls.clear()
+        assertEquals(
+            HomeClientClaimProvider.CloseAndList(
+                closeResult = HomeClientClaimProvider.CloseClaims.Completed(requested = 1, closed = 1),
+                listing = HomeClientClaimProvider.OpenClaims.Listed(
+                    pairingId = grant.pairingId,
+                    maxClaims = 4,
+                    claims = listOf(openClaim),
+                ),
+            ),
+            claims.closeAndListOpenClaims(grant.pairingId, listOf("claim-ref-2")),
+        )
+        assertEquals(listOf("closeClaims", "listClaims"), fixture.service.calls)
+
+        fixture.service.closeError = HomeAdministrationError.TransportUnavailable
+        fixture.service.calls.clear()
+        assertEquals(
+            HomeClientClaimProvider.CloseAndList(
+                closeResult = HomeClientClaimProvider.CloseClaims.Unavailable(
+                    "Home could not confirm which conversations closed.",
+                ),
+                listing = HomeClientClaimProvider.OpenClaims.Listed(
+                    pairingId = grant.pairingId,
+                    maxClaims = 4,
+                    claims = listOf(openClaim),
+                ),
+            ),
+            claims.closeAndListOpenClaims(grant.pairingId, listOf("claim-ref-2")),
+        )
+        assertEquals(listOf("closeClaims", "listClaims"), fixture.service.calls)
+    }
+
+    @Test
+    fun a_not_found_claim_route_hides_open_claim_management() {
+        val fixture = pairedFixture()
+        val claims = fixture.claims()
+        val grant = fixture.grant()
+        fixture.service.claimResults += HomeClientClaimResult.Granted(
+            "opaque-home-claim-2",
+            claimRef = "claim-ref-2",
+        )
+        claims.claim(grant)
+
+        fixture.service.listedClaimsError = HomeAdministrationError.NotFound
+        assertEquals(HomeClientClaimProvider.OpenClaims.Unsupported, claims.listOpenClaims(grant.pairingId))
+        assertFalse(claims.supportsClaimManagement(grant.pairingId))
+        assertFalse(fixture.store.load().find(grant.pairingId)!!.claimManagementSupported)
+
+        fixture.service.listedClaimsError = null
+        fixture.service.claimResults += HomeClientClaimResult.Granted(
+            "opaque-home-claim-3",
+            claimRef = "claim-ref-3",
+        )
+        claims.claim(grant)
+        fixture.service.closeError = HomeAdministrationError.NotFound
+        assertEquals(
+            HomeClientClaimProvider.CloseClaims.Unsupported,
+            claims.closeOpenClaims(grant.pairingId, listOf("claim-ref-3")),
+        )
+        assertFalse(claims.supportsClaimManagement(grant.pairingId))
+        assertFalse(fixture.store.load().find(grant.pairingId)!!.claimManagementSupported)
+    }
+
+    @Test
+    fun missing_session_titles_do_not_block_claim_listing_or_open_time_display() {
+        val fixture = pairedFixture()
+        val claims = fixture.claims()
+        val grant = fixture.grant()
+        val claim = HomeClientClaim(
+            claimRef = "claim-ref-1",
+            grantId = grant.grantId,
+            profileLabel = null,
+            sessionRef = "sref-1",
+            createdAt = 100.0,
+            openedAt = null,
+            state = HomeClientClaimState.Idle,
+        )
+
+        assertEquals(listOf(claim), claims.enrichClaimTitles(grant.pairingId, listOf(claim)))
+        assertEquals(100.0, HomeOpenClaimRows.startedAt(claim), 0.0)
+
+        fixture.service.listed = listOf(HomeClientSession("sref-1", "Groceries", 101.0, 2, false))
+        assertEquals(
+            "Groceries",
+            claims.enrichClaimTitles(grant.pairingId, listOf(claim)).single().title,
+        )
+    }
+
+    @Test
+    fun claim_limit_is_a_terminal_unavailable_reason_not_a_retry() {
+        val fixture = pairedFixture()
+        fixture.service.claimResults += HomeClientClaimResult.Denied("claim_limit")
+
+        val outcome = fixture.claims().claim(fixture.grant()) as HomeClientClaimOutcome.Unavailable
+
+        assertEquals(AndroidHomeUnavailableReason.ClaimLimit, outcome.reason)
+        assertFalse(outcome.retryable)
+        assertEquals(1, fixture.service.calls.count { it == "claim" })
+    }
+
+    @Test
+    fun delayed_claim_responses_cannot_replace_a_newer_profile_list() {
+        val requests = HomeProfileRequestGate()
+        val oldCloseRequest = requests.begin("profile-a")
+        val newProfileRequest = requests.begin("profile-b")
+
+        assertFalse(requests.isCurrent(oldCloseRequest, "profile-b"))
+        assertTrue(requests.isCurrent(newProfileRequest, "profile-b"))
+
+        val newerListRequest = requests.begin("profile-b")
+        assertFalse(requests.isCurrent(newProfileRequest, "profile-b"))
+        assertTrue(requests.isCurrent(newerListRequest, "profile-b"))
+        requests.invalidate()
+        assertFalse(requests.isCurrent(newerListRequest, "profile-b"))
+    }
+
+    @Test
     fun conversation_rows_mark_current_and_busy_conversations() {
         val current = HomeClientSession("sref-1", "", 0.0, 0, active = true)
         val busy = HomeClientSession("sref-2", "", 0.0, 0, active = true)
@@ -706,6 +1036,17 @@ class HomeClientPairingTest {
     }
 
     @Test
+    fun older_pairing_files_default_claim_management_support_to_false() {
+        val fixture = pairedFixture()
+        val root = JSONObject(fixture.store.load().toJson())
+        root.getJSONArray("records").getJSONObject(0).remove("claim_management_supported")
+
+        assertFalse(
+            HomeClientPairings.fromJson(root.toString()).records.single().claimManagementSupported,
+        )
+    }
+
+    @Test
     fun a_profile_grant_reference_survives_a_json_round_trip() {
         val collection = RelayProfileCollection(
             profiles = listOf(
@@ -782,6 +1123,11 @@ class HomeClientPairingTest {
         val claimedChoices = mutableListOf<HomeClientSessionChoice>()
         var listed: List<HomeClientSession> = emptyList()
         var sessionForHandle: String? = null
+        var listedClaims = HomeClientClaimList(8, emptyList())
+        var listedClaimsError: HomeAdministrationError? = null
+        var closeStatus = HomeClientClaimCloseStatus.Closed
+        var closeError: HomeAdministrationError? = null
+        val closedClaimRefs = mutableListOf<List<String>>()
         val renewGenerations = mutableListOf<Int>()
         var configurationGrants: List<HomeClientGrant> = GRANTS
         var configurationError: HomeAdministrationError? = null
@@ -847,6 +1193,23 @@ class HomeClientPairingTest {
         ): List<HomeClientSession> {
             calls += "list"
             return listed
+        }
+
+        override fun listClientClaims(homeUrl: String, credential: String): HomeClientClaimList {
+            calls += "listClaims"
+            listedClaimsError?.let { throw HomeAdministrationException(it) }
+            return listedClaims
+        }
+
+        override fun closeClientClaims(
+            homeUrl: String,
+            credential: String,
+            claimRefs: List<String>,
+        ): List<HomeClientClaimCloseResult> {
+            calls += "closeClaims"
+            closedClaimRefs += claimRefs.toList()
+            closeError?.let { throw HomeAdministrationException(it) }
+            return claimRefs.map { HomeClientClaimCloseResult(it, closeStatus) }
         }
 
         override fun claimSession(homeUrl: String, credential: String, conversationHandle: String): String? {

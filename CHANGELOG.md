@@ -4,6 +4,7 @@
 
 ### Features
 - Add day/night-aware Android splash styling and enable platform predictive-back support for modal sheets.
+- Add durable Home claim-management capability detection and an "Open on Home" list/close flow for the conversations sheet.
 
 ## 0.3.1 (2026-09-12)
 

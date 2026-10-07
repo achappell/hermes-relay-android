@@ -15,9 +15,9 @@ import java.util.UUID
  * admit each conversation through a fresh client claim.
  *
  * Secrets never leave this file except through [RelayCredentialStore]: the
- * enrollment code, Device credential and conversation handle are held in
- * redacting types, and the persisted pairing record carries only non-secret
- * identities (`device_id`, `grant_id`, generation, expiry, route pin).
+ * enrollment code, Device credential, and conversation handle are held in
+ * redacting types. Persisted pairing records contain only non-secret metadata
+ * such as device/grant identities and claim-management feature support.
  */
 
 /** Where to pair and with which single-use code. The code is secret. */
@@ -151,6 +151,7 @@ internal data class HomeClientPairingRecord(
     val routeId: String? = null,
     /** This phone's last conversation per grant, as opaque Home references. */
     val lastSessionRefs: Map<String, String> = emptyMap(),
+    val claimManagementSupported: Boolean = false,
 ) {
     val credentialSlot: String get() = credentialSlot(pairingId)
 
@@ -208,6 +209,7 @@ internal data class HomeClientPairings(
                         .put("credential_expires_at", record.credentialExpiresAt)
                         .putOpt("route_id", record.routeId)
                         .put("last_session_refs", JSONObject(record.lastSessionRefs))
+                        .put("claim_management_supported", record.claimManagementSupported)
                         .put("grants", JSONArray().apply {
                             record.grants.forEach { grant ->
                                 put(
@@ -246,6 +248,10 @@ internal data class HomeClientPairings(
                         lastSessionRefs = item.optJSONObject("last_session_refs")?.let { refs ->
                             refs.keys().asSequence().associateWith(refs::getString)
                         }.orEmpty(),
+                        claimManagementSupported = item.optBoolean(
+                            "claim_management_supported",
+                            false,
+                        ),
                         grants = item.getJSONArray("grants").toGrants(),
                     )
                 }
@@ -324,6 +330,57 @@ internal data class HomeClientSession(
     val active: Boolean,
 )
 
+internal enum class HomeClientClaimState(val wire: String) {
+    Connecting("connecting"),
+    Idle("idle"),
+    Replying("replying"),
+    WaitingToReconnect("waiting_to_reconnect"),
+    ;
+
+    companion object {
+        fun fromWire(value: String) = entries.firstOrNull { it.wire == value }
+    }
+}
+
+/** Active Home claims; references stay in memory and are never logged. */
+internal data class HomeClientClaim(
+    val claimRef: String,
+    val grantId: String,
+    val profileLabel: String?,
+    val sessionRef: String?,
+    val createdAt: Double,
+    val openedAt: Double?,
+    val state: HomeClientClaimState,
+    val title: String? = null,
+) {
+    override fun toString() =
+        "HomeClientClaim(claimRef=<redacted>, sessionRef=<redacted>, state=$state)"
+}
+
+internal data class HomeClientClaimList(
+    val maxClaims: Int,
+    val claims: List<HomeClientClaim>,
+) {
+    override fun toString() = "HomeClientClaimList(count=${claims.size}, maxClaims=$maxClaims)"
+}
+
+internal enum class HomeClientClaimCloseStatus(val wire: String) {
+    Closed("closed"),
+    NotOpen("not_open"),
+    ;
+
+    companion object {
+        fun fromWire(value: String) = entries.firstOrNull { it.wire == value }
+    }
+}
+
+internal data class HomeClientClaimCloseResult(
+    val claimRef: String,
+    val status: HomeClientClaimCloseStatus,
+) {
+    override fun toString() = "HomeClientClaimCloseResult(claimRef=<redacted>, status=$status)"
+}
+
 /**
  * A device's grant to one of this phone's Profiles, pending or held. Home shows
  * other devices by label and type only; device IDs never reach the phone.
@@ -377,8 +434,10 @@ internal sealed interface HomeClientClaimResult {
         val conversationHandle: String,
         /** Set when the claim resumed a stored conversation. */
         val resumedSessionRef: String? = null,
+        /** Home-NW-18 feature detection; null on legacy Homes. */
+        val claimRef: String? = null,
     ) : HomeClientClaimResult {
-        override fun toString() = "Granted(conversationHandle=<redacted>)"
+        override fun toString() = "Granted(conversationHandle=<redacted>, claimRef=<redacted>)"
     }
 
     data class Denied(val code: String) : HomeClientClaimResult
@@ -420,6 +479,14 @@ internal interface HomeClientService {
         grantId: String,
         limit: Int = 50,
     ): List<HomeClientSession>
+
+    fun listClientClaims(homeUrl: String, credential: String): HomeClientClaimList
+
+    fun closeClientClaims(
+        homeUrl: String,
+        credential: String,
+        claimRefs: List<String>,
+    ): List<HomeClientClaimCloseResult>
 
     /** The reference behind this device's own claim, or null before its first turn. */
     fun claimSession(homeUrl: String, credential: String, conversationHandle: String): String?
@@ -580,7 +647,12 @@ internal class HttpHomeClientService(
             } else {
                 null
             }
-            HomeClientClaimResult.Granted(handle, resumedRef)
+            val claimRef = if (!json.has("claim_ref") || json.isNull("claim_ref")) {
+                null
+            } else {
+                json.text("claim_ref").also { require(it.length in 1..128) }
+            }
+            HomeClientClaimResult.Granted(handle, resumedRef, claimRef)
         }
     }
 
@@ -606,6 +678,80 @@ internal class HttpHomeClientService(
                     startedAt = item.optDouble("started_at", 0.0).takeIf(Double::isFinite) ?: 0.0,
                     messageCount = item.optInt("message_count", 0).coerceAtLeast(0),
                     active = item.getBoolean("active"),
+                )
+            }
+        }
+    }
+
+    override fun listClientClaims(homeUrl: String, credential: String): HomeClientClaimList {
+        val json = successBody(send("GET", homeUrl, "/api/v1/client-claims", credential, null))
+        return parse {
+            require(json.getInt("schema") == 1)
+            val maxClaims = json.getInt("max_claims").also { require(it in 1..64) }
+            val claims = json.getJSONArray("claims")
+            require(claims.length() <= 64)
+            val parsed = (0 until claims.length()).map { index ->
+                val item = claims.getJSONObject(index)
+                val claimRef = item.text("claim_ref").also { require(it.length <= 128) }
+                val profileLabel = if (item.has("profile_label") && !item.isNull("profile_label")) {
+                    item.text("profile_label")
+                } else {
+                    null
+                }
+                val sessionRef = if (item.has("session_ref") && !item.isNull("session_ref")) {
+                    item.text("session_ref").also { require(it.length <= 128) }
+                } else {
+                    null
+                }
+                val openedAt = if (item.has("opened_at") && !item.isNull("opened_at")) {
+                    item.getDouble("opened_at").also { require(it.isFinite() && it > 0.0) }
+                } else {
+                    null
+                }
+                HomeClientClaim(
+                    claimRef = claimRef,
+                    grantId = item.text("grant_id").also { require(it.length <= 128) },
+                    profileLabel = profileLabel,
+                    sessionRef = sessionRef,
+                    createdAt = item.getDouble("created_at").also {
+                        require(it.isFinite() && it > 0.0)
+                    },
+                    openedAt = openedAt,
+                    state = HomeClientClaimState.fromWire(item.text("state"))
+                        ?: error("invalid claim state"),
+                )
+            }
+            require(parsed.map { it.claimRef }.toSet().size == parsed.size)
+            HomeClientClaimList(maxClaims, parsed)
+        }
+    }
+
+    override fun closeClientClaims(
+        homeUrl: String,
+        credential: String,
+        claimRefs: List<String>,
+    ): List<HomeClientClaimCloseResult> {
+        require(claimRefs.size in 1..64)
+        require(claimRefs.distinct().size == claimRefs.size)
+        require(claimRefs.all { it.length in 1..128 })
+        val body = JSONObject()
+            .put("schema", 1)
+            .put("claim_refs", JSONArray().apply { claimRefs.forEach { put(it) } })
+        val json = successBody(
+            send("POST", homeUrl, "/api/v1/client-claims/close", credential, body),
+        )
+        return parse {
+            require(json.getInt("schema") == 1)
+            val results = json.getJSONArray("results")
+            require(results.length() == claimRefs.size)
+            (0 until results.length()).map { index ->
+                val item = results.getJSONObject(index)
+                val claimRef = item.text("claim_ref")
+                require(claimRef == claimRefs[index])
+                HomeClientClaimCloseResult(
+                    claimRef = claimRef,
+                    status = HomeClientClaimCloseStatus.fromWire(item.text("result"))
+                        ?: error("invalid claim-close result"),
                 )
             }
         }
@@ -1044,8 +1190,9 @@ internal sealed interface HomeClientClaimOutcome {
         val binding: RelayHomeBinding,
         val credential: String,
         val conversation: HomeClaimedConversation = HomeClaimedConversation(null, false),
+        val claimRef: String? = null,
     ) : HomeClientClaimOutcome {
-        override fun toString() = "Claimed(binding=<redacted>, credential=<redacted>)"
+        override fun toString() = "Claimed(binding=<redacted>, credential=<redacted>, claimRef=<redacted>)"
     }
 
     data class Unavailable(
@@ -1068,6 +1215,7 @@ internal class HomeClientClaimProvider(
     private val clock: () -> Double = { System.currentTimeMillis() / 1000.0 },
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
+
     fun credentialFor(grant: RelayHomeClientGrantRef): String? =
         credentials.readHomeCredential(HomeClientPairingRecord.credentialSlot(grant.pairingId))
 
@@ -1138,19 +1286,17 @@ internal class HomeClientClaimProvider(
                     session = choice,
                 )
             } catch (error: HomeAdministrationException) {
-                return fromError(error)
+                // A POST whose response was lost is ambiguous; never create a
+                // second claim automatically.
+                return fromError(error, retryable = false)
             }
             when (result) {
                 is HomeClientClaimResult.Granted -> {
+                    setClaimManagementSupported(record.pairingId, result.claimRef != null)
                     val resumedRef = result.resumedSessionRef
                     when {
                         resumedRef != null -> rememberSession(grant, resumedRef)
-                        // Busy is temporary (often this phone's own claim from
-                        // before a restart, held for Home's reconnect grace), so
-                        // the next launch tries it again.
                         fallback == HomeResumeFallback.Busy -> Unit
-                        // A new conversation's reference is learned after its
-                        // first turn; until then there is nothing to continue.
                         else -> rememberSession(grant, null)
                     }
                     return HomeClientClaimOutcome.Claimed(
@@ -1164,6 +1310,7 @@ internal class HomeClientClaimProvider(
                             resumed = resumedRef != null,
                             fallback = fallback,
                         ),
+                        claimRef = result.claimRef,
                     )
                 }
                 is HomeClientClaimResult.Denied -> {
@@ -1241,6 +1388,160 @@ internal class HomeClientClaimProvider(
             )
         }
     }
+
+    sealed interface OpenClaims {
+        data object Unsupported : OpenClaims
+
+        data class Listed(
+            val pairingId: String,
+            val maxClaims: Int,
+            val claims: List<HomeClientClaim>,
+        ) : OpenClaims
+
+        data class Unavailable(val message: String) : OpenClaims
+    }
+
+    sealed interface CloseClaims {
+        data object Unsupported : CloseClaims
+
+        data class Completed(val requested: Int, val closed: Int) : CloseClaims
+
+        data class Unavailable(val message: String) : CloseClaims
+    }
+
+    data class CloseAndList(
+        val closeResult: CloseClaims,
+        val listing: OpenClaims,
+    )
+
+    fun supportsClaimManagement(pairingId: String): Boolean =
+        store.load().find(pairingId)?.claimManagementSupported == true
+
+    private fun setClaimManagementSupported(pairingId: String, supported: Boolean) {
+        val pairings = store.load()
+        val record = pairings.find(pairingId) ?: return
+        if (record.claimManagementSupported != supported) {
+            store.save(pairings.upsert(record.copy(claimManagementSupported = supported)))
+        }
+    }
+
+    /** The device's claims on this Home. Title lookup is deliberately separate. */
+    fun listOpenClaims(pairingId: String): OpenClaims {
+        if (!supportsClaimManagement(pairingId)) return OpenClaims.Unsupported
+        val record = store.load().find(pairingId)
+            ?: return OpenClaims.Unavailable("This Home pairing is missing.")
+        val credential = credentials.readHomeCredential(record.credentialSlot)
+            ?: return OpenClaims.Unavailable("The Home credential cannot be read.")
+        return try {
+            val listed = service.listClientClaims(record.homeUrl, credential)
+            OpenClaims.Listed(pairingId, listed.maxClaims, listed.claims)
+        } catch (error: HomeAdministrationException) {
+            if (error.reason == HomeAdministrationError.NotFound) {
+                setClaimManagementSupported(pairingId, false)
+                OpenClaims.Unsupported
+            } else {
+                OpenClaims.Unavailable(
+                    when (error.reason) {
+                        HomeAdministrationError.TransportUnavailable,
+                        HomeAdministrationError.ServiceUnavailable,
+                        -> "Home could not be reached to list open conversations."
+                        else -> "Home did not return its open conversations."
+                    },
+                )
+            }
+        }
+    }
+
+    /** Adds best-effort titles without making claim listing or closing depend on Standard. */
+    fun enrichClaimTitles(pairingId: String, claims: List<HomeClientClaim>): List<HomeClientClaim> {
+        val record = store.load().find(pairingId) ?: return claims
+        val credential = credentials.readHomeCredential(record.credentialSlot) ?: return claims
+        val titles = claims.asSequence()
+            .filter { it.sessionRef != null }
+            .map { it.grantId }
+            .distinct()
+            .flatMap { grantId ->
+                runCatching { service.listSessions(record.homeUrl, credential, grantId, 50) }
+                    .getOrDefault(emptyList())
+                    .asSequence()
+                    .map { (grantId to it.sessionRef) to it.title }
+            }
+            .toMap()
+        return claims.map { claim ->
+            claim.copy(
+                title = claim.sessionRef?.let { titles[claim.grantId to it] }
+                    ?.takeIf(String::isNotBlank),
+            )
+        }
+    }
+
+    /** Closes only the supplied refs, then lets the caller re-list. */
+    fun closeOpenClaims(pairingId: String, claimRefs: List<String>): CloseClaims {
+        if (claimRefs.isEmpty()) return CloseClaims.Completed(requested = 0, closed = 0)
+        if (!supportsClaimManagement(pairingId)) return CloseClaims.Unsupported
+        if (
+            claimRefs.size > 64 ||
+            claimRefs.distinct().size != claimRefs.size ||
+            claimRefs.any { it.length !in 1..128 }
+        ) {
+            return CloseClaims.Unavailable("Home did not accept the close request.")
+        }
+        val record = store.load().find(pairingId)
+            ?: return CloseClaims.Unavailable("This Home pairing is missing.")
+        val credential = credentials.readHomeCredential(record.credentialSlot)
+            ?: return CloseClaims.Unavailable("The Home credential cannot be read.")
+        return try {
+            val results = service.closeClientClaims(record.homeUrl, credential, claimRefs)
+            if (
+                results.size != claimRefs.size ||
+                results.map { it.claimRef } != claimRefs
+            ) {
+                CloseClaims.Unavailable("Home did not return the close results requested.")
+            } else {
+                CloseClaims.Completed(
+                    requested = claimRefs.size,
+                    closed = results.count { it.status == HomeClientClaimCloseStatus.Closed },
+                )
+            }
+        } catch (error: HomeAdministrationException) {
+            if (error.reason == HomeAdministrationError.NotFound) {
+                setClaimManagementSupported(pairingId, false)
+                CloseClaims.Unsupported
+            } else {
+                CloseClaims.Unavailable(
+                    when (error.reason) {
+                        HomeAdministrationError.TransportUnavailable,
+                        HomeAdministrationError.ServiceUnavailable,
+                        -> "Home could not confirm which conversations closed."
+                        else -> "Home did not accept the close request."
+                    },
+                )
+            }
+        }
+    }
+
+    /** Always refreshes Home's list after a close result or failure. */
+    fun closeAndListOpenClaims(pairingId: String, claimRefs: List<String>): CloseAndList {
+        val closeResult = try {
+            closeOpenClaims(pairingId, claimRefs)
+        } catch (_: Exception) {
+            CloseClaims.Unavailable("Home could not confirm which conversations closed.")
+        }
+        val listing = try {
+            listOpenClaims(pairingId)
+        } catch (_: Exception) {
+            OpenClaims.Unavailable("Home could not be reached to list open conversations.")
+        }
+        return CloseAndList(closeResult, listing)
+    }
+
+    fun releaseClaimRef(grant: RelayHomeClientGrantRef, claimRef: String): Boolean =
+        when (val result = closeOpenClaims(grant.pairingId, listOf(claimRef))) {
+            is CloseClaims.Completed -> result.closed == 1
+            CloseClaims.Unsupported -> false
+            is CloseClaims.Unavailable -> false
+        }
+
 
     sealed interface Approvals {
         data class Loaded(
@@ -1351,7 +1652,10 @@ internal class HomeClientClaimProvider(
         return Renewal.Renewed(renewed, material.credential)
     }
 
-    private fun fromError(error: HomeAdministrationException): HomeClientClaimOutcome =
+    private fun fromError(
+        error: HomeAdministrationException,
+        retryable: Boolean = true,
+    ): HomeClientClaimOutcome =
         when (error.reason) {
             HomeAdministrationError.Unauthorized,
             HomeAdministrationError.Revoked,
@@ -1365,7 +1669,7 @@ internal class HomeClientClaimProvider(
             -> HomeClientClaimOutcome.Unavailable(
                 "Home could not be reached to start a conversation.",
                 AndroidHomeUnavailableReason.TransportUnavailable,
-                retryable = true,
+                retryable = retryable,
             )
             else -> unavailable(
                 "Home returned an unexpected answer to the conversation request.",
@@ -1388,7 +1692,7 @@ internal class HomeClientClaimProvider(
         )
         "claim_limit" -> unavailable(
             "This phone already has the most conversations Home allows. Close one and try again.",
-            AndroidHomeUnavailableReason.AuthorizationUnavailable,
+            AndroidHomeUnavailableReason.ClaimLimit,
         )
         else -> unavailable(
             "Home declined the conversation request.",

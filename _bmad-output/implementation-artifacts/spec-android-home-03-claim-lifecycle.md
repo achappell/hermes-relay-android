@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-03
 title: Keep Home conversations resumable, stop leaking claims, and let people close open ones
-status: backlog
+status: review
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -65,7 +65,7 @@ Android shares the same claim model (`HomeClientClaimProvider`, `POST /api/v1/cl
 - **C (fake Home service):** list shows the device's claims with the current one marked and the server `max_claims`; tests cover `opened_at: null`, missing titles, a count above `max_claims`, Close and Close all others sending only non-current refs and re-listing after success or failure; a `404 not_found` from list/close hides the section; a delayed list/close response after a newer Profile load cannot clear the current list.
 - A create response containing `claim_ref` still parses (regression test); a response without it still parses.
 - No handle, `claim_ref`, Session ref, prompt or reply appears in logs or the journal (assert in tests).
-- Device: reproduce the pilot — fill a device to `max_claims`, observe `claim_limit` → Manage open conversations → Close all others → connect succeeds.
+- Device: reproduce the pilot — fill a device to `max_claims`, observe `claim_limit` → Manage open conversations → Close all others → connect succeeds. **Waived by owner decision 2026-10-07:** filling 8 claims would leak conversations on the real Home; coverage is the JVM `claim_limit` tests plus the live Open on Home list/close on a paired Spark Profile (see `validation-android-home-03.md`).
 
 ## Android design notes
 

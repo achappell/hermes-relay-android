@@ -137,9 +137,18 @@ internal class OkHttpRelaySessionClient(
     /** A personal-client claim held for one Profile; never persisted. */
     private class HeldClaim(
         val profileId: String,
+        val grant: RelayHomeClientGrantRef,
         val binding: RelayHomeBinding,
         @Volatile var sessionRef: String?,
+        val claimRef: String?,
+        @Volatile var opened: Boolean = false,
     )
+
+    private class ReconnectFlight(val profileId: String?) {
+        val completed = CountDownLatch(1)
+        val outcome = AtomicReference<AndroidReconnectOutcome?>(null)
+        val failure = AtomicReference<Throwable?>(null)
+    }
 
     /** What the next fresh claim opens; a transport loss continues the last one. */
     private val nextConversation =
@@ -148,6 +157,7 @@ internal class OkHttpRelaySessionClient(
 
     private val activeSocket = AtomicReference<WebSocket?>(null)
     private val heldClaim = AtomicReference<HeldClaim?>(null)
+    private val reconnectFlight = AtomicReference<ReconnectFlight?>(null)
     private val activeProfileId = AtomicReference<String?>(null)
     private val connectionId = AtomicReference<String?>(null)
     private val activeTurn = AtomicReference<AndroidTurnBinding?>(null)
@@ -179,6 +189,9 @@ internal class OkHttpRelaySessionClient(
     private val reconnectRequiredConversationHandle = AtomicReference<String?>(null)
     private val lastHandshakeProfileId = AtomicReference<String?>(null)
     private val lastHandshakeConversationHandle = AtomicReference<String?>(null)
+    private val lastHandshakeApprovedRoute = AtomicReference<String?>(null)
+    private val lastHandshakePairingId = AtomicReference<String?>(null)
+    private val lastHandshakeGrantId = AtomicReference<String?>(null)
     private val lastHandshakeMethod = AtomicReference<String?>(null)
     private val transportGeneration = AtomicLong(0)
     private val connectionObserver = AtomicReference<((AndroidNormalizedEvent.Disconnected) -> Unit)?>(null)
@@ -443,6 +456,7 @@ internal class OkHttpRelaySessionClient(
                 return uncertain(AndroidHomeUnavailableReason.ProtocolError)
             }
             if (exactString(result, "conversation_handle") != binding.conversationHandle) {
+                journal.record("home binding mismatch fields=conversation_handle")
                 return uncertain(AndroidHomeUnavailableReason.ConversationMismatch)
             }
             val turnId = exactString(result, "turn_id")
@@ -500,16 +514,49 @@ internal class OkHttpRelaySessionClient(
     private val lastAttemptReusedClaim = AtomicBoolean(false)
 
     override fun reconnect(): AndroidReconnectOutcome {
-        val first = reconnectOnce()
-        // A held claim closes after Home's reconnect grace (for example while
-        // Android kept the app in the background). Its reuse then fails; claim
-        // afresh once, which continues the last conversation, instead of
-        // leaving the Profile stuck.
-        if (first is AndroidReconnectOutcome.Unrecoverable && lastAttemptReusedClaim.get()) {
-            heldClaim.set(null)
-            return reconnectOnce()
+        val requestedProfileId = collection().selected?.id
+        while (true) {
+            val running = reconnectFlight.get()
+            if (running != null) {
+                try {
+                    running.completed.await()
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return AndroidReconnectOutcome.Retryable(
+                        "Reconnect was interrupted.",
+                        AndroidHomeUnavailableReason.TransportUnavailable,
+                    )
+                }
+                running.failure.get()?.let { throw it }
+                val joined = running.outcome.get()
+                if (running.profileId == requestedProfileId && joined != null) return joined
+                continue
+            }
+
+            val flight = ReconnectFlight(requestedProfileId)
+            if (!reconnectFlight.compareAndSet(null, flight)) continue
+            try {
+                val first = reconnectOnce()
+                val outcome = if (
+                    first is AndroidReconnectOutcome.Unrecoverable &&
+                    first.reasonCode != AndroidHomeUnavailableReason.ReconnectRequired &&
+                    lastAttemptReusedClaim.get()
+                ) {
+                    releaseHeldClaim("stale-response")
+                    reconnectOnce()
+                } else {
+                    first
+                }
+                flight.outcome.set(outcome)
+                return outcome
+            } catch (error: Throwable) {
+                flight.failure.set(error)
+                throw error
+            } finally {
+                reconnectFlight.compareAndSet(flight, null)
+                flight.completed.countDown()
+            }
         }
-        return first
     }
 
     private fun reconnectOnce(): AndroidReconnectOutcome {
@@ -538,27 +585,31 @@ internal class OkHttpRelaySessionClient(
                 "No Android Profile is selected.",
                 AndroidHomeUnavailableReason.MissingBinding,
             )
+        val operationGeneration = transportGeneration.get()
+        val pairedGrant = profile.homeClientGrant
+        var claimedCredential: String? = null
+        var freshClaim = false
         fun unavailable(
             message: String,
             reason: AndroidHomeUnavailableReason,
         ): AndroidReconnectOutcome.Unrecoverable {
+            if (freshClaim) releaseHeldClaim("stale-response")
             lastUnavailableReason.set(reason)
             lastUnavailableProfileId.set(profile.id)
             return AndroidReconnectOutcome.Unrecoverable(message, reason)
         }
-        // A Profile switch must release the previous Profile's client claim
-        // before its socket is dropped, or Home holds it for the grace period.
-        heldClaim.get()?.takeIf { it.profileId != profile.id }?.let { releaseHeldClaim("profileSwitch") }
-        val pairedGrant = profile.homeClientGrant
-        var claimedCredential: String? = null
-        // A claim made just now has never been opened, whatever its handle.
-        var freshClaim = false
+        heldClaim.get()?.takeIf { it.profileId != profile.id }?.let { releaseHeldClaim("switch") }
         val homeBinding = if (pairedGrant != null) {
             val claims = clientClaims ?: return AndroidReconnectOutcome.Unrecoverable(
                 "This Profile has not completed Home pairing.",
                 AndroidHomeUnavailableReason.MissingBinding,
             )
-            val held = heldClaim.get()?.takeIf { it.profileId == profile.id }?.binding
+            heldClaim.get()
+                ?.takeIf { it.profileId == profile.id && it.grant != pairedGrant }
+                ?.let { releaseHeldClaim("switch") }
+            val heldClaimForProfile =
+                heldClaim.get()?.takeIf { it.profileId == profile.id && it.grant == pairedGrant }
+            val held = heldClaimForProfile?.binding
             val canReconnectHeld = held != null && (
                 (hasOpenedConversation.get() &&
                     lastHandshakeProfileId.get() == profile.id &&
@@ -571,12 +622,18 @@ internal class OkHttpRelaySessionClient(
                 lastAttemptReusedClaim.set(true)
                 held
             } else {
-                heldClaim.set(null)
+                if (heldClaimForProfile != null) releaseHeldClaim("stale-response")
                 val intent = nextConversation.getAndSet(HomeConversationIntent.ContinueLast)
                 when (val outcome = claims.claim(pairedGrant, intent)) {
                     is HomeClientClaimOutcome.Claimed -> {
                         heldClaim.set(
-                            HeldClaim(profile.id, outcome.binding, outcome.conversation.sessionRef),
+                            HeldClaim(
+                                profileId = profile.id,
+                                grant = pairedGrant,
+                                binding = outcome.binding,
+                                sessionRef = outcome.conversation.sessionRef,
+                                claimRef = outcome.claimRef,
+                            ),
                         )
                         journal.record("home claim created")
                         conversationNotice.set(outcome.conversation)
@@ -597,6 +654,27 @@ internal class OkHttpRelaySessionClient(
                     "This Profile has not completed Home pairing.",
                     AndroidHomeUnavailableReason.MissingBinding,
                 )
+        }
+        val sameProfileHandshake = lastHandshakeProfileId.get() == profile.id
+        val mismatchFields = buildList {
+            if (!freshClaim && sameProfileHandshake) {
+                if (lastHandshakeConversationHandle.get() != homeBinding.conversationHandle) {
+                    add("conversation_handle")
+                }
+                if (lastHandshakeApprovedRoute.get() != homeBinding.approvedRoute) {
+                    add("approved_route")
+                }
+                if (lastHandshakePairingId.get() != pairedGrant?.pairingId) add("pairing_id")
+                if (lastHandshakeGrantId.get() != pairedGrant?.grantId) add("grant_id")
+            }
+        }
+        if (mismatchFields.isNotEmpty()) {
+            journal.record("home binding mismatch fields=${mismatchFields.joinToString(",")}")
+            closeTransport()
+            return unavailable(
+                "The Home conversation binding changed; reconnect is refused.",
+                AndroidHomeUnavailableReason.ConversationMismatch,
+            )
         }
         if (pairedGrant == null && profile.homeAdministration?.let {
                 val expiresAt = it.credentialExpiresAt
@@ -626,22 +704,39 @@ internal class OkHttpRelaySessionClient(
             )
         }
         val credential = (claimedCredential ?: credentialFor(profile))
-            ?: return AndroidReconnectOutcome.Unrecoverable(
+            ?: return unavailable(
                 "The Home Device credential cannot be read.",
                 AndroidHomeUnavailableReason.InvalidCredential,
             )
         if (!HomeCredentialValidator.isValid(credential)) {
-            return AndroidReconnectOutcome.Unrecoverable(
+            return unavailable(
                 "The Home Device credential is malformed.",
                 AndroidHomeUnavailableReason.InvalidCredential,
             )
         }
-
+        if (
+            transportGeneration.get() != operationGeneration ||
+            collection().selected?.id != profile.id
+        ) {
+            if (freshClaim) releaseHeldClaim("stale-response")
+            return AndroidReconnectOutcome.Retryable(
+                "The Home bridge attempt was superseded.",
+                AndroidHomeUnavailableReason.TransportUnavailable,
+            )
+        }
+        val generationBeforeClose = transportGeneration.get()
         closeTransport()
+        val attemptGeneration = transportGeneration.get()
+        if (generationBeforeClose != operationGeneration || attemptGeneration != operationGeneration + 1) {
+            if (freshClaim) releaseHeldClaim("stale-response")
+            return AndroidReconnectOutcome.Retryable(
+                "The Home bridge attempt was superseded.",
+                AndroidHomeUnavailableReason.TransportUnavailable,
+            )
+        }
         lastUnavailableReason.set(null)
         lastUnavailableProfileId.set(null)
 
-        val attemptGeneration = transportGeneration.get()
         val sameHandshakeBinding =
             lastHandshakeProfileId.get() == profile.id &&
                 lastHandshakeConversationHandle.get() == homeBinding.conversationHandle
@@ -875,6 +970,7 @@ internal class OkHttpRelaySessionClient(
 
         if (transportGeneration.get() != attemptGeneration) {
             socket.cancel()
+            if (freshClaim) releaseHeldClaim("stale-response")
             return AndroidReconnectOutcome.Retryable(
                 "The Home bridge attempt was superseded.",
                 AndroidHomeUnavailableReason.TransportUnavailable,
@@ -889,7 +985,8 @@ internal class OkHttpRelaySessionClient(
             socket.cancel()
             ready.set(false)
             activeSocket.set(null)
-            heldClaim.set(null)
+            journal.record("home binding mismatch fields=route_id")
+            releaseHeldClaim("stale-response")
             return unavailable(
                 "The Home bridge route changed since this phone paired. Pair with Home again.",
                 AndroidHomeUnavailableReason.ConversationMismatch,
@@ -897,49 +994,77 @@ internal class OkHttpRelaySessionClient(
         }
 
         if (result is AndroidReconnectOutcome.Connected) {
+            var staleHandshake = false
+            var readinessLost = false
             synchronized(inboundLock) {
-                if (handshakeFailure.get() != null) {
-                    socket.cancel()
-                    return AndroidReconnectOutcome.Retryable(
-                        "The Home bridge closed before readiness was committed.",
-                        AndroidHomeUnavailableReason.TransportUnavailable,
-                    )
-                }
-                activeSocket.set(socket)
-                activeProfileId.set(profile.id)
-                connectionId.set(result.connectionId)
-                route.set(result.route)
-                capabilities.set(result.capabilities)
-                ready.set(true)
-                if (result.unresolvedTurnBinding != null) {
-                    activeTurn.set(result.unresolvedTurnBinding)
-                    // A resumed turn may have missed its audio frames: never wait for them.
-                    audioSeenThisTurn.set(true)
-                    awaitingAudio.set(false)
-                    normalizer.set(
-                        HermesEventNormalizer(profile.id, allowLegacyFrames = false).apply {
-                            beginTurn()
-                        },
-                    )
-                    synchronized(turnAdmissionLock) {
-                        turnInFlight.set(true)
-                        uncertainDelivery.set(false)
+                when {
+                    transportGeneration.get() != attemptGeneration ||
+                        collection().selected?.id != profile.id -> staleHandshake = true
+                    handshakeFailure.get() != null -> readinessLost = true
+                    else -> {
+                        activeSocket.set(socket)
+                        activeProfileId.set(profile.id)
+                        connectionId.set(result.connectionId)
+                        route.set(result.route)
+                        capabilities.set(result.capabilities)
+                        ready.set(true)
+                        if (result.unresolvedTurnBinding != null) {
+                            activeTurn.set(result.unresolvedTurnBinding)
+                            // A resumed turn may have missed its audio frames: never wait for them.
+                            audioSeenThisTurn.set(true)
+                            awaitingAudio.set(false)
+                            normalizer.set(
+                                HermesEventNormalizer(profile.id, allowLegacyFrames = false).apply {
+                                    beginTurn()
+                                },
+                            )
+                            synchronized(turnAdmissionLock) {
+                                turnInFlight.set(true)
+                                uncertainDelivery.set(false)
+                            }
+                            terminalObserved.set(false)
+                        } else {
+                            activeTurn.set(null)
+                            if (!result.unresolvedTurn) queuedFrames.clear()
+                            normalizer.set(
+                                HermesEventNormalizer(profile.id, allowLegacyFrames = false),
+                            )
+                        }
+                        hasOpenedConversation.set(true)
+                        heldClaim.get()
+                            ?.takeIf {
+                                it.profileId == profile.id &&
+                                    it.grant == pairedGrant &&
+                                    it.binding.conversationHandle == homeBinding.conversationHandle
+                            }
+                            ?.opened = true
+                        reconnectRequired.set(false)
+                        reconnectRequiredProfileId.set(null)
+                        reconnectRequiredConversationHandle.set(null)
+                        lastHandshakeProfileId.set(profile.id)
+                        lastHandshakeConversationHandle.set(homeBinding.conversationHandle)
+                        lastHandshakeApprovedRoute.set(homeBinding.approvedRoute)
+                        lastHandshakePairingId.set(pairedGrant?.pairingId)
+                        lastHandshakeGrantId.set(pairedGrant?.grantId)
+                        handshakeCommitted.set(true)
+                        lastUnavailableReason.set(null)
+                        lastUnavailableProfileId.set(null)
                     }
-                    terminalObserved.set(false)
-                } else {
-                    activeTurn.set(null)
-                    if (!result.unresolvedTurn) queuedFrames.clear()
-                    normalizer.set(HermesEventNormalizer(profile.id, allowLegacyFrames = false))
                 }
-                hasOpenedConversation.set(true)
-                reconnectRequired.set(false)
-                reconnectRequiredProfileId.set(null)
-                reconnectRequiredConversationHandle.set(null)
-                lastHandshakeProfileId.set(profile.id)
-                lastHandshakeConversationHandle.set(homeBinding.conversationHandle)
-                handshakeCommitted.set(true)
-                lastUnavailableReason.set(null)
-                lastUnavailableProfileId.set(null)
+            }
+            if (staleHandshake || readinessLost || handshakeFailure.get() != null) {
+                closeTransport()
+                if (freshClaim || heldClaim.get()?.profileId == profile.id) {
+                    releaseHeldClaim("stale-response")
+                }
+                return AndroidReconnectOutcome.Retryable(
+                    if (staleHandshake) {
+                        "The Home bridge attempt was superseded."
+                    } else {
+                        "The Home bridge closed before readiness was committed."
+                    },
+                    AndroidHomeUnavailableReason.TransportUnavailable,
+                )
             }
         } else {
             val resultReason = when (result) {
@@ -949,12 +1074,13 @@ internal class OkHttpRelaySessionClient(
             }
             if (
                 pairedGrant != null &&
-                result is AndroidReconnectOutcome.Unrecoverable &&
-                resultReason != AndroidHomeUnavailableReason.ReconnectRequired
+                (freshClaim ||
+                    (result is AndroidReconnectOutcome.Unrecoverable &&
+                        resultReason != AndroidHomeUnavailableReason.ReconnectRequired))
             ) {
-                // Continuity is gone. The next deliberate connect makes a new
-                // claim, which starts a new session rather than replaying.
-                heldClaim.set(null)
+                // A fresh unopened claim, or a terminally refused held claim,
+                // must not linger for Home's first-open expiry.
+                releaseHeldClaim("stale-response")
             }
             if (resultReason == AndroidHomeUnavailableReason.ReconnectRequired) {
                 reconnectRequired.set(true)
@@ -1094,7 +1220,7 @@ internal class OkHttpRelaySessionClient(
 
     override fun close() {
         journal.record("home client close")
-        releaseHeldClaim("close")
+        releaseHeldClaim("disconnect", asynchronous = true)
         closeTransport()
         observer.set(null)
         activeTurn.set(null)
@@ -1109,6 +1235,9 @@ internal class OkHttpRelaySessionClient(
     override fun selectedIsPaired(): Boolean =
         clientClaims != null && collection().selected?.homeClientGrant != null
 
+    override fun selectedPairingId(): String? =
+        collection().selected?.homeClientGrant?.pairingId?.takeIf { clientClaims != null }
+
     override fun listConversations(): HomeClientClaimProvider.Sessions {
         val grant = collection().selected?.homeClientGrant
         val claims = clientClaims
@@ -1118,6 +1247,55 @@ internal class OkHttpRelaySessionClient(
             )
         }
         return claims.listSessions(grant)
+    }
+
+    override fun supportsOpenClaims(): Boolean {
+        val pairingId = collection().selected?.homeClientGrant?.pairingId ?: return false
+        return clientClaims?.supportsClaimManagement(pairingId) == true
+    }
+
+    override fun listOpenClaims(pairingId: String?): HomeClientClaimProvider.OpenClaims {
+        val claims = clientClaims
+            ?: return HomeClientClaimProvider.OpenClaims.Unavailable("This Profile is not paired with Home.")
+        val targetPairingId = pairingId
+            ?: collection().selected?.homeClientGrant?.pairingId
+            ?: return HomeClientClaimProvider.OpenClaims.Unavailable("This Profile is not paired with Home.")
+        val result = claims.listOpenClaims(targetPairingId)
+        if (result is HomeClientClaimProvider.OpenClaims.Listed) {
+            journal.record("home claims listed count=${result.claims.size} max=${result.maxClaims}")
+        }
+        return result
+    }
+
+    override fun enrichOpenClaimTitles(
+        pairingId: String,
+        claims: List<HomeClientClaim>,
+    ): List<HomeClientClaim> =
+        clientClaims?.enrichClaimTitles(pairingId, claims) ?: claims
+
+    override fun closeAndListOpenClaims(
+        pairingId: String,
+        claimRefs: List<String>,
+    ): HomeClientClaimProvider.CloseAndList {
+        val claims = clientClaims
+            ?: return HomeClientClaimProvider.CloseAndList(
+                closeResult = HomeClientClaimProvider.CloseClaims.Unavailable(
+                    "This Profile is not paired with Home.",
+                ),
+                listing = HomeClientClaimProvider.OpenClaims.Unavailable(
+                    "This Profile is not paired with Home.",
+                ),
+            )
+        val result = claims.closeAndListOpenClaims(pairingId, claimRefs)
+        (result.closeResult as? HomeClientClaimProvider.CloseClaims.Completed)?.let { closed ->
+            journal.record(
+                "home claims closed requested=${closed.requested} closed=${closed.closed}",
+            )
+        }
+        (result.listing as? HomeClientClaimProvider.OpenClaims.Listed)?.let { listed ->
+            journal.record("home claims listed count=${listed.claims.size} max=${listed.maxClaims}")
+        }
+        return result
     }
 
     override fun approvals(): HomeClientClaimProvider.Approvals {
@@ -1137,13 +1315,24 @@ internal class OkHttpRelaySessionClient(
     }
 
     override fun currentConversationRef(): String? {
-        val profileId = collection().selected?.id ?: return null
-        return heldClaim.get()?.takeIf { it.profileId == profileId }?.sessionRef
+        val profile = collection().selected ?: return null
+        val grant = profile.homeClientGrant ?: return null
+        return heldClaim.get()
+            ?.takeIf { it.profileId == profile.id && it.grant == grant }
+            ?.sessionRef
+    }
+
+    override fun currentClaimRef(): String? {
+        val profile = collection().selected ?: return null
+        val grant = profile.homeClientGrant ?: return null
+        return heldClaim.get()
+            ?.takeIf { it.profileId == profile.id && it.grant == grant }
+            ?.claimRef
     }
 
     override fun requestConversation(intent: HomeConversationIntent) {
         nextConversation.set(intent)
-        releaseHeldClaim("conversationSwitch")
+        releaseHeldClaim("switch")
         closeTransport()
     }
 
@@ -1153,7 +1342,9 @@ internal class OkHttpRelaySessionClient(
     override fun learnCurrentConversation(): String? {
         val profile = collection().selected ?: return null
         val grant = profile.homeClientGrant ?: return null
-        val held = heldClaim.get()?.takeIf { it.profileId == profile.id } ?: return null
+        val held = heldClaim.get()?.takeIf {
+            it.profileId == profile.id && it.grant == grant
+        } ?: return null
         held.sessionRef?.let { return it }
         val ref = clientClaims?.learnSession(grant, held.binding.conversationHandle) ?: return null
         held.sessionRef = ref
@@ -1167,8 +1358,11 @@ internal class OkHttpRelaySessionClient(
         val trimmed = title.trim()
         if (trimmed.isEmpty() || !canRenameConversation()) return false
         val socket = activeSocket.get() ?: return false
-        val profileId = collection().selected?.id ?: return false
-        val held = heldClaim.get()?.takeIf { it.profileId == profileId } ?: return false
+        val profile = collection().selected ?: return false
+        val grant = profile.homeClientGrant ?: return false
+        val held = heldClaim.get()?.takeIf {
+            it.profileId == profile.id && it.grant == grant
+        } ?: return false
         val requestId = rpcId("title")
         val response = PendingRpc()
         pending[requestId] = response
@@ -1193,45 +1387,71 @@ internal class OkHttpRelaySessionClient(
         }
     }
 
-    private fun bindingFor(profile: RelayProfile): RelayHomeBinding? =
-        if (profile.homeClientGrant != null) {
-            heldClaim.get()?.takeIf { it.profileId == profile.id }?.binding
+    private fun bindingFor(profile: RelayProfile): RelayHomeBinding? {
+        val grant = profile.homeClientGrant
+        return if (grant != null) {
+            heldClaim.get()?.takeIf {
+                it.profileId == profile.id && it.grant == grant
+            }?.binding
         } else {
             profile.homeBinding
         }
-
+    }
     private fun credentialFor(profile: RelayProfile): String? =
         profile.homeClientGrant?.let { grant -> clientClaims?.credentialFor(grant) }
             ?: if (profile.homeClientGrant == null) credentials.readHomeCredential(profile.id) else null
 
     /**
-     * Ends a held client claim with `conversation.close` so Home releases it
-     * now instead of after the reconnect grace. Best effort: Home still closes
-     * it after the grace if the frame never arrives.
+     * Releases an unopened claim through Home's explicit ref, or an opened
+     * conversation through its bridge. Home still expires a legacy claim whose
+     * create response did not include a ref.
      */
-    private fun releaseHeldClaim(reason: String) {
+    private fun releaseHeldClaim(reason: String, asynchronous: Boolean = false) {
         val held = heldClaim.getAndSet(null) ?: return
+        val socket = activeSocket.get()
+        if (
+            held.opened &&
+            socket != null &&
+            ready.get() &&
+            activeProfileId.get() == held.profileId &&
+            lastHandshakeProfileId.get() == held.profileId &&
+            lastHandshakeConversationHandle.get() == held.binding.conversationHandle
+        ) {
+            val sent = socket.send(
+                rpcRequest(
+                    rpcId("close"),
+                    "conversation.close",
+                    JSONObject().put("conversation_handle", held.binding.conversationHandle),
+                ).toString(),
+            )
+            // cancel() discards queued frames, so keep this socket long enough
+            // for Home to read the close request.
+            if (sent && activeSocket.compareAndSet(socket, null)) {
+                journal.record("home claim released reason=$reason")
+                socket.close(NORMAL_CLOSURE, null)
+                Thread {
+                    runCatching { Thread.sleep(requestTimeoutMillis) }
+                    socket.cancel()
+                }.apply {
+                    name = "hermes-claim-close"
+                    isDaemon = true
+                }.start()
+                return
+            }
+        }
+        val claimRef = held.claimRef ?: return
+        val claims = clientClaims ?: return
         journal.record("home claim released reason=$reason")
-        val socket = activeSocket.get() ?: return
-        if (!ready.get() || activeProfileId.get() != held.profileId) return
-        val sent = socket.send(
-            rpcRequest(
-                rpcId("close"),
-                "conversation.close",
-                JSONObject().put("conversation_handle", held.binding.conversationHandle),
-            ).toString(),
-        )
-        // cancel() discards queued frames, so this socket leaves the normal
-        // teardown and closes gracefully after the close request is written.
-        if (!sent || !activeSocket.compareAndSet(socket, null)) return
-        socket.close(NORMAL_CLOSURE, null)
-        Thread {
-            runCatching { Thread.sleep(requestTimeoutMillis) }
-            socket.cancel()
-        }.apply {
-            name = "hermes-claim-close"
-            isDaemon = true
-        }.start()
+        if (asynchronous) {
+            Thread {
+                runCatching { claims.releaseClaimRef(held.grant, claimRef) }
+            }.apply {
+                name = "hermes-claim-ref-close"
+                isDaemon = true
+            }.start()
+        } else {
+            runCatching { claims.releaseClaimRef(held.grant, claimRef) }
+        }
     }
 
     private fun closeTransport() {
@@ -1644,6 +1864,7 @@ internal class OkHttpRelaySessionClient(
             )
         }
         if (returnedHandle != expectedHandle) {
+            journal.record("home binding mismatch fields=conversation_handle")
             return AndroidReconnectOutcome.Unrecoverable(
                 "The Home bridge returned a different conversation.",
                 AndroidHomeUnavailableReason.ConversationMismatch,

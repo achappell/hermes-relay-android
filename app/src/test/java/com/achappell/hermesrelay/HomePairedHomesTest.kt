@@ -354,6 +354,15 @@ class HomePairedHomesTest {
             limit: Int,
         ): List<HomeClientSession> = throw UnsupportedOperationException()
 
+        override fun listClientClaims(homeUrl: String, credential: String): HomeClientClaimList =
+            throw UnsupportedOperationException()
+
+        override fun closeClientClaims(
+            homeUrl: String,
+            credential: String,
+            claimRefs: List<String>,
+        ): List<HomeClientClaimCloseResult> = throw UnsupportedOperationException()
+
         override fun claimSession(homeUrl: String, credential: String, conversationHandle: String): String? =
             throw UnsupportedOperationException()
 
