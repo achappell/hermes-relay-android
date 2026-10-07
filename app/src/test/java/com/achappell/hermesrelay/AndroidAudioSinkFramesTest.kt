@@ -51,7 +51,10 @@ class AndroidAudioSinkFramesTest {
     @Test
     fun playback_waits_for_a_buffer_before_starting() {
         val driver = FakeAudioTrackDriver(playbackHead = { 8_000 })
+        val clock = ManualClock()
         val sink = AudioTrackAudioSink(
+            clock = clock,
+            sleeper = clock.sleeper,
             driverFactory = AudioTrackDriverFactory { _, size ->
                 assertTrue(size >= 16_000)
                 driver
@@ -74,7 +77,10 @@ class AndroidAudioSinkFramesTest {
     @Test
     fun delayed_drain_requires_playback_advancement() {
         val driver = FakeAudioTrackDriver(playbackHead = { calls -> if (calls < 3) 0 else 2 })
+        val clock = ManualClock()
         val sink = AudioTrackAudioSink(
+            clock = clock,
+            sleeper = clock.sleeper,
             driverFactory = AudioTrackDriverFactory { _, _ -> driver },
             drainStallDeadlineMillis = 200,
             drainTimeoutMillis = 1_000,
@@ -88,7 +94,7 @@ class AndroidAudioSinkFramesTest {
         sink.finish(drained::countDown) { failed.countDown() }
 
         assertTrue(drained.await(2, TimeUnit.SECONDS))
-        assertFalse(failed.await(20, TimeUnit.MILLISECONDS))
+        assertEquals("failure callback must not run after a drain", 1L, failed.count)
         assertTrue(driver.playbackHeadCalls.get() >= 3)
         assertEquals(2, sink.snapshotTelemetry().acceptedFrames)
         assertTrue(sink.snapshotTelemetry().drained)
@@ -100,7 +106,10 @@ class AndroidAudioSinkFramesTest {
     @Test
     fun a_stranded_playback_head_fails_without_claiming_drain() {
         val driver = FakeAudioTrackDriver(playbackHead = { 0 })
+        val clock = ManualClock()
         val sink = AudioTrackAudioSink(
+            clock = clock,
+            sleeper = clock.sleeper,
             driverFactory = AudioTrackDriverFactory { _, _ -> driver },
             drainStallDeadlineMillis = 20,
             drainTimeoutMillis = 200,
@@ -114,7 +123,7 @@ class AndroidAudioSinkFramesTest {
         sink.finish(drained::countDown) { failed.countDown() }
 
         assertTrue(failed.await(2, TimeUnit.SECONDS))
-        assertFalse(drained.await(20, TimeUnit.MILLISECONDS))
+        assertEquals("drain callback must not run after a failure", 1L, drained.count)
         assertEquals(AudioSinkFailureKind.PlaybackStalled, sink.snapshotTelemetry().failureKind)
         assertFalse(sink.snapshotTelemetry().drained)
         sink.close()
@@ -127,7 +136,10 @@ class AndroidAudioSinkFramesTest {
             playbackHead = { 2 },
             underruns = { if (underrunCalls.incrementAndGet() == 1) 0 else 1 },
         )
+        val clock = ManualClock()
         val sink = AudioTrackAudioSink(
+            clock = clock,
+            sleeper = clock.sleeper,
             driverFactory = AudioTrackDriverFactory { _, _ -> driver },
             drainStallDeadlineMillis = 200,
             drainTimeoutMillis = 1_000,
@@ -141,7 +153,7 @@ class AndroidAudioSinkFramesTest {
         sink.finish(drained::countDown) { failed.countDown() }
 
         assertTrue(drained.await(2, TimeUnit.SECONDS))
-        assertFalse(failed.await(20, TimeUnit.MILLISECONDS))
+        assertEquals("failure callback must not run after a drain", 1L, failed.count)
         assertEquals(1, sink.snapshotTelemetry().underrunCount)
         assertNull(sink.snapshotTelemetry().failureKind)
         sink.close()
@@ -154,7 +166,10 @@ class AndroidAudioSinkFramesTest {
             playbackHead = { 2 },
             underruns = { if (underrunCalls.incrementAndGet() == 1) 0 else 1 },
         )
+        val clock = ManualClock()
         val sink = AudioTrackAudioSink(
+            clock = clock,
+            sleeper = clock.sleeper,
             driverFactory = AudioTrackDriverFactory { _, _ -> driver },
             drainStallDeadlineMillis = 200,
             drainTimeoutMillis = 1_000,
@@ -169,7 +184,7 @@ class AndroidAudioSinkFramesTest {
         sink.finish(drained::countDown) { failed.countDown() }
 
         assertTrue(failed.await(2, TimeUnit.SECONDS))
-        assertFalse(drained.await(20, TimeUnit.MILLISECONDS))
+        assertEquals("drain callback must not run after a failure", 1L, drained.count)
         assertEquals(AudioSinkFailureKind.Underrun, sink.snapshotTelemetry().failureKind)
         sink.close()
     }
@@ -193,7 +208,10 @@ class AndroidAudioSinkFramesTest {
             override fun stop() = Unit
             override fun release() = Unit
         }
+        val clock = ManualClock()
         val sink = AudioTrackAudioSink(
+            clock = clock,
+            sleeper = clock.sleeper,
             driverFactory = AudioTrackDriverFactory { _, _ -> driver },
             minBufferSizeProvider = { 4 },
         )

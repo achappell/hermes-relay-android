@@ -34,7 +34,7 @@ development_status:
   android-home-09: backlog
   android-home-10: backlog
   android-home-11: backlog
-  android-test-01: backlog
+  android-test-01: review
   # Umbrella epics (kind: epic in story-index.yaml): not stories; exclude from story counts.
   android-parity-01: backlog
   android-arch-01: backlog

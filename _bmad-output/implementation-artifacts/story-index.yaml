@@ -557,6 +557,7 @@ stories:
     parity_epic: ANDROID-PARITY-01
     parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-test-01-lifecycle-test-quality.md
+    validation: _bmad-output/implementation-artifacts/validation-android-test-01.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/80
     ios_reference: 'iOS b46e8fc, 31d8a2e, aabb275 (PR #122); validation-ios-home-07.md "Follow-up: PR #122 CI failure on the iOS Simulator destination"'

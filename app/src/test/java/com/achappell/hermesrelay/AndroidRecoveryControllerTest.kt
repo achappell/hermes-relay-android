@@ -4,8 +4,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 class AndroidRecoveryControllerTest {
+    private companion object {
+        /** Only bounds a hung test; ordering never depends on it elapsing. */
+        const val SAFETY_TIMEOUT_SECONDS = 10L
+    }
+
     private val profile = AndroidProfile("amanda", "Amanda")
     private val request = AndroidTurnRequest(profile, AndroidTurnInput.Typed("Check the weather"))
     private val lostBinding = AndroidTurnBinding(profile.id, "session-1", "turn-1")
@@ -229,6 +238,63 @@ class AndroidRecoveryControllerTest {
         assertEquals(AndroidConnectionState.Connected, state.connection)
         assertEquals(2, port.reconnectAttempts)
         assertEquals(unconfirmed, state.unconfirmedTurn)
+    }
+
+    /**
+     * The Android shape of the iOS race behind `ANDROID-TEST-01`: an uncertain
+     * submission arms recovery, then a transport loss reported by a second
+     * owner (another thread) arrives while that ladder is still reconnecting.
+     *
+     * Ordering is forced with latches signalled by the code under test, not by
+     * sleeping, so the outcome is the same on every run. Without the
+     * `isRecovering` single-owner guard in `recover()` the second owner starts
+     * a second reconnect and `reconnectAttempts` is 2 on every iteration.
+     */
+    @Test
+    fun an_uncertain_submit_then_a_transport_loss_runs_exactly_one_reconnect() {
+        val port = FakeRecoveryPort(
+            outcomes = listOf(AndroidReconnectOutcome.Connected("session-2")),
+            initiation = AndroidInitiationResult.Uncertain(
+                request,
+                AndroidHomeUnavailableReason.TransportTimeout,
+            ),
+        )
+        val controller = AndroidRecoveryController(port, maxAttempts = 3)
+        val firstReconnectEntered = CountDownLatch(1)
+        val releaseFirstReconnect = CountDownLatch(1)
+        val blockedFirst = AtomicBoolean(false)
+        port.onReconnect = {
+            if (blockedFirst.compareAndSet(false, true)) {
+                firstReconnectEntered.countDown()
+                check(releaseFirstReconnect.await(SAFETY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    "test never released the first reconnect"
+                }
+            }
+        }
+
+        // Owner one: the submission came back uncertain, so recovery starts.
+        assertTrue(port.beginTurn(request) is AndroidInitiationResult.Uncertain)
+        val uncertainTurn = AndroidUnconfirmedTurn(binding = null, request = request)
+        controller.transportLost("Prompt delivery became uncertain.", uncertainTurn)
+        val failure = AtomicReference<Throwable?>(null)
+        val firstOwner = Thread { runCatching { controller.recover() }.onFailure { failure.set(it) } }
+        firstOwner.start()
+        assertTrue(firstReconnectEntered.await(SAFETY_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+
+        // Owner two: the transport drops while the first ladder is in flight.
+        controller.transportLost("Transport closed.")
+        val whileRecovering = controller.recover()
+        releaseFirstReconnect.countDown()
+        firstOwner.join(TimeUnit.SECONDS.toMillis(SAFETY_TIMEOUT_SECONDS))
+
+        assertNull(failure.get())
+        assertTrue("the second owner was told recovery was already running", whileRecovering.isRecovering)
+        assertEquals("exactly one reconnect ran", 1, port.reconnectAttempts)
+        assertEquals(AndroidConnectionState.Connected, controller.state.connection)
+        assertEquals("session-2", controller.state.connectionId)
+        // The uncertain turn is retained once, never resent by recovery.
+        assertEquals(uncertainTurn, controller.state.unconfirmedTurn)
+        assertEquals(1, port.requests.size)
     }
 
     @Test
