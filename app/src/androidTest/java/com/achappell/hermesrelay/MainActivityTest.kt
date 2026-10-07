@@ -13,6 +13,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.espresso.Espresso.closeSoftKeyboard
+import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
 import org.junit.Assert.assertEquals
@@ -78,6 +79,28 @@ class MainActivityTest {
         composeRule.onNodeWithTag("android_menu_configure_relay").performClick()
         composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
         composeRule.onAllNodesWithText("Ready").assertCountEquals(0)
+    }
+
+    @Test
+    fun back_dismisses_configuration_sheet_and_returns_to_home() {
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(
+                    clientPort = BootstrapClientPort,
+                    configuration = emptyConfiguration(),
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("android_more_menu").performClick()
+        composeRule.onNodeWithTag("android_menu_configure_relay").performClick()
+        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
+
+        pressBack()
+        composeRule.waitForIdle()
+
+        composeRule.onAllNodesWithTag("android_relay_configuration_sheet").assertCountEquals(0)
+        composeRule.onNodeWithTag("android_doorway_header").assertIsDisplayed()
     }
 
     @Test

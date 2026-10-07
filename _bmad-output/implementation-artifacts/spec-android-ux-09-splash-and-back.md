@@ -1,7 +1,8 @@
 ---
 id: ANDROID-UX-09
 title: Splash screen, dark window background and predictive back
-status: backlog
+status: in-progress
+baseline_commit: 4ef41308bc2b66330d9af7a400dc9b0b705bf4d9
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-03
@@ -23,6 +24,13 @@ Source: PX-26 (matrix X9; design section 3.2; audit section 4 predictive back) (
 ## Android today (checked against `main` unless marked [INFERENCE])
 
 - `res/values/themes.xml` has the single light parent theme; `core-splashscreen` is not a dependency; no `BackHandler`/`PredictiveBackHandler` in `app/src/main` (grep).
+
+## Code Map
+
+- `app/src/main/AndroidManifest.xml`, `app/src/main/res/values/themes.xml`, and the day/night window color resources control the pre-Compose window and splash.
+- `MainActivity.onCreate` is the splash-install seam; install before `super.onCreate` and let the system theme select the night-qualified background.
+- `AndroidClientScreen` hosts configuration; `HomeConversationsSheet`, `HomeApprovalsSheet`, and `DoorwayZones.kt::LocalHistoryZone` host the other sheets. They use Material3 `ModalBottomSheet`, whose 1.4.0 implementation has platform back dismissal and predictive-back progress; preserve that behavior rather than intercepting it with a parent handler.
+- `MainActivityTest` and the new sheet/theme Android tests cover configuration, conversations, approvals, history, and day/night resources. Compile instrumented tests only; device gates are blocked by the current authorization state.
 
 ## Required behavior
 

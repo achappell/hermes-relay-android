@@ -118,6 +118,7 @@ kotlin {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.activity.compose)
     implementation(libs.okhttp)
     // In-app pairing QR scanner (ANDROID-HOME-02). ZXing is pure Java: no
