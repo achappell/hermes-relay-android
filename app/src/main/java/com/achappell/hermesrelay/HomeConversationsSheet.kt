@@ -30,6 +30,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+
 import androidx.compose.ui.unit.dp
 import java.text.DateFormat
 import java.util.Date
@@ -41,6 +43,43 @@ internal sealed interface HomeConversationsState {
     data class Listed(val sessions: List<HomeClientSession>) : HomeConversationsState
 
     data class Unavailable(val message: String) : HomeConversationsState
+}
+
+/** Claim-management contents are hidden until Home has advertised claim_ref support. */
+internal sealed interface HomeOpenClaimsState {
+    data object Hidden : HomeOpenClaimsState
+
+    data object Loading : HomeOpenClaimsState
+
+    data class Listed(
+        val pairingId: String,
+        val maxClaims: Int,
+        val claims: List<HomeClientClaim>,
+    ) : HomeOpenClaimsState
+
+    data class Unavailable(val message: String) : HomeOpenClaimsState
+}
+
+/** Rejects delayed list/close responses after a newer Profile load begins. */
+internal class HomeProfileRequestGate {
+    data class Request(
+        val generation: Long,
+        val profileId: String?,
+    )
+
+    private var generation = 0L
+
+    @Synchronized
+    fun begin(profileId: String?): Request = Request(++generation, profileId)
+
+    @Synchronized
+    fun invalidate() {
+        generation += 1
+    }
+
+    @Synchronized
+    fun isCurrent(request: Request, selectedProfileId: String?): Boolean =
+        request.generation == generation && request.profileId == selectedProfileId
 }
 
 /** How one listed conversation may be used from this phone. */
@@ -66,6 +105,20 @@ internal object HomeConversationRows {
     const val UNTITLED = "Untitled conversation"
 }
 
+internal object HomeOpenClaimRows {
+    fun closeableRefs(claims: List<HomeClientClaim>, currentClaimRef: String?): List<String> =
+        claims.filter { it.claimRef != currentClaimRef }.map { it.claimRef }
+
+    fun startedAt(claim: HomeClientClaim): Double = claim.openedAt ?: claim.createdAt
+
+    fun stateLabel(state: HomeClientClaimState): Int = when (state) {
+        HomeClientClaimState.Connecting -> R.string.android_home_claim_state_connecting
+        HomeClientClaimState.Idle -> R.string.android_home_claim_state_idle
+        HomeClientClaimState.Replying -> R.string.android_home_claim_state_replying
+        HomeClientClaimState.WaitingToReconnect -> R.string.android_home_claim_state_waiting
+    }
+}
+
 /**
  * A paired Profile's Home conversations: start a new one, rename the current
  * one, or resume another. Actions are disabled while a turn is in progress so
@@ -84,6 +137,11 @@ internal fun HomeConversationsSheet(
     onRename: (String) -> Unit,
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
+    openClaimsState: HomeOpenClaimsState = HomeOpenClaimsState.Hidden,
+    currentClaimRef: String? = null,
+    claimManagementMessage: String? = null,
+    onCloseClaims: (String, List<String>) -> Unit = { _, _ -> },
+    onRefreshOpenClaims: () -> Unit = {},
 ) {
     ModalBottomSheet(
         modifier = Modifier.testTag("android_conversations_sheet"),
@@ -143,6 +201,15 @@ internal fun HomeConversationsSheet(
                 }
             }
 
+            HomeOpenClaimsSection(
+                state = openClaimsState,
+                currentClaimRef = currentClaimRef,
+                actionsEnabled = actionsEnabled,
+                message = claimManagementMessage,
+                onCloseClaims = onCloseClaims,
+                onRefresh = onRefreshOpenClaims,
+            )
+
             when (state) {
                 HomeConversationsState.Loading -> Text(
                     text = stringResource(R.string.android_conversations_loading),
@@ -174,6 +241,151 @@ internal fun HomeConversationsSheet(
                             actionsEnabled = actionsEnabled,
                             onResume = { onResume(session) },
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeOpenClaimsSection(
+    state: HomeOpenClaimsState,
+    currentClaimRef: String?,
+    actionsEnabled: Boolean,
+    message: String?,
+    onCloseClaims: (String, List<String>) -> Unit,
+    onRefresh: () -> Unit,
+) {
+    when (state) {
+        HomeOpenClaimsState.Hidden -> Unit
+        HomeOpenClaimsState.Loading -> {
+            Text(
+                text = stringResource(R.string.android_home_claims_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = stringResource(R.string.android_home_claims_loading),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        is HomeOpenClaimsState.Unavailable -> {
+            Text(
+                text = stringResource(R.string.android_home_claims_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(text = state.message, style = MaterialTheme.typography.bodyMedium)
+            message?.let {
+                Text(
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            TextButton(
+                modifier = Modifier.testTag("android_home_claims_retry"),
+                onClick = onRefresh,
+            ) {
+                Text(stringResource(R.string.android_home_claims_retry))
+            }
+        }
+        is HomeOpenClaimsState.Listed -> {
+            Text(
+                text = stringResource(
+                    R.string.android_home_claims_header,
+                    state.claims.size,
+                    state.maxClaims,
+                ),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            message?.let {
+                Text(
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (state.claims.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.android_home_claims_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            val closeableRefs = HomeOpenClaimRows.closeableRefs(state.claims, currentClaimRef)
+            if (closeableRefs.isNotEmpty()) {
+                TextButton(
+                    modifier = Modifier.testTag("android_home_claims_close_all_others"),
+                    enabled = actionsEnabled,
+                    onClick = { onCloseClaims(state.pairingId, closeableRefs) },
+                ) {
+                    Text(stringResource(R.string.android_home_claims_close_all_others))
+                }
+            }
+            val dateFormat = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+            state.claims.forEachIndexed { index, claim ->
+                val isCurrent = claim.claimRef == currentClaimRef
+                val title = claim.title?.takeIf(String::isNotBlank)
+                    ?: HomeConversationRows.UNTITLED
+                val profile = claim.profileLabel?.takeIf(String::isNotBlank)
+                    ?: stringResource(R.string.android_home_claims_profile_unknown)
+                val started = dateFormat.format(
+                    Date((HomeOpenClaimRows.startedAt(claim) * 1000).toLong()),
+                )
+                val stateLabel = stringResource(HomeOpenClaimRows.stateLabel(claim.state))
+                val rowDescription = listOfNotNull(
+                    title,
+                    profile,
+                    started,
+                    stateLabel,
+                    if (isCurrent) stringResource(R.string.android_home_claims_current) else null,
+                ).joinToString(", ")
+                val closeDescription = stringResource(
+                    R.string.android_home_claims_close_description,
+                    title,
+                )
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("android_home_claim_row_$index"),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isCurrent) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics(mergeDescendants = true) {
+                                contentDescription = rowDescription
+                            }
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(text = title, style = MaterialTheme.typography.titleSmall)
+                        Text(text = profile, style = MaterialTheme.typography.bodySmall)
+                        Text(text = started, style = MaterialTheme.typography.bodySmall)
+                        Text(text = stateLabel, style = MaterialTheme.typography.bodySmall)
+                        if (isCurrent) {
+                            Text(
+                                text = stringResource(R.string.android_home_claims_current),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        } else {
+                            TextButton(
+                                modifier = Modifier
+                                    .testTag("android_home_claim_close_$index")
+                                    .semantics {
+                                        contentDescription = closeDescription
+                                    },
+                                enabled = actionsEnabled,
+                                onClick = {
+                                    onCloseClaims(state.pairingId, listOf(claim.claimRef))
+                                },
+                            ) {
+                                Text(stringResource(R.string.android_home_claims_close))
+                            }
+                        }
                     }
                 }
             }

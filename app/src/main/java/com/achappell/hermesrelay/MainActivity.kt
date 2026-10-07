@@ -138,6 +138,10 @@ internal fun AndroidClientScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     // Computed once from the installed package (ANDROID-REL-01).
     val versionLabel = remember { AppBuildIdentity.current(context).label() }
+    val claimsListFailedMessage = stringResource(R.string.android_home_claims_list_failed)
+    val claimsCloseUnconfirmedMessage = stringResource(R.string.android_home_claims_close_unconfirmed)
+    val claimsRefreshedMessage = stringResource(R.string.android_home_claims_refreshed)
+    val resources = androidx.compose.ui.platform.LocalResources.current
     var configurationRevision by remember { mutableStateOf(0) }
     val recoveryState = runtime.recoveryState
     val snapshot = remember(
@@ -153,6 +157,12 @@ internal fun AndroidClientScreen(
     var conversationsState by remember {
         mutableStateOf<HomeConversationsState>(HomeConversationsState.Loading)
     }
+    val conversationsGeneration = remember { mutableStateOf(0) }
+    var openClaimsState by remember {
+        mutableStateOf<HomeOpenClaimsState>(HomeOpenClaimsState.Hidden)
+    }
+    var claimManagementMessage by remember { mutableStateOf<String?>(null) }
+    val openClaimsRequests = remember { HomeProfileRequestGate() }
     var renameMessage by remember { mutableStateOf<String?>(null) }
     // The divider to record once the requested conversation actually opens.
     var pendingDivider by remember { mutableStateOf<String?>(null) }
@@ -209,6 +219,7 @@ internal fun AndroidClientScreen(
             AndroidHomeUnavailableReason.RequestRejected,
             AndroidHomeUnavailableReason.ProtocolError,
             AndroidHomeUnavailableReason.CapabilityUnavailable,
+            AndroidHomeUnavailableReason.ClaimLimit,
         )
 
 
@@ -256,6 +267,9 @@ internal fun AndroidClientScreen(
 
     fun loadConversations() {
         val conversations = homeConversations ?: return
+        val profileId = configuration?.collection?.selectedId
+        val requestId = conversationsGeneration.value + 1
+        conversationsGeneration.value = requestId
         conversationsState = HomeConversationsState.Loading
         runtime.runOnWork {
             val listed = when (val result = conversations.listConversations()) {
@@ -263,7 +277,141 @@ internal fun AndroidClientScreen(
                 is HomeClientClaimProvider.Sessions.Unavailable ->
                     HomeConversationsState.Unavailable(result.message)
             }
-            runtime.runOnMain { conversationsState = listed }
+            runtime.runOnMain {
+                if (
+                    requestId == conversationsGeneration.value &&
+                    profileId == configuration?.collection?.selectedId
+                ) {
+                    conversationsState = listed
+                }
+            }
+        }
+    }
+
+    fun isCurrentOpenClaimsRequest(request: HomeProfileRequestGate.Request): Boolean =
+        openClaimsRequests.isCurrent(request, configuration?.collection?.selectedId)
+
+    fun applyOpenClaimsResult(
+        request: HomeProfileRequestGate.Request,
+        result: HomeClientClaimProvider.OpenClaims,
+    ) {
+        if (!isCurrentOpenClaimsRequest(request)) return
+        when (result) {
+            HomeClientClaimProvider.OpenClaims.Unsupported -> {
+                openClaimsState = HomeOpenClaimsState.Hidden
+                claimManagementMessage = null
+            }
+            is HomeClientClaimProvider.OpenClaims.Listed -> {
+                openClaimsState = HomeOpenClaimsState.Listed(
+                    pairingId = result.pairingId,
+                    maxClaims = result.maxClaims,
+                    claims = result.claims,
+                )
+                runtime.runOnWork {
+                    val enriched = runCatching {
+                        homeConversations?.enrichOpenClaimTitles(result.pairingId, result.claims)
+                    }.getOrNull() ?: result.claims
+                    runtime.runOnMain {
+                        if (isCurrentOpenClaimsRequest(request)) {
+                            val current = openClaimsState as? HomeOpenClaimsState.Listed
+                            if (current?.pairingId == result.pairingId) {
+                                openClaimsState = current.copy(claims = enriched)
+                            }
+                        }
+                    }
+                }
+            }
+            is HomeClientClaimProvider.OpenClaims.Unavailable -> {
+                openClaimsState = HomeOpenClaimsState.Unavailable(result.message)
+            }
+        }
+    }
+
+    fun loadOpenClaims() {
+        val conversations = homeConversations ?: return
+        val request = openClaimsRequests.begin(configuration?.collection?.selectedId)
+        claimManagementMessage = null
+        if (!conversations.selectedIsPaired() || !conversations.supportsOpenClaims()) {
+            openClaimsState = HomeOpenClaimsState.Hidden
+            return
+        }
+        openClaimsState = HomeOpenClaimsState.Loading
+        runtime.runOnWork {
+            val listed = try {
+                conversations.listOpenClaims()
+            } catch (_: Exception) {
+                HomeClientClaimProvider.OpenClaims.Unavailable(
+                    claimsListFailedMessage,
+                )
+            }
+            runtime.runOnMain { applyOpenClaimsResult(request, listed) }
+        }
+    }
+
+    fun submitClaimClose(pairingId: String, claimRefs: List<String>) {
+        val conversations = homeConversations ?: return
+        if (conversations.selectedPairingId() != pairingId) return
+        val request = openClaimsRequests.begin(configuration?.collection?.selectedId)
+        openClaimsState = HomeOpenClaimsState.Loading
+        claimManagementMessage = null
+        runtime.runOnWork {
+            val closeAndList = try {
+                conversations.closeAndListOpenClaims(pairingId, claimRefs)
+            } catch (_: Exception) {
+                val refreshed = try {
+                    conversations.listOpenClaims(pairingId)
+                } catch (_: Exception) {
+                    HomeClientClaimProvider.OpenClaims.Unavailable(
+                        claimsListFailedMessage,
+                    )
+                }
+                HomeClientClaimProvider.CloseAndList(
+                    closeResult = HomeClientClaimProvider.CloseClaims.Unavailable(
+                        claimsCloseUnconfirmedMessage,
+                    ),
+                    listing = refreshed,
+                )
+            }
+            val closeResult = closeAndList.closeResult
+            val refreshed = closeAndList.listing
+            val message = when (closeResult) {
+                HomeClientClaimProvider.CloseClaims.Unsupported -> null
+                is HomeClientClaimProvider.CloseClaims.Completed -> {
+                    if (closeResult.closed == 0) {
+                        claimsRefreshedMessage
+                    } else {
+                        resources.getQuantityString(
+                            R.plurals.android_home_claims_closed,
+                            closeResult.closed,
+                            closeResult.closed,
+                        )
+                    }
+                }
+                is HomeClientClaimProvider.CloseClaims.Unavailable ->
+                    claimsCloseUnconfirmedMessage
+            }
+            runtime.runOnMain {
+                if (!isCurrentOpenClaimsRequest(request)) return@runOnMain
+                claimManagementMessage = message
+                applyOpenClaimsResult(request, refreshed)
+            }
+        }
+    }
+
+    fun showConversations() {
+        configurationVisible = false
+        historyVisible = false
+        renameMessage = null
+        conversationsVisible = true
+    }
+
+    LaunchedEffect(conversationsVisible, selectedProfileId, configurationRevision) {
+        if (conversationsVisible) {
+            loadConversations()
+            loadOpenClaims()
+        } else {
+            conversationsGeneration.value += 1
+            openClaimsRequests.invalidate()
         }
     }
 
@@ -469,13 +617,7 @@ internal fun AndroidClientScreen(
                         approvalsVisible = true
                         refreshApprovals()
                     },
-                    onShowConversations = {
-                        configurationVisible = false
-                        historyVisible = false
-                        renameMessage = null
-                        conversationsVisible = true
-                        loadConversations()
-                    },
+                    onShowConversations = { showConversations() },
                 )
             },
             bottomBar = {
@@ -581,6 +723,31 @@ internal fun AndroidClientScreen(
                                 onConfigure = { configurationVisible = true },
                                 onEditRelay = { configurationVisible = true },
                             )
+                        }
+                    }
+
+                    if (
+                        snapshot.unavailableReason == AndroidHomeUnavailableReason.ClaimLimit &&
+                        homeConversations?.selectedIsPaired() == true
+                    ) {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("android_home_claim_limit_notice"),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.android_home_claim_limit_notice),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                androidx.compose.material3.TextButton(
+                                    modifier = Modifier.testTag("android_home_claims_manage"),
+                                    onClick = { showConversations() },
+                                ) {
+                                    Text(stringResource(R.string.android_home_claims_manage))
+                                }
+                            }
                         }
                     }
 
@@ -739,6 +906,11 @@ internal fun AndroidClientScreen(
                 },
                 onRefresh = { loadConversations() },
                 onDismiss = { conversationsVisible = false },
+                openClaimsState = openClaimsState,
+                currentClaimRef = homeConversations.currentClaimRef(),
+                claimManagementMessage = claimManagementMessage,
+                onCloseClaims = { pairingId, refs -> submitClaimClose(pairingId, refs) },
+                onRefreshOpenClaims = { loadOpenClaims() },
             )
         }
 
