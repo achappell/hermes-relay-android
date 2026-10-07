@@ -1,7 +1,7 @@
 ---
 id: ANDROID-REL-01
 title: Show the app version and build identity in settings and diagnostics
-status: backlog
+status: review
 product_epic: 4
 release_scope: migration
 parity_epic: ANDROID-PARITY-02

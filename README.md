@@ -62,6 +62,25 @@ To install the debug shell on a connected device or emulator:
 
 There is no live Hermes endpoint requirement for the bootstrap tests or build.
 
+### Which build is installed
+
+Configure Relay -> Troubleshooting shows a read-only, copyable row such as
+`Version 0.3.1 (301) · release · 3e10ae2` (test tag `app-version`). It is read
+from the installed package, so it cannot drift from the APK that
+`scripts/check-apk-metadata.sh` verifies:
+
+- `0.3.1` is `versionName` and `(301)` is `versionCode`; both are unchanged by
+  this feature, and `versionCode` stays derived from `versionName`.
+- `release` or `debug` is the build type.
+- `3e10ae2` is the short git revision the build was made from (`unknown` when
+  git is not available, for example a source tarball).
+
+Two rebuilds of the same version have the same code, so they are told apart by
+the revision, not the code. The Share diagnostics header carries the same
+version, code, build type and revision. The row never includes a serial, an
+account or an address. Releases are still a signed APK that you sideload;
+Play Store distribution remains outside this repository.
+
 ### Repetition gate for lifecycle, reconnect and voice tests
 
 A lifecycle, reconnect or voice test that passes once proves little: the iOS

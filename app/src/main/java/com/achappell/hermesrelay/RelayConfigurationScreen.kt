@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -23,6 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +48,7 @@ internal fun RelayConfigurationScreen(
     pendingPairingLink: String? = null,
     onPendingPairingLinkConsumed: () -> Unit = {},
     onShareDiagnostics: (() -> Unit)? = null,
+    versionLabel: String? = null,
     onChanged: () -> Unit,
 ) {
     var collection by remember { mutableStateOf(controller.collection) }
@@ -199,7 +203,7 @@ internal fun RelayConfigurationScreen(
             )
         }
 
-        onShareDiagnostics?.let { share ->
+        if (onShareDiagnostics != null || versionLabel != null) {
             Column(
                 modifier = Modifier.testTag("android_diagnostics"),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -208,17 +212,31 @@ internal fun RelayConfigurationScreen(
                     text = stringResource(R.string.android_diagnostics_title),
                     style = MaterialTheme.typography.titleSmall,
                 )
-                Text(
-                    text = stringResource(R.string.android_diagnostics_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                FilledTonalButton(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("android_diagnostics_share"),
-                    onClick = share,
-                ) {
-                    Text(stringResource(R.string.android_diagnostics_share))
+                versionLabel?.let { label ->
+                    val description = stringResource(R.string.android_version_description, label)
+                    SelectionContainer {
+                        Text(
+                            modifier = Modifier
+                                .testTag("app-version")
+                                .semantics { contentDescription = description },
+                            text = label,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+                onShareDiagnostics?.let { share ->
+                    Text(
+                        text = stringResource(R.string.android_diagnostics_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    FilledTonalButton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("android_diagnostics_share"),
+                        onClick = share,
+                    ) {
+                        Text(stringResource(R.string.android_diagnostics_share))
+                    }
                 }
             }
         }

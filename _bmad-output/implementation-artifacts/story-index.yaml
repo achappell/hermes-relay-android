@@ -546,6 +546,7 @@ stories:
     parity_epic: ANDROID-PARITY-02
     parity_stream: S6
     spec: _bmad-output/implementation-artifacts/spec-android-rel-01-version-and-build-identity.md
+    validation: _bmad-output/implementation-artifacts/validation-android-rel-01.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/79
     ios_reference: 'iOS 19669cf, 89c40a4 (version label), 27139b6 (automated build numbers), docs/testflight.md'
