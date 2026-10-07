@@ -420,6 +420,7 @@ stories:
     parity_epic: ANDROID-PARITY-01
     parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-home-07-single-home-runtime.md
+    validation: _bmad-output/implementation-artifacts/validation-android-home-07.md
     depends_on:
       - android:ANDROID-HOME-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/71

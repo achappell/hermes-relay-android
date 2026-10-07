@@ -65,6 +65,19 @@ ignored and do not create sibling `*-worktrees` directories or use a global
 tool-specific worktree location. BMAD loop-managed run worktrees under
 `.bmad-loop/runs/<run>/worktrees/` are engine-owned and remain there.
 
+## Home runtime ownership
+
+Exactly one `HomeRuntime` exists per process (`HermesRelayApplication`
+resolves it through `HomeRuntimeBox`). It owns the Home client, the audio sink,
+the recovery and capture controllers, and the turn, recovery, capture and
+hands-free state the user sees mid-conversation. `MainActivity` and
+`AndroidClientScreen` observe it and send intents; they never construct or
+close it. New in-flight state belongs in the runtime, not in a Compose
+`remember`: a rotation, font-scale or theme change recreates the Activity and
+must not close the socket, stop audio or drop the unconfirmed turn. Keep
+`rememberSaveable` for purely UI state (sheet visibility, the draft prompt) and
+never hold an `Activity` or Activity `Context` in the runtime.
+
 ## Verification
 
 ```
