@@ -1447,7 +1447,12 @@ internal class OkHttpRelaySessionClient(
                 }
             }
             is AndroidNormalizedEvent.AudioEnded -> {
-                if (!audioActive.getAndSet(false)) {
+                if (interruptRequested.get() && !audioActive.get() && !audioDrainPending.get()) {
+                    // The user already stopped this speech. Home ending its sidecar is the
+                    // expected echo of that stop, not a stream that ended before it began.
+                    settleAwaitedAudio()
+                    clearTurnIfTerminal(event.binding)
+                } else if (!audioActive.getAndSet(false)) {
                     deliver(
                         currentObserver,
                         AndroidNormalizedEvent.AudioFailed(

@@ -1265,7 +1265,6 @@ class OkHttpRelaySessionClientTest {
                                 webSocket.send(eventFrame(turnId, "message.start", JSONObject()))
                                 webSocket.send(audioStartFrame(turnId))
                                 webSocket.send(ByteString.of(*byteArrayOf(1, 0, 2, 0)))
-                                webSocket.send(audioEndFrame(turnId))
                                 webSocket.send(
                                     eventFrame(
                                         turnId,
@@ -1282,6 +1281,9 @@ class OkHttpRelaySessionClientTest {
                                 interruptTurnIds +=
                                     request.getJSONObject("params").getString("turn_id")
                                 interruptSeen.countDown()
+                                // Home stops the sidecar and ends the audio stream before it
+                                // acknowledges, so the end frame precedes the acknowledgement.
+                                webSocket.send(audioEndFrame("home-turn-tail"))
                                 webSocket.send(
                                     rpcResult(
                                         request.getString("id"),
@@ -1323,7 +1325,14 @@ class OkHttpRelaySessionClientTest {
                 delegate.cancel()
             }
         }
-        val journal = RecordingJournal()
+        val recordingJournal = RecordingJournal()
+        val acknowledged = CountDownLatch(1)
+        val journal = object : DiagnosticsJournal by recordingJournal {
+            override fun record(event: String) {
+                recordingJournal.record(event)
+                if (event == "home interrupt acknowledged") acknowledged.countDown()
+            }
+        }
         val client = client(audioSink = sink, journal = journal)
         assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
         val binding = (
@@ -1351,7 +1360,14 @@ class OkHttpRelaySessionClientTest {
         assertFalse(client.hasActiveTurn())
         assertTrue(events.any { it is AndroidNormalizedEvent.TurnInterrupted })
         assertFalse("a second tap acted again", client.interruptTurn(binding))
-        assertEquals(1, journal.count("home speech stopped locally"))
+        assertEquals(1, recordingJournal.count("home speech stopped locally"))
+        // Home's sidecar end frame is the echo of the stop the user asked for, not a failed
+        // stream: it must not turn the interrupted turn into an unavailable one.
+        assertTrue("Home never acknowledged", acknowledged.await(5, TimeUnit.SECONDS))
+        assertTrue(
+            "the end of a stopped sidecar was reported as a failed audio stream",
+            events.none { it is AndroidNormalizedEvent.AudioFailed },
+        )
         client.close()
         assertTrue(clientClosed.await(5, TimeUnit.SECONDS))
         assertEquals(1, interruptFrames.get())
