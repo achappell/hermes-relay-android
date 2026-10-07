@@ -1170,6 +1170,96 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun speech_still_in_flight_after_an_interrupt_is_dropped_not_reported_as_a_failed_stream() {
+        // Home keeps streaming PCM until it has processed the stop, so frames of the
+        // stream the user just stopped arrive while the turn is still active.
+        val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+        val audioStarted = CountDownLatch(1)
+        val interrupted = CountDownLatch(1)
+        val socket = AtomicReference<WebSocket?>(null)
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
+                        socket.set(webSocket)
+                    }
+
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        val request = JSONObject(text)
+                        when (request.optString("method")) {
+                            "conversation.open", "conversation.reconnect" ->
+                                webSocket.send(readyResponse(request.getString("id")))
+                            "prompt.submit" -> {
+                                val turnId = "home-turn-late-pcm"
+                                webSocket.send(
+                                    rpcResult(
+                                        request.getString("id"),
+                                        JSONObject()
+                                            .put("schema", 1)
+                                            .put("conversation_handle", CONVERSATION_HANDLE)
+                                            .put("turn_id", turnId)
+                                            .put("status", "submitted"),
+                                    ),
+                                )
+                                webSocket.send(eventFrame(turnId, "message.start", JSONObject()))
+                                webSocket.send(audioStartFrame(turnId))
+                                webSocket.send(ByteString.of(*byteArrayOf(1, 0, 2, 0)))
+                            }
+                            "session.interrupt" -> {
+                                // The stop has not reached the sidecar yet: more PCM, then the
+                                // sidecar's end, the acknowledgement and the interrupted terminal.
+                                webSocket.send(ByteString.of(*byteArrayOf(3, 0, 4, 0)))
+                                webSocket.send(audioEndFrame("home-turn-late-pcm"))
+                                webSocket.send(
+                                    rpcResult(
+                                        request.getString("id"),
+                                        JSONObject().put("schema", 1).put("status", "accepted"),
+                                    ),
+                                )
+                                webSocket.send(
+                                    eventFrame(
+                                        "home-turn-late-pcm",
+                                        "session.interrupted",
+                                        JSONObject().put("reason", "user interrupted"),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+        val client = client(audioSink = RecordingAudioSink())
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val binding = (
+            client.beginTurn(
+                AndroidTurnRequest(
+                    AndroidProfile(PROFILE_ID, "Amanda"),
+                    AndroidTurnInput.Typed("speak a long reply"),
+                ),
+            ) as AndroidInitiationResult.Accepted
+            ).binding
+        val state = AtomicReference(AndroidTurnState.awaitingEvents(binding))
+        client.observeTurn(binding) { event ->
+            events += event
+            state.set(AndroidTurnStateReducer.reduce(state.get(), event))
+            if (event is AndroidNormalizedEvent.AudioStarted) audioStarted.countDown()
+            if (event is AndroidNormalizedEvent.TurnInterrupted) interrupted.countDown()
+        }
+        assertTrue("speech never started", audioStarted.await(5, TimeUnit.SECONDS))
+
+        assertTrue(client.interruptTurn(binding))
+        assertTrue("Home never reported the interrupt", interrupted.await(5, TimeUnit.SECONDS))
+
+        assertTrue(
+            "late PCM from the stopped stream was reported as a failed audio stream",
+            events.none { it is AndroidNormalizedEvent.AudioFailed },
+        )
+        assertEquals(AndroidTurnPhase.Interrupted, state.get().phase)
+        client.close()
+    }
+
+    @Test
     fun interrupt_stops_local_audio_before_the_frame_reaches_home_and_is_sent_once() {
         val order = Collections.synchronizedList(mutableListOf<String>())
         val interruptFrames = AtomicInteger(0)
@@ -1232,11 +1322,24 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
-    fun interrupt_stops_speech_still_buffered_on_the_phone_after_home_ended_the_turn() {
+    fun interrupt_stops_speech_still_buffered_on_the_phone_after_home_ended_the_turn() =
+        spokenTailInterrupt(audioFollowsText = false)
+
+    @Test
+    fun interrupt_stops_speech_that_began_after_home_completed_the_text_and_settles_the_turn() =
+        spokenTailInterrupt(audioFollowsText = true)
+
+    /**
+     * [audioFollowsText] is the order Home produced on a live Pixel run: the text terminal
+     * (`audio=pending`) arrives first and the speech starts afterwards, so the client has not
+     * observed a terminal while the tail plays.
+     */
+    private fun spokenTailInterrupt(audioFollowsText: Boolean) {
         // A long reply: Home finishes the turn while the phone is still playing the
         // audio it already received. Found on a Pixel: Interrupt did nothing here.
         val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
         val completed = CountDownLatch(1)
+        val audioStarted = CountDownLatch(1)
         val interruptFrames = AtomicInteger(0)
         val clientClosed = CountDownLatch(1)
         val interruptSeen = CountDownLatch(1)
@@ -1263,17 +1366,22 @@ class OkHttpRelaySessionClientTest {
                                     ),
                                 )
                                 webSocket.send(eventFrame(turnId, "message.start", JSONObject()))
-                                webSocket.send(audioStartFrame(turnId))
-                                webSocket.send(ByteString.of(*byteArrayOf(1, 0, 2, 0)))
-                                webSocket.send(
-                                    eventFrame(
-                                        turnId,
-                                        "message.complete",
-                                        JSONObject()
-                                            .put("rendered", "A long story")
-                                            .put("status", "complete"),
-                                    ),
+                                val complete = eventFrame(
+                                    turnId,
+                                    "message.complete",
+                                    JSONObject()
+                                        .put("rendered", "A long story")
+                                        .put("status", "complete"),
                                 )
+                                if (!audioFollowsText) {
+                                    webSocket.send(audioStartFrame(turnId))
+                                    webSocket.send(ByteString.of(*byteArrayOf(1, 0, 2, 0)))
+                                    webSocket.send(complete)
+                                } else {
+                                    webSocket.send(complete)
+                                    webSocket.send(audioStartFrame(turnId))
+                                    webSocket.send(ByteString.of(*byteArrayOf(1, 0, 2, 0)))
+                                }
                             }
                             "session.interrupt" -> {
                                 interruptFrames.incrementAndGet()
@@ -1345,9 +1453,14 @@ class OkHttpRelaySessionClientTest {
             ).binding
         client.observeTurn(binding) { event ->
             events += event
-            if (event is AndroidNormalizedEvent.TurnCompleted) completed.countDown()
+            if (
+                event is AndroidNormalizedEvent.TurnCompleted ||
+                event is AndroidNormalizedEvent.TextCompleted
+            ) completed.countDown()
+            if (event is AndroidNormalizedEvent.AudioStarted) audioStarted.countDown()
         }
         assertTrue("Home never completed the turn", completed.await(5, TimeUnit.SECONDS))
+        assertTrue("the speech never started", audioStarted.await(5, TimeUnit.SECONDS))
         assertTrue("the spoken tail still holds the turn", client.hasActiveTurn())
         cancelled.set(0)
         order.clear()
