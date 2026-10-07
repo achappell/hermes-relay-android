@@ -16,7 +16,7 @@ The gates are kept separate. The user-visible claim of this ticket (rotation and
 | CI | Pending the pull request | `ci.yml`: JVM suite, build, lint, APK metadata |
 | `ActivityScenario.recreate()` instrumented test | **Not run** | `HomeRuntimeRecreationTest` compiles; no emulator or device was available |
 | Device: 30+ s reply, rotate twice, change font scale once | **Unverified** | Needs a Pixel or emulator; audio continuity needs real output |
-| Journal: one `runtime created` per process | **Not possible yet** | `ANDROID-DIAG-01` (the journal) does not exist; see below |
+| Journal: one `runtime created` per process | Covered by `ANDROID-DIAG-01` (JVM); device export unverified | Update 2026-10-07: `HomeRuntimeBox` now writes the content-free journal line `runtime created` once at its single creation point, and `HomeRuntimeTest.runtime_created_is_journaled_once_across_rotations` asserts exactly one across two recreations (no `runtime teardown`). Reading it from a shared export on a device is still unverified. |
 
 ## What changed
 
@@ -56,7 +56,7 @@ See the pull request for the final run output. Locally (JDK 21.0.12, Android SDK
 | Two `resolve()` calls return the same runtime | Passed: `consecutive_activity_resolves_return_the_same_runtime` |
 | The lifecycle coordinator's turn source is the instance the UI observes | **Partly**: there is no lifecycle coordinator yet (`ANDROID-HOME-04/06`). The destroy rule and the screen read one `turnState`/`initiationState` field (`the_screen_and_the_teardown_rules_read_the_same_turn_state`). HOME-04/06 must construct the coordinator from the runtime. |
 | Destroy with a reply in flight does not call `close()`; destroy with nothing in flight tears down once | Passed: `destroy_with_a_reply_in_flight_does_not_close_the_client`, `destroy_with_nothing_in_flight_tears_down_exactly_once`, plus the deferred-teardown, re-attach, system-destroy and overlapping-Activity cases |
-| `runtime created` appears exactly once per process in a device journal | **Not met**: no journal exists (`ANDROID-DIAG-01`). `HomeRuntimeBox.createdCount` is asserted to be 1 across resolves and recreation; DIAG-01 should emit the line from the box's single creation point. |
+| `runtime created` appears exactly once per process in a device journal | **Covered in JVM by `ANDROID-DIAG-01` (2026-10-07); device journal unverified.** The line is emitted from the box's single creation point and a teardown names its initiator (`runtime teardown reason=activityFinished` or `replySettled`; `runtime teardown deferred reply=inFlight`). A device export across a rotation has not been read. |
 | No in-flight state lost on recreation that the user would perceive as a reset | Moved to the runtime: turn text and phase, unconfirmed prompt, hands-free, capture state, prompt history, resend result. Not verified on a device. |
 
 A mutation check: forcing `activityDestroyed` to tear down on every call made `a_system_destroy_of_a_backgrounded_activity_keeps_the_runtime` and `recreation_keeps_the_unconfirmed_turn` fail (2 of 11); the mid-reply tests still passed because the in-flight rule alone protects them. The new API did not exist at baseline, so these tests are compile-red against the previous code, not behaviour-red.

@@ -499,6 +499,7 @@ stories:
     parity_epic: ANDROID-PARITY-01
     parity_stream: S5
     spec: _bmad-output/implementation-artifacts/spec-android-diag-01-share-diagnostics.md
+    validation: _bmad-output/implementation-artifacts/validation-android-diag-01.md
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/76
     ios_reference: 'IOS-DIAG-01 (journal and Share diagnostics), plus the PR #122 journal lines'

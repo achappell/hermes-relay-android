@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ANDROID-DIAG-01: only the diagnostics export copy is shareable. -->
+<paths>
+    <cache-path name="diagnostics" path="diagnostics-export/" />
+</paths>

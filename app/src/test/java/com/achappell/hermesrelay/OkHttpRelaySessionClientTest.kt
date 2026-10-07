@@ -124,6 +124,64 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun the_connection_trace_reaches_the_journal_and_carries_no_content() {
+        val peer = java.util.concurrent.atomic.AtomicReference<WebSocket>()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                peer.set(webSocket)
+                webSocket.send(readyResponse(JSONObject(text).getString("id")))
+            }
+        }))
+        val journal = RecordingJournal()
+        val client = client(journal = journal)
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val disconnected = CountDownLatch(1)
+        client.observeConnection { disconnected.countDown() }
+        peer.get().close(1000, "controlled test close")
+        assertTrue(disconnected.await(2, TimeUnit.SECONDS))
+        client.close()
+
+        val lines = journal.lines
+        assertTrue(
+            lines.toString(),
+            lines.any {
+                it.startsWith("home connect conversation.open result=connected reason=none reused_claim=false duration_ms=")
+            },
+        )
+        assertTrue(lines.contains("websocket closed by peer code=1000"))
+        assertTrue(lines.contains("home bridge transport lost"))
+        assertTrue(lines.contains("home client close"))
+        assertContentFree(lines)
+    }
+
+    @Test
+    fun a_refused_connect_is_journaled_by_reason_code_only() {
+        val journal = RecordingJournal()
+        val client = client(homeBinding = null, journal = journal)
+
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Unrecoverable)
+
+        assertTrue(
+            journal.lines.toString(),
+            journal.lines.any {
+                it.startsWith("home connect conversation.open result=unrecoverable reason=MissingBinding")
+            },
+        )
+        assertContentFree(journal.lines)
+    }
+
+    /** Mirrors `TranscriptExportTest`'s forbidden-substring approach. */
+    private fun assertContentFree(lines: List<String>) {
+        val text = lines.joinToString("\n")
+        listOf(
+            "token", "wss://", "bearer", "pcm", "cref-", "corr-", "req-",
+            CONVERSATION_HANDLE, VALID_HOME_CREDENTIAL, PROFILE_ID, "route-home",
+        ).forEach { forbidden ->
+            assertFalse("a journal line leaked $forbidden: $text", text.contains(forbidden, ignoreCase = true))
+        }
+    }
+
+    @Test
     fun live_gate_cleanup_closes_the_conversation_without_submitting_a_prompt() {
         val methods = Collections.synchronizedList(mutableListOf<String>())
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
@@ -1600,6 +1658,7 @@ class OkHttpRelaySessionClientTest {
         requestTimeoutMillis: Long = 5_000,
         audioSink: AndroidAudioSink = RecordingAudioSink(),
         liveHomeGateTrace: AndroidLiveHomeGateTrace? = null,
+        journal: DiagnosticsJournal = DiagnosticsJournal.None,
     ): OkHttpRelaySessionClient = OkHttpRelaySessionClient(
         collection = {
             collectionFor(
@@ -1617,6 +1676,7 @@ class OkHttpRelaySessionClientTest {
         requestTimeoutMillis = requestTimeoutMillis,
         audioSink = audioSink,
         liveHomeGateTrace = liveHomeGateTrace,
+        journal = journal,
     )
 
     private fun collectionFor(

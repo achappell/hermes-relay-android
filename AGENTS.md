@@ -78,6 +78,17 @@ must not close the socket, stop audio or drop the unconfirmed turn. Keep
 `rememberSaveable` for purely UI state (sheet visibility, the draft prompt) and
 never hold an `Activity` or Activity `Context` in the runtime.
 
+## Diagnostics journal
+
+`DiagnosticsJournal` (`ANDROID-DIAG-01`) is the evidence layer for device
+acceptance: inject it, never use a global. Lines are fixed event names, enum
+codes, phases, durations and counts only (`home connect conversation.open
+result=connected reason=none`). Never record a prompt, reply, transcript,
+title, token, credential, conversation handle, claim or session reference,
+correlation id or audio. Per-frame audio and per-event notices stay out. A
+ticket that adds a lifecycle or connection decision adds its journal line and
+asserts it in a JVM test through `RecordingJournal`.
+
 ## Verification
 
 ```

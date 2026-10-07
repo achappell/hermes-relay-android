@@ -44,6 +44,7 @@ internal fun RelayConfigurationScreen(
     homePairing: HomeClientPairingCoordinator? = null,
     pendingPairingLink: String? = null,
     onPendingPairingLinkConsumed: () -> Unit = {},
+    onShareDiagnostics: (() -> Unit)? = null,
     onChanged: () -> Unit,
 ) {
     var collection by remember { mutableStateOf(controller.collection) }
@@ -196,6 +197,30 @@ internal fun RelayConfigurationScreen(
                 onChanged = onHomeAdministrationChanged,
                 onCredentialChanged = onHomeCredentialChanged,
             )
+        }
+
+        onShareDiagnostics?.let { share ->
+            Column(
+                modifier = Modifier.testTag("android_diagnostics"),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.android_diagnostics_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = stringResource(R.string.android_diagnostics_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                FilledTonalButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("android_diagnostics_share"),
+                    onClick = share,
+                ) {
+                    Text(stringResource(R.string.android_diagnostics_share))
+                }
+            }
         }
     }
 }

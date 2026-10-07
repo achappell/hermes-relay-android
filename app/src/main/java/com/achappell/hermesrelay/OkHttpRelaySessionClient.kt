@@ -130,6 +130,8 @@ internal class OkHttpRelaySessionClient(
     private val interruptTelemetry: AndroidInterruptTelemetryState = AndroidInterruptTelemetryState(),
     private val liveHomeGateTrace: AndroidLiveHomeGateTrace? = null,
     private val clientClaims: HomeClientClaimProvider? = null,
+    private val journal: DiagnosticsJournal = DiagnosticsJournal.None,
+    private val clock: MonotonicClock = MonotonicClock.Real,
 ) : AndroidClientPort, AndroidHomeConversations, AndroidHomeApprovals {
 
     /** A personal-client claim held for one Profile; never persisted. */
@@ -282,6 +284,24 @@ internal class OkHttpRelaySessionClient(
     }
 
     override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult {
+        val startedAt = clock.nanoTime()
+        val result = attemptBeginTurn(request)
+        val duration = elapsedMillis(startedAt)
+        journal.record(
+            when (result) {
+                is AndroidInitiationResult.Accepted ->
+                    "home bridge request completed method=prompt.submit duration_ms=$duration"
+                is AndroidInitiationResult.Uncertain ->
+                    "home bridge request failed method=prompt.submit reason=${result.reason.name} " +
+                        "uncertain=true duration_ms=$duration"
+                is AndroidInitiationResult.Rejected ->
+                    "home bridge request rejected method=prompt.submit reason=${result.reason.name}"
+            },
+        )
+        return result
+    }
+
+    private fun attemptBeginTurn(request: AndroidTurnRequest): AndroidInitiationResult {
         val profile = collection().selected
             ?: return AndroidInitiationResult.Rejected(AndroidInitiationFailure.ProfileUnavailable)
         val binding = bindingFor(profile)
@@ -483,6 +503,25 @@ internal class OkHttpRelaySessionClient(
     }
 
     private fun reconnectOnce(): AndroidReconnectOutcome {
+        val startedAt = clock.nanoTime()
+        val outcome = attemptReconnect()
+        val (result, reason) = when (outcome) {
+            is AndroidReconnectOutcome.Connected -> "connected" to null
+            is AndroidReconnectOutcome.Retryable -> "retryable" to outcome.reasonCode
+            is AndroidReconnectOutcome.Unrecoverable -> "unrecoverable" to outcome.reasonCode
+        }
+        journal.record(
+            "home connect ${lastHandshakeMethod.get() ?: "conversation.open"} result=$result " +
+                "reason=${reason?.name ?: "none"} reused_claim=${lastAttemptReusedClaim.get()} " +
+                "duration_ms=${elapsedMillis(startedAt)}",
+        )
+        return outcome
+    }
+
+    private fun elapsedMillis(startNanos: Long): Long =
+        TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startNanos)
+
+    private fun attemptReconnect(): AndroidReconnectOutcome {
         lastAttemptReusedClaim.set(false)
         val profile = collection().selected
             ?: return AndroidReconnectOutcome.Unrecoverable(
@@ -499,7 +538,7 @@ internal class OkHttpRelaySessionClient(
         }
         // A Profile switch must release the previous Profile's client claim
         // before its socket is dropped, or Home holds it for the grace period.
-        heldClaim.get()?.takeIf { it.profileId != profile.id }?.let { releaseHeldClaim() }
+        heldClaim.get()?.takeIf { it.profileId != profile.id }?.let { releaseHeldClaim("profileSwitch") }
         val pairedGrant = profile.homeClientGrant
         var claimedCredential: String? = null
         // A claim made just now has never been opened, whatever its handle.
@@ -529,6 +568,7 @@ internal class OkHttpRelaySessionClient(
                         heldClaim.set(
                             HeldClaim(profile.id, outcome.binding, outcome.conversation.sessionRef),
                         )
+                        journal.record("home claim created")
                         conversationNotice.set(outcome.conversation)
                         claimedCredential = outcome.credential
                         freshClaim = true
@@ -750,6 +790,7 @@ internal class OkHttpRelaySessionClient(
                     // has completed its handshake, the identity check below
                     // rejects late callbacks from a superseded socket.
                     if (handshakeDone.get() && activeSocket.get() !== webSocket) return
+                    journal.record("websocket failed error=${t.javaClass.simpleName}")
                     if (!handshakeDone.get()) {
                         handshakeFailure.compareAndSet(null, classify(t, response))
                         settled.countDown()
@@ -778,6 +819,7 @@ internal class OkHttpRelaySessionClient(
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     if (transportGeneration.get() != attemptGeneration) return
                     if (handshakeDone.get() && activeSocket.get() !== webSocket) return
+                    journal.record("websocket closed by peer code=$code")
                     if (!handshakeDone.get()) {
                         handshakeFailure.compareAndSet(null,
                             AndroidReconnectOutcome.Retryable(
@@ -1032,7 +1074,8 @@ internal class OkHttpRelaySessionClient(
     fun disconnect() = close()
 
     override fun close() {
-        releaseHeldClaim()
+        journal.record("home client close")
+        releaseHeldClaim("close")
         closeTransport()
         observer.set(null)
         activeTurn.set(null)
@@ -1081,7 +1124,7 @@ internal class OkHttpRelaySessionClient(
 
     override fun requestConversation(intent: HomeConversationIntent) {
         nextConversation.set(intent)
-        releaseHeldClaim()
+        releaseHeldClaim("conversationSwitch")
         closeTransport()
     }
 
@@ -1147,8 +1190,9 @@ internal class OkHttpRelaySessionClient(
      * now instead of after the reconnect grace. Best effort: Home still closes
      * it after the grace if the frame never arrives.
      */
-    private fun releaseHeldClaim() {
+    private fun releaseHeldClaim(reason: String) {
         val held = heldClaim.getAndSet(null) ?: return
+        journal.record("home claim released reason=$reason")
         val socket = activeSocket.get() ?: return
         if (!ready.get() || activeProfileId.get() != held.profileId) return
         val sent = socket.send(
@@ -1448,6 +1492,7 @@ internal class OkHttpRelaySessionClient(
 
     private fun reportDisconnect(socket: WebSocket, reason: String) {
         if (activeSocket.get() !== socket) return
+        journal.record("home bridge transport lost")
         synchronized(turnAdmissionLock) {
             if (activeTurn.get() != null && !terminalObserved.get()) {
                 uncertainDelivery.set(true)

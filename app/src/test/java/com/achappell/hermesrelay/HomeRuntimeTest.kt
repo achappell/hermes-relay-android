@@ -22,7 +22,8 @@ class HomeRuntimeTest {
     private class Fixture(initiation: AndroidInitiationResult) {
         val port = FakeHomePort(initiation)
         val store = InMemoryAndroidHistoryStore()
-        val box = HomeRuntimeBox { onTornDown ->
+        val journal = RecordingJournal()
+        val box = HomeRuntimeBox(journal) { onTornDown ->
             HomeRuntime(
                 clientPort = port,
                 speechInput = null,
@@ -30,6 +31,7 @@ class HomeRuntimeTest {
                 postToMain = { it.run() },
                 workExecutor = InlineExecutorService(),
                 onTornDown = onTornDown,
+                journal = journal,
             )
         }
     }
@@ -220,6 +222,47 @@ class HomeRuntimeTest {
 
         assertEquals(1, foregroundReconnects)
         assertEquals(retained, runtime.recoveryState.unconfirmedTurn)
+    }
+
+    @Test
+    fun runtime_created_is_journaled_once_across_rotations() {
+        val fixture = Fixture(accepted())
+        val runtime = fixture.box.resolve()
+        runtime.activityCreated()
+
+        repeat(2) {
+            runtime.activityDestroyed(isFinishing = false, isChangingConfigurations = true)
+            fixture.box.resolve().activityCreated()
+        }
+
+        assertEquals(1, fixture.journal.count("runtime created"))
+        assertEquals(0, fixture.journal.count("runtime teardown"))
+        assertEquals(3, fixture.journal.count("app activity created"))
+        assertEquals(2, fixture.journal.count("app activity destroyed finishing=false config_change=true"))
+    }
+
+    @Test
+    fun teardown_names_its_initiator_in_the_journal() {
+        val fixture = Fixture(accepted())
+        val runtime = fixture.box.resolve()
+        runtime.activityCreated()
+        runtime.initiate(AndroidTurnInput.Typed("hello"))
+        runtime.activityDestroyed(isFinishing = true, isChangingConfigurations = false)
+        fixture.port.emit(AndroidNormalizedEvent.TurnCompleted(binding, "Done"))
+
+        val lines = fixture.journal.lines
+        assertTrue(lines.contains("runtime teardown deferred reply=inFlight"))
+        assertTrue(lines.contains("runtime teardown reason=replySettled"))
+        assertEquals(
+            "a teardown line is written exactly once",
+            1,
+            lines.count { it.startsWith("runtime teardown reason=") },
+        )
+        // Journal lines are fixed names and flags: no prompt, reply or handle.
+        val text = lines.joinToString("\n")
+        listOf("hello", "Done", binding.conversationHandle, binding.turnId).forEach {
+            assertFalse("leaked $it", text.contains(it))
+        }
     }
 
     @Test

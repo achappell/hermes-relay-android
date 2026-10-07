@@ -84,6 +84,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        runtime.journal.record("app phase=started")
+    }
+
+    override fun onStop() {
+        runtime.journal.record("app phase=stopped")
+        super.onStop()
+    }
+
     override fun onDestroy() {
         // A recreation (rotation, font scale, theme, window resize) keeps the
         // runtime; only a finishing Activity can end it, and only when no reply
@@ -123,6 +133,7 @@ internal fun AndroidClientScreen(
     openApplicationSettings: ((android.content.Intent) -> Unit)? = null,
 ) {
     val clientPort = runtime.clientPort
+    val context = androidx.compose.ui.platform.LocalContext.current
     var configurationRevision by remember { mutableStateOf(0) }
     val recoveryState = runtime.recoveryState
     val snapshot = remember(
@@ -636,6 +647,11 @@ internal fun AndroidClientScreen(
                                 configurationRevision += 1
                             },
                             homePairing = homePairing,
+                            onShareDiagnostics = {
+                                context.startActivity(
+                                    DiagnosticsShare.chooserIntent(context, runtime.journal),
+                                )
+                            },
                             pendingPairingLink = pendingPairingLink,
                             onPendingPairingLinkConsumed = onPendingPairingLinkConsumed,
                             onChanged = {
