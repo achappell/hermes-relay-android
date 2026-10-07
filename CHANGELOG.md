@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Features
+- Add day/night-aware Android splash styling and enable platform predictive-back support for modal sheets.
+
 ## 0.3.1 (2026-09-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->
