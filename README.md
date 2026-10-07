@@ -62,6 +62,23 @@ To install the debug shell on a connected device or emulator:
 
 There is no live Hermes endpoint requirement for the bootstrap tests or build.
 
+### Repetition gate for lifecycle, reconnect and voice tests
+
+A lifecycle, reconnect or voice test that passes once proves little: the iOS
+reconnect race failed 14 of 30 runs. Run the classes you touched many times
+before merging:
+
+```bash
+scripts/run-flake-gate.sh OkHttpRelaySessionClientTest,AndroidRecoveryControllerTest 30
+```
+
+It runs the named JVM test classes N times (default 30) and prints
+`N consecutive runs, 0 failures` or the failing iteration counts per class.
+Record that line in the validation record of the ticket. A failure that also
+occurs on the pre-change code is a baseline flake: record its count rather
+than rerunning until it passes. Tests must not wait on the wall clock; inject
+`MonotonicClock`/`Sleeper` and the `AndroidPlatform` value instead.
+
 ## GitHub actions and releases
 
 Pull requests and pushes to `main` run the JVM, build, lint, and APK metadata

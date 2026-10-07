@@ -1,7 +1,7 @@
 ---
 id: ANDROID-TEST-01
 title: Make lifecycle, reconnect and voice tests platform-independent and flake-free
-status: backlog
+status: review
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01

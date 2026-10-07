@@ -76,6 +76,19 @@ Instrumentation tests need a device or emulator. Live-relay tests are excluded
 by the `@LiveRelay` annotation; overriding `notAnnotation` with an empty value
 does not clear the default and silently runs zero tests.
 
+Lifecycle, reconnect and voice tests follow `ANDROID-TEST-01`: no wall-clock
+waits (inject `MonotonicClock`/`Sleeper`; wait on latches signalled by the code
+under test), and no hidden platform defaults (pass `AndroidPlatform` explicitly).
+Before merging such tests, run the repetition gate and record its result:
+
+```
+scripts/run-flake-gate.sh <TestClass>[,<TestClass>...] [N=30]
+```
+
+A change that fixes a race is proved by a test that fails on the pre-fix code;
+record that failure, or say "compile-red" when the API did not exist. CI runs
+JVM tests only; say in the validation record which tests did not run in CI.
+
 ## What only a real device finds
 
 The emulator has no microphone and runs `-no-audio`. Deterministic fakes cannot

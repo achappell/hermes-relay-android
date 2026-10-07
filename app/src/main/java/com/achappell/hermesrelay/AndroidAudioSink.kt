@@ -1,10 +1,10 @@
 package com.achappell.hermesrelay
 
+import android.annotation.SuppressLint
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
-import android.os.Build
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -113,18 +113,53 @@ internal fun interface AudioTrackDriverFactory {
     fun create(format: AndroidAudioFormat, bufferSize: Int): AudioTrackDriver
 }
 
+/** The two buffer-sizing calls `AudioTrack` offers, behind a seam the JVM can fake. */
+internal interface PlaybackBufferControl {
+    /** `AudioTrack.setStartThresholdInFrames`, available from API 31. */
+    fun setStartThresholdInFrames(frames: Int): Int
+
+    /** `AudioTrack.setBufferSizeInFrames`, the pre-API-31 way to start on a full queue. */
+    fun setBufferSizeInFrames(frames: Int): Int
+}
+
+/**
+ * Starts playback only once the queued audio fills the buffer.
+ *
+ * The API branch is decided by the injected [platform], never read from the
+ * device here, so a test names the API level it asserts.
+ */
+internal fun preparePlaybackBuffer(
+    platform: AndroidPlatform,
+    control: PlaybackBufferControl,
+    queuedFrames: Int,
+) {
+    val frames = queuedFrames.coerceAtLeast(1)
+    if (platform.supportsPlaybackStartThreshold) {
+        check(control.setStartThresholdInFrames(frames) > 0)
+    } else {
+        check(control.setBufferSizeInFrames(frames) > 0)
+    }
+}
+
 private class PlatformAudioTrackDriver(
     private val track: AudioTrack,
+    private val platform: AndroidPlatform,
 ) : AudioTrackDriver {
+    private val bufferControl = object : PlaybackBufferControl {
+        // The injected platform, built from SDK_INT by AndroidPlatform.current,
+        // is the guard; preparePlaybackBuffer never calls this below API 31.
+        @SuppressLint("NewApi")
+        override fun setStartThresholdInFrames(frames: Int): Int =
+            track.setStartThresholdInFrames(frames)
+
+        override fun setBufferSizeInFrames(frames: Int): Int =
+            track.setBufferSizeInFrames(frames)
+    }
+
     override fun state(): Int = track.state
 
-    override fun preparePlayback(queuedFrames: Int) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            check(track.setStartThresholdInFrames(queuedFrames.coerceAtLeast(1)) > 0)
-        } else {
-            check(track.setBufferSizeInFrames(queuedFrames.coerceAtLeast(1)) > 0)
-        }
-    }
+    override fun preparePlayback(queuedFrames: Int) =
+        preparePlaybackBuffer(platform, bufferControl, queuedFrames)
 
     override fun play() = track.play()
 
@@ -144,7 +179,8 @@ private class PlatformAudioTrackDriver(
     override fun release() = track.release()
 }
 
-private val platformAudioTrackDriverFactory = AudioTrackDriverFactory { format, bufferSize ->
+/** The real output factory; [platform] selects the API-specific buffer policy. */
+internal fun platformAudioTrackDriverFactory(platform: AndroidPlatform) = AudioTrackDriverFactory { format, bufferSize ->
     val channelMask = if (format.channels == 1) {
         AudioFormat.CHANNEL_OUT_MONO
     } else {
@@ -167,12 +203,15 @@ private val platformAudioTrackDriverFactory = AudioTrackDriverFactory { format, 
         .setBufferSizeInBytes(bufferSize)
         .setTransferMode(AudioTrack.MODE_STREAM)
         .build()
-    PlatformAudioTrackDriver(track)
+    PlatformAudioTrackDriver(track, platform)
 }
 
 /** `AudioTrack`-backed playback for streamed 16-bit PCM. */
 internal class AudioTrackAudioSink(
-    private val driverFactory: AudioTrackDriverFactory = platformAudioTrackDriverFactory,
+    /** No default: the output policy is chosen at the runtime root. */
+    private val driverFactory: AudioTrackDriverFactory,
+    private val clock: MonotonicClock = MonotonicClock.Real,
+    private val sleeper: Sleeper = Sleeper.Real,
     private val writeStallDeadlineMillis: Long = DEFAULT_WRITE_STALL_DEADLINE_MILLIS,
     private val drainStallDeadlineMillis: Long = DEFAULT_DRAIN_STALL_DEADLINE_MILLIS,
     private val drainTimeoutMillis: Long = DEFAULT_DRAIN_TIMEOUT_MILLIS,
@@ -351,7 +390,7 @@ internal class AudioTrackAudioSink(
             return
         }
         var offset = 0
-        var lastProgress = System.nanoTime()
+        var lastProgress = clock.nanoTime()
         while (offset < bytes.size) {
             if (generation.get() != expectedGeneration || !active.get() || failed.get()) return
             if (!observeUnderruns(activeDriver, expectedGeneration)) return
@@ -394,7 +433,7 @@ internal class AudioTrackAudioSink(
                         acceptedFrames.get()
                     }
                     if (frames >= startupFrames && !startPlayback(activeDriver, expectedGeneration)) return
-                    lastProgress = System.nanoTime()
+                    lastProgress = clock.nanoTime()
                 }
             }
         }
@@ -432,7 +471,7 @@ internal class AudioTrackAudioSink(
         if (failed.get()) return
         // Short replies can end before the startup threshold is filled.
         if (!startPlayback(activeDriver, expectedGeneration)) return
-        val startedAt = System.nanoTime()
+        val startedAt = clock.nanoTime()
         var lastPosition = runCatching { activeDriver.playbackHeadFrames() }
             .getOrElse {
                 fail(AudioSinkFailureKind.PlaybackStalled, expectedGeneration)
@@ -451,9 +490,8 @@ internal class AudioTrackAudioSink(
             if (position >= targetFrames) return
             if (position > lastPosition) {
                 lastPosition = position
-                lastProgress = System.nanoTime()
+                lastProgress = clock.nanoTime()
             }
-            val now = System.nanoTime()
             if (elapsedMillis(lastProgress) >= drainStallDeadlineMillis) {
                 fail(AudioSinkFailureKind.PlaybackStalled, expectedGeneration)
                 return
@@ -499,11 +537,11 @@ internal class AudioTrackAudioSink(
     }
 
     private fun elapsedMillis(startNanos: Long): Long =
-        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos)
+        TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startNanos)
 
     private fun sleepForPoll(expectedGeneration: Long? = null) {
         try {
-            Thread.sleep(POLL_MILLIS)
+            sleeper.sleep(POLL_MILLIS)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             fail(AudioSinkFailureKind.DrainTimeout, expectedGeneration)
