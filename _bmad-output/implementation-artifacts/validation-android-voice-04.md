@@ -1,21 +1,33 @@
 # ANDROID-VOICE-04 validation record
 
-Status: `in-progress`. Baseline: `64f12cb6292c7a2eee205eb0bedf875942af9e53` (`origin/main` with VOICE-03 #125 and HOME-13 #122 merged). A deliberate Disconnect (HOME-12) discards a pending interrupt so interrupt-and-listen never opens the microphone afterwards.
+Status: `in-progress` (device gate partly done; see "Remaining"). Baseline: rebased onto `origin/main` at `b865c0b` (VOICE-03 #125, HOME-13 #122 and UX-09 #128 merged). A deliberate Disconnect (HOME-12) discards a pending interrupt so interrupt-and-listen never opens the microphone afterwards.
 
 ## Implemented
 
 - Interrupt stops local playback before sending the existing `session.interrupt` frame, and the runtime prevents a second send for the same active turn.
 - The action shows `Interrupting…` while awaiting acknowledgement, exposes a visible/announced unconfirmed state at 2 seconds, and starts capture once after a terminal or the deadline when hands-free is off.
 - The control announces the current turn phase as its state description and `Interrupt` as its click action; accessibility traversal order is covered.
+- **Found on the device, fixed in `2f6419a`:** `OkHttpRelaySessionClient.interruptTurn` returned `false` on `terminalObserved` *before* cancelling the audio sink. For a long reply Home's `turn.completed` arrives while the phone is still playing (or draining) buffered speech, so Interrupt did nothing: the control stayed shown (`hasActiveTurn()` was true), the `AudioTrack` stayed `started`, the UI stayed `Speaking`, nothing was journalled. In that state the client now stops the buffered speech, delivers `TurnInterrupted`, ends the turn and sends no frame (Home's `interrupt()` is rejected once the turn is terminal). Failing-before test: `OkHttpRelaySessionClientTest.interrupt_stops_speech_still_buffered_on_the_phone_after_home_ended_the_turn` — with the fix stashed: `AssertionError: Interrupt did nothing while speech was still buffered`; with the fix: pass.
+- Content-free journal lines so a device run can count Home interrupts: `home interrupt sent`, `home interrupt acknowledged|unacknowledged` (`2f6419a`), `home speech stopped locally` (`2f6419a`) and `home turn terminal interrupted|failed` (`537d30b`).
 
 ## Checks
 
-- Issue-tracking tests and override checks passed (18 tests; script syntax and `--check`).
-- Full Gradle checks passed at the rebased head (code verified at 49a4806; later commit is docs-only): `testDebugUnitTest assembleDebug lintDebug compileDebugAndroidTestKotlin --no-daemon --console=plain` (57 actionable tasks); the new instrumented tests compiled but were not executed.
-- VOICE-04 repetition gate passed: `scripts/run-flake-gate.sh TurnInterruptCoordinatorTest,HomeRuntimeInterruptTest,OkHttpRelaySessionClientTest.interrupt_stops_local_audio_before_the_frame_reaches_home_and_is_sent_once 30` (30 runs, 15 tests/run, 0 failures; includes the HOME-12 disconnect-after-interrupt test).
+- Issue-tracking tests (18), `scripts/check-apk-metadata.sh` and `git diff --check origin/main..HEAD` passed.
+- Full Gradle at the rebased head code (`537d30b` on `b865c0b`; later commits are docs-only): `testDebugUnitTest assembleDebug lintDebug compileDebugAndroidTestKotlin --no-daemon` — `BUILD SUCCESSFUL`, 394 unit tests, 0 failures/errors/skipped.
+- Repetition gate: `scripts/run-flake-gate.sh TurnInterruptCoordinatorTest,HomeRuntimeInterruptTest,OkHttpRelaySessionClientTest 30` — 30 consecutive runs, 0 failures (includes the HOME-12 disconnect-after-interrupt test and the new spoken-tail test).
 
-## Remaining gates and dependency
+## Device verification (Pixel 6a, Android 17; `adb install -r` only; app data hashes verified unchanged after every install)
 
-- Pixel long-reply interrupt pass remains unrun: verify immediate local speech stop, terminal within 2 seconds, and one Home interrupt. Physical TalkBack verification is also unrun.
-- No device authorization was available; no pairing, connected tests, app-data removal, install, or device operation was performed.
-- The shared `HomeTurnDeadlines` type described in the design note is not present in the current VOICE-03 base; ANDROID-HOME-10 remains backlog. The acknowledgement is injected through existing `VoiceTimings` until that shared type is available.
+- **Instrumented via `am instrument`:** `AccessibilityOrderTest` + `InterruptControlTest`: `OK (10 tests)` on `3faa86d`, and again `OK (10 tests)` on the fixed build (state description = turn phase, click label `Interrupt`, traversal order).
+- **Unfixed build (`3faa86d`), spoken tail of a long reply:** two taps on Interrupt, `AudioTrack` `state:started` stayed, UI stayed `Turn phase: Speaking` with `Interrupt`, journal unchanged (the defect above).
+- **Fixed build, interrupt in the spoken tail (6 runs):** after the tap the `AudioTrack` went `started=1 → 0` within about 75–90 ms (sampled on the device), the UI read `Turn phase: Interrupted` / `You stopped this turn.`, the journal showed `home speech stopped locally` within ~50 ms of the tap, and no `home interrupt sent` (nothing active at Home).
+- **Fixed build, Home still owns the turn (3 runs; interrupt while `Thinking`):** exactly one `home interrupt sent` each time; `acknowledged` 23–32 ms later; `home turn terminal interrupted` came 0.49 s, 3.51 s and 3.99 s after the tap (a long Hermes generation takes seconds to stop). UI: `Interrupting…` at once; when the terminal took longer than 2 s the unconfirmed notice (`Hermes has not confirmed the interrupt yet. Local audio is stopped…`) showed at the deadline, then `Interrupted`.
+- **Interrupt-and-listen (hands-free off):** in each Home-owned run `Listening…` appeared once, at the deadline or the terminal, and ended without speech; there is no journal line for capture, so this rests on the UI observation plus `TurnInterruptCoordinatorTest`.
+- **TalkBack:** enabled with `settings put secure enabled_accessibility_services …TalkBackService` + `accessibility_enabled 1`, then restored to `null`/`0` (verified). `adb input` cannot perform TalkBack gestures or capture its speech, so the spoken announcement was **not** captured; with TalkBack on, a tap on Interrupt interrupted the turn normally. The announced semantics are proved by the instrumented tests above.
+
+## Remaining
+
+- **Not captured on a device:** Interrupt while Home still owns the turn *and* speech is already playing (local stop and one Home frame in the same run). In the 3 Home-owned runs on the fixed build Hermes was still `Thinking` (no audio) for minutes; the speech-before-terminal window is ~14 s and was hit only on the unfixed build. Local-stop-before-frame ordering is proved by `interrupt_stops_local_audio_before_the_frame_reaches_home_and_is_sent_once`.
+- **"Terminal within 2 s" on a real Home** held once (0.49 s) and not twice (3.5 s, 4.0 s): the 2 s is the client's deadline (unconfirmed notice), the terminal depends on Hermes stopping.
+- **Separate finding (not an Android client regression; needs a Home/product decision):** after any interrupt, the next typed prompt submitted within about a minute failed `uncertain=true` — `TransportUnavailable` after 5 spoken-tail stops, `HermesUnavailable` after one Home-owned interrupt — while turns that were not interrupted accepted the next prompt 52–86 s later; the app's TCP sockets stayed ESTABLISHED. Home source: `_maybe_release_turn` keeps the active turn until its audio thread finishes, `interrupt()` is rejected once the turn is terminal, and `_prompt_submit` rejects while a turn is active, so Home keeps streaming audio after a local stop and refuses the next prompt until it ends (or the conversation is reconnected). The client reports that as an unresolved turn; recovery is Retry (reconnect with the held claim) then Discard. Options: a Home change to stop audio on interrupt after terminal, or an Android reconnect-on-stop.
+- The shared `HomeTurnDeadlines` type described in the design note is not present in the current base; ANDROID-HOME-10 remains backlog. The acknowledgement is injected through existing `VoiceTimings` until that shared type is available.
