@@ -829,6 +829,8 @@ stories:
     parity_epic: ANDROID-PARITY-03
     parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-03-session-header.md
+    validation: _bmad-output/implementation-artifacts/validation-android-ux-03.md
+    scope_note: 'PR #134 header reachability slice ready for review, not done; parent remains in-progress. Amanda 2026-10-07 waived manual physical TalkBack spoken-output/focus-gesture acceptance; actual spoken output/focus gestures unverified, residual spoken-label/focus-order/gesture risk remains. Full status/timer/title-tap/settings/Disconnect and HOME-11 matrix remain outside this slice.'
     depends_on:
       - android:ANDROID-UX-01
       - android:ANDROID-HOME-12
@@ -1014,7 +1016,7 @@ stories:
       - android:ANDROID-PARITY-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/110
   - id: ANDROID-UX-13
-    title: 'Make Hermes's thinking text readable'
+    title: "Make Hermes's thinking text readable"
     kind: local
     product_epic: 1
     owner: hermes-relay-android
@@ -1045,7 +1047,7 @@ stories:
     parity_tag: FB-TYPE
     ios_reference: 'IOS-UX-F7'
   - id: ANDROID-VOICE-06
-    title: 'Mute Hermes's voice without interrupting the reply'
+    title: "Mute Hermes's voice without interrupting the reply"
     kind: local
     product_epic: 1
     owner: hermes-relay-android

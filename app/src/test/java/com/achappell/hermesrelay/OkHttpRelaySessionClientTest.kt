@@ -22,6 +22,7 @@ import org.junit.Test
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -1844,6 +1845,302 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun a_reconnect_uses_the_same_conversation_when_ready_capabilities_change() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val previousSocketClosed = CountDownLatch(1)
+        val currentSocketClosed = CountDownLatch(1)
+        repeat(2) { index ->
+            val connectionClosed = AtomicBoolean(false)
+            val closedSignal = if (index == 0) previousSocketClosed else currentSocketClosed
+            server.enqueue(
+                MockResponse().withWebSocketUpgrade(
+                    object : WebSocketListener() {
+                        override fun onMessage(webSocket: WebSocket, text: String) {
+                            val frame = JSONObject(text)
+                            methods += frame.getString("method")
+                            webSocket.send(
+                                readyResponse(
+                                    frame.getString("id"),
+                                    interrupt = index == 0,
+                                    audio = index == 0,
+                                ),
+                            )
+                        }
+
+                        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                            webSocket.close(code, reason)
+                        }
+
+                        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                            if (connectionClosed.compareAndSet(false, true)) {
+                                closedSignal.countDown()
+                            }
+                        }
+
+                        override fun onFailure(
+                            webSocket: WebSocket,
+                            t: Throwable,
+                            response: Response?,
+                        ) {
+                            if (connectionClosed.compareAndSet(false, true)) {
+                                closedSignal.countDown()
+                            }
+                        }
+                    },
+                ),
+            )
+        }
+        val journal = RecordingJournal()
+        val paired = pairedClient(journal = journal)
+        var currentSocketClosedInTime = false
+
+        try {
+            val first = paired.client.reconnect() as AndroidReconnectOutcome.Connected
+            val resumed = paired.client.reconnect() as AndroidReconnectOutcome.Connected
+
+            assertTrue(
+                "Previous WebSocket did not close during reconnect",
+                previousSocketClosed.await(5, TimeUnit.SECONDS),
+            )
+            assertTrue(first.capabilities.interrupt)
+            assertTrue(first.capabilities.audio)
+            assertFalse(resumed.capabilities.interrupt)
+            assertFalse(resumed.capabilities.audio)
+            assertEquals(listOf("conversation.open", "conversation.reconnect"), methods.toList())
+            assertEquals(1, paired.claims.get())
+            assertFalse(journal.lines.any { it.startsWith("home binding mismatch") })
+        } finally {
+            paired.client.close()
+            currentSocketClosedInTime = currentSocketClosed.await(5, TimeUnit.SECONDS)
+        }
+        assertTrue("Current WebSocket did not close after client.close()", currentSocketClosedInTime)
+    }
+
+    @Test
+    fun claim_management_journal_records_counts_without_references() {
+        val journal = RecordingJournal()
+        val paired = pairedClient(
+            claimResult = HomeClientClaimResult.Granted(
+                CONVERSATION_HANDLE,
+                claimRef = "claim-ref-secret",
+            ),
+            journal = journal,
+        )
+        val provider = paired.claimProvider ?: error("expected claim provider")
+        assertTrue(
+            provider.claim(RelayHomeClientGrantRef("pairing-1", "grant-a"))
+                is HomeClientClaimOutcome.Claimed,
+        )
+
+        assertTrue(paired.client.listOpenClaims() is HomeClientClaimProvider.OpenClaims.Listed)
+        val closeAndList = paired.client.closeAndListOpenClaims(
+            "pairing-1",
+            listOf("claim-ref-secret"),
+        )
+
+        assertEquals(
+            HomeClientClaimProvider.CloseClaims.Completed(requested = 1, closed = 1),
+            closeAndList.closeResult,
+        )
+        assertTrue(journal.lines.contains("home claims listed count=0 max=8"))
+        assertTrue(journal.lines.contains("home claims closed requested=1 closed=1"))
+        assertFalse(journal.lines.joinToString("\n").contains("claim-ref-secret"))
+        paired.client.close()
+    }
+
+    @Test
+    fun concurrent_reconnects_join_one_in_flight_claim() {
+        val claimStarted = CountDownLatch(1)
+        val releaseClaim = CountDownLatch(1)
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                pairedBridge(methods, handles, CountDownLatch(1)),
+            ),
+        )
+        val paired = pairedClient(
+            claimBlock = {
+                claimStarted.countDown()
+                releaseClaim.await(5, TimeUnit.SECONDS)
+            },
+        )
+        val outcomes = Collections.synchronizedList(mutableListOf<AndroidReconnectOutcome>())
+        val failures = Collections.synchronizedList(mutableListOf<Throwable>())
+        val finished = CountDownLatch(3)
+        repeat(3) {
+            Thread {
+                try {
+                    outcomes += paired.client.reconnect()
+                } catch (error: Throwable) {
+                    failures += error
+                } finally {
+                    finished.countDown()
+                }
+            }.start()
+        }
+
+        assertTrue(claimStarted.await(5, TimeUnit.SECONDS))
+        Thread.sleep(50)
+        releaseClaim.countDown()
+        assertTrue(finished.await(5, TimeUnit.SECONDS))
+        assertTrue(failures.toString(), failures.isEmpty())
+        assertEquals(3, outcomes.size)
+        assertTrue(outcomes.all { it is AndroidReconnectOutcome.Connected })
+        assertEquals(1, paired.claims.get())
+        paired.client.close()
+    }
+
+    @Test
+    fun a_claim_response_after_disconnect_is_released_by_claim_ref() {
+        val claimStarted = CountDownLatch(1)
+        val releaseClaim = CountDownLatch(1)
+        val journal = RecordingJournal()
+        val paired = pairedClient(
+            claimResult = HomeClientClaimResult.Granted(
+                CONVERSATION_HANDLE,
+                claimRef = "claim-ref-secret",
+            ),
+            claimBlock = {
+                claimStarted.countDown()
+                releaseClaim.await(5, TimeUnit.SECONDS)
+            },
+            journal = journal,
+        )
+        val outcome = AtomicReference<AndroidReconnectOutcome?>()
+        val reconnect = Thread { outcome.set(paired.client.reconnect()) }
+        reconnect.start()
+
+        assertTrue(claimStarted.await(5, TimeUnit.SECONDS))
+        paired.client.close()
+        releaseClaim.countDown()
+        reconnect.join(5_000)
+
+        assertFalse(reconnect.isAlive)
+        assertTrue(outcome.get() is AndroidReconnectOutcome.Retryable)
+        assertEquals(listOf("claim-ref-secret"), paired.closedClaims.toList())
+        assertTrue(journal.lines.contains("home claim released reason=stale-response"))
+        val journalText = journal.lines.joinToString("\n")
+        assertFalse(journalText.contains("claim-ref-secret"))
+        assertFalse(journalText.contains(CONVERSATION_HANDLE))
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun a_claim_response_after_profile_switch_is_released_by_claim_ref() {
+        val claimStarted = CountDownLatch(1)
+        val releaseClaim = CountDownLatch(1)
+        val journal = RecordingJournal()
+        val paired = pairedClient(
+            claimResult = HomeClientClaimResult.Granted(
+                CONVERSATION_HANDLE,
+                claimRef = "claim-ref-secret",
+            ),
+            claimBlock = {
+                claimStarted.countDown()
+                releaseClaim.await(5, TimeUnit.SECONDS)
+            },
+            journal = journal,
+        )
+        val outcome = AtomicReference<AndroidReconnectOutcome?>()
+        val reconnect = Thread { outcome.set(paired.client.reconnect()) }
+        reconnect.start()
+
+        assertTrue(claimStarted.await(5, TimeUnit.SECONDS))
+        val collection = paired.collection.get()
+        val otherProfile = collection.profiles.single().copy(
+            id = "profile-b",
+            homeBinding = null,
+            homeClientGrant = null,
+            displayName = "Other Profile",
+        )
+        paired.collection.set(
+            collection.copy(
+                profiles = collection.profiles + otherProfile,
+                selectedId = otherProfile.id,
+            ),
+        )
+        releaseClaim.countDown()
+        reconnect.join(5_000)
+
+        assertFalse(reconnect.isAlive)
+        assertTrue(outcome.get() is AndroidReconnectOutcome.Retryable)
+        assertEquals(listOf("claim-ref-secret"), paired.closedClaims.toList())
+        assertTrue(journal.lines.contains("home claim released reason=stale-response"))
+        assertFalse(journal.lines.joinToString("\n").contains("claim-ref-secret"))
+        assertFalse(journal.lines.joinToString("\n").contains(CONVERSATION_HANDLE))
+        assertEquals(0, server.requestCount)
+        paired.client.close()
+    }
+
+    @Test
+    fun a_lost_claim_create_response_is_never_retried() {
+        val paired = pairedClient(claimFailure = HomeAdministrationError.TransportUnavailable)
+
+        val outcome = paired.client.reconnect()
+
+        assertTrue(outcome is AndroidReconnectOutcome.Unrecoverable)
+        assertEquals(
+            AndroidHomeUnavailableReason.TransportUnavailable,
+            (outcome as AndroidReconnectOutcome.Unrecoverable).reasonCode,
+        )
+        assertEquals(1, paired.claims.get())
+        assertEquals(0, server.requestCount)
+        paired.client.close()
+    }
+
+    @Test
+    fun a_different_conversation_handle_is_refused_locally_with_field_names_only() {
+        val journal = RecordingJournal()
+        val initialBinding = RelayHomeBinding(bridgeRoute(), CONVERSATION_HANDLE)
+        val profiles = AtomicReference(collectionFor(homeBinding = initialBinding))
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        webSocket.send(readyResponse(JSONObject(text).getString("id")))
+                    }
+                },
+            ),
+        )
+        val client = OkHttpRelaySessionClient(
+            collection = { profiles.get() },
+            credentials = InMemoryRelayCredentialStore(
+                homeCredentials = mapOf(PROFILE_ID to VALID_HOME_CREDENTIAL),
+            ),
+            httpClient = OkHttpClient.Builder()
+                .sslSocketFactory(clientCertificates.sslSocketFactory(), clientCertificates.trustManager)
+                .build(),
+            helloTimeoutMillis = 5_000,
+            journal = journal,
+        )
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val requestCount = server.requestCount
+        profiles.set(
+            collectionFor(
+                homeBinding = RelayHomeBinding(
+                    bridgeRoute(),
+                    "opaque-home-claim-2",
+                ),
+            ),
+        )
+
+        val outcome = client.reconnect()
+
+        assertTrue(outcome is AndroidReconnectOutcome.Unrecoverable)
+        assertEquals(
+            AndroidHomeUnavailableReason.ConversationMismatch,
+            (outcome as AndroidReconnectOutcome.Unrecoverable).reasonCode,
+        )
+        assertEquals(requestCount, server.requestCount)
+        assertTrue(journal.lines.contains("home binding mismatch fields=conversation_handle"))
+        val journalText = journal.lines.joinToString("\n")
+        assertFalse(journalText.contains(CONVERSATION_HANDLE))
+        assertFalse(journalText.contains("opaque-home-claim-2"))
+        client.close()
+    }
+
+    @Test
     fun a_requested_new_conversation_closes_the_current_claim_and_claims_again() {
         val methods = Collections.synchronizedList(mutableListOf<String>())
         val handles = Collections.synchronizedList(mutableListOf<String>())
@@ -2054,6 +2351,9 @@ class OkHttpRelaySessionClientTest {
         val store: HomeClientPairingStore,
         val claims: AtomicInteger,
         val choices: List<HomeClientSessionChoice>,
+        val closedClaims: List<String>,
+        val claimProvider: HomeClientClaimProvider?,
+        val collection: AtomicReference<RelayProfileCollection>,
     )
 
     private fun pairedBridge(
@@ -2084,6 +2384,8 @@ class OkHttpRelaySessionClientTest {
         claimResult: HomeClientClaimResult = HomeClientClaimResult.Granted(CONVERSATION_HANDLE),
         withClaims: Boolean = true,
         homeAdministration: RelayHomeAdministration? = null,
+        claimBlock: (() -> Unit)? = null,
+        claimFailure: HomeAdministrationError? = null,
         journal: DiagnosticsJournal = DiagnosticsJournal.None,
     ): PairedClient {
         val homeUrl = server.url("/").toString().trimEnd('/')
@@ -2109,6 +2411,7 @@ class OkHttpRelaySessionClientTest {
         )
         val claims = AtomicInteger(0)
         val choices = Collections.synchronizedList(mutableListOf<HomeClientSessionChoice>())
+        val closedClaims = Collections.synchronizedList(mutableListOf<String>())
         val service = object : HomeClientService {
             override fun submit(target: HomePairingTarget, endpointId: String, label: String) =
                 throw UnsupportedOperationException()
@@ -2143,6 +2446,8 @@ class OkHttpRelaySessionClientTest {
             ): HomeClientClaimResult {
                 claims.incrementAndGet()
                 choices += session
+                claimBlock?.invoke()
+                claimFailure?.let { throw HomeAdministrationException(it) }
                 return claimResult
             }
 
@@ -2152,6 +2457,20 @@ class OkHttpRelaySessionClientTest {
                 grantId: String,
                 limit: Int,
             ) = emptyList<HomeClientSession>()
+
+            override fun listClientClaims(homeUrl: String, credential: String) =
+                HomeClientClaimList(maxClaims = 8, claims = emptyList())
+
+            override fun closeClientClaims(
+                homeUrl: String,
+                credential: String,
+                claimRefs: List<String>,
+            ): List<HomeClientClaimCloseResult> {
+                closedClaims += claimRefs
+                return claimRefs.map {
+                    HomeClientClaimCloseResult(it, HomeClientClaimCloseStatus.Closed)
+                }
+            }
 
             override fun claimSession(homeUrl: String, credential: String, conversationHandle: String) =
                 "sref-learned"
@@ -2167,32 +2486,39 @@ class OkHttpRelaySessionClientTest {
                 action: HomeGrantAction,
             ) = HomeGrantActionResult.Done
         }
-        val collection = RelayProfileCollection(
-            profiles = listOf(
-                RelayProfile(
-                    id = PROFILE_ID,
-                    endpoint = HomePairingLink.bridgeRoute(homeUrl),
-                    clientId = "android",
-                    deviceId = "id-7",
-                    displayName = "Amanda · localhost",
-                    homeClientGrant = RelayHomeClientGrantRef("pairing-1", "grant-a"),
-                    homeAdministration = homeAdministration,
+        val collection = AtomicReference(
+            RelayProfileCollection(
+                profiles = listOf(
+                    RelayProfile(
+                        id = PROFILE_ID,
+                        endpoint = HomePairingLink.bridgeRoute(homeUrl),
+                        clientId = "android",
+                        deviceId = "id-7",
+                        displayName = "Amanda · localhost",
+                        homeClientGrant = RelayHomeClientGrantRef("pairing-1", "grant-a"),
+                        homeAdministration = homeAdministration,
+                    ),
                 ),
+                selectedId = PROFILE_ID,
             ),
-            selectedId = PROFILE_ID,
         )
+        val claimProvider = if (withClaims) {
+            HomeClientClaimProvider(store, credentials, service)
+        } else {
+            null
+        }
         val client = OkHttpRelaySessionClient(
-            collection = { collection },
+            collection = { collection.get() },
             credentials = credentials,
             httpClient = OkHttpClient.Builder()
                 .sslSocketFactory(clientCertificates.sslSocketFactory(), clientCertificates.trustManager)
                 .build(),
             helloTimeoutMillis = 5_000,
             requestTimeoutMillis = 5_000,
-            clientClaims = if (withClaims) HomeClientClaimProvider(store, credentials, service) else null,
+            clientClaims = claimProvider,
             journal = journal,
         )
-        return PairedClient(client, store, claims, choices)
+        return PairedClient(client, store, claims, choices, closedClaims, claimProvider, collection)
     }
 
     private fun client(

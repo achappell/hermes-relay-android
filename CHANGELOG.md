@@ -10,6 +10,9 @@
 - Add day/night-aware Android splash styling and enable platform predictive-back support for modal sheets.
 - Add durable Home claim-management capability detection and an "Open on Home" list/close flow for the conversations sheet.
 
+### Fixes
+- Reflow the conversation header title and Profile block to preserve the accessible overflow action at large font scales.
+
 ## 0.3.1 (2026-09-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->
