@@ -1013,7 +1013,7 @@ stories:
       - android:ANDROID-PARITY-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/110
   - id: ANDROID-UX-13
-    title: 'Make Hermes's thinking text readable'
+    title: "Make Hermes's thinking text readable"
     kind: local
     product_epic: 1
     owner: hermes-relay-android
@@ -1044,7 +1044,7 @@ stories:
     parity_tag: FB-TYPE
     ios_reference: 'IOS-UX-F7'
   - id: ANDROID-VOICE-06
-    title: 'Mute Hermes's voice without interrupting the reply'
+    title: "Mute Hermes's voice without interrupting the reply"
     kind: local
     product_epic: 1
     owner: hermes-relay-android
