@@ -18,7 +18,7 @@ updated: 2026-10-07
 
 - `DoorwayZones.kt` and `MainActivity.kt`: every raw `dp` that was a spacing value now uses `HermesSpacing` (4/8/12/16/24/32). Reviewed by hand, not by a source-text test: 20 dp card padding became `lg` (16 dp), 6 dp and 2 dp gaps became `sm`/`xs`. Deliberately left as literals because they are sizes, not spacing: `widthIn/heightIn` limits, `tonalElevation`, and the 5 dp/3 dp activity bars that `ANDROID-UX-02` deletes.
 - The overflow "⋮" text is now an `Icon` (`HermesIcons.overflow`, added as the 17th icon) inside the existing `IconButton`. The button keeps the single `contentDescription`; the glyph is decorative (`contentDescription = null`).
-- `OverflowMenuSemanticsTest` (instrumented) asserts the button exposes exactly one content description and a click action and that its glyph adds none. It compiled; it was not run (no device).
+- `OverflowMenuSemanticsTest` (instrumented) asserts the button exposes exactly one content description and a click action and that its glyph adds none; it passed via direct `am instrument` on the Pixel.
 - State washes adopted. `Palette.stateInkWashPairs()` measures each state-role ink on its own 16% wash over the page base and the card panel (2 appearances x 4 roles x 2 surfaces = 16 pairs) at the spec's 4.5:1 text threshold; all 16 pass with **no token value changed**. Pairs over `consoleSurface` and `raisedPanel` do not all pass (several state inks fall to about 4.1-4.5:1), so state-role ink on a wash is confined to base and panel; the comment on `stateInkWashPairs()` records that restriction. No non-text (3:1) element is introduced here, so no non-text pair was added.
 - Callsites: the doorway state card draws its state title and connection line on the state wash (description and action buttons stay on the plain panel, because a `TextButton` in the primary colour on a wash is unmeasured); the unconfirmed-turn notice uses the unavailable wash and the unresolved-Home-turn notice the attention wash, both with explicit primary ink (`onSurface`, measured as primaryInk over the washes).
 
@@ -42,9 +42,9 @@ Installed with `adb install -r` only (app data hashes unchanged after each insta
 
 ## Remaining
 
-- UX-01's literal acceptance ("no text clipped at 2.0") is not met in the header because of the pre-existing layout above; either an owner exemption for the header (owned by HOME-11/UX-03) or a header fix is needed. UX-01 says not to restyle beyond adopting tokens, so no header change was made here.
-- Physical TalkBack was not run.
+- Owner approval (2026-10-07): “Exempt pre-existing header clipping from #127 acceptance.” This exception covers only the pre-existing session-header clipping documented above, reproduced unchanged on `main`, and tracked for UX-03 with HOME-11 reachability coordination; it is not a UX-01 regression.
+- Physical TalkBack was not run and is **not waived**. It remains an open device-verification gate; do not mark UX-01 `done` until recorded.
 
 ## Verification
 
-See the PR body for the head SHA, full Gradle, the 30-run gate and CI.
+- Exact-head CI: GitHub Actions run `37641920909` for `fb26d10de9976e2c7fd6a596cbecb2e30a4042c0` passed both `Build, test, lint, and inspect APK` and `Validate BMAD issue tracking`. The legacy commit-status endpoint has `pending` with zero contexts; it is not a failed check.

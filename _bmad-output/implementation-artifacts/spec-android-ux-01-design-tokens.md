@@ -42,6 +42,10 @@ The Android palette already equals the iOS dark palette (`Palette.kt`, `StateCol
 - Screenshot (physical or emulator) of the home state before/after at font scale 1.0 and 2.0; no text clipped at 2.0.
 - `AccessibilityOrderTest` unchanged and passing; all icons have `contentDescription` or are marked decorative.
 
+## Owner decision: pre-existing header clipping
+
+Owner approval (2026-10-07): “Exempt pre-existing header clipping from #127 acceptance.” This exception is limited to the session-header clipping documented in the UX-01 device pass, reproduced unchanged on `main`, and tracked for correction under ANDROID-UX-03 with ANDROID-HOME-11 reachability coordination. It does not waive the physical TalkBack verification; TalkBack remains unverified.
+
 ## Android design notes
 
 - Dynamic colour stays off (contrast guarantees); light-theme values stay Android's tested ones. The audit found the iOS light palette fails AA in places; do not port iOS light hex values (the iOS findings are routed to the iOS repo, not here).
