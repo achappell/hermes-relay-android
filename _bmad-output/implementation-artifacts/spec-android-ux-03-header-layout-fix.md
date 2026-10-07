@@ -2,7 +2,7 @@
 title: 'ANDROID-UX-03 header font-scale layout fix'
 type: 'bugfix'
 created: '2026-10-07'
-status: 'in-review'
+status: 'review'
 route: 'oneshot'
 review_loop_iteration: 1
 context:
