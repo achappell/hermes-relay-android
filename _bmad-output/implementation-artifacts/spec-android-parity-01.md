@@ -53,12 +53,12 @@ Order rationale: `ANDROID-HOME-07` is the prerequisite for everything lifecycle-
 - **TestFlight automation:** Android stays on the signed-APK/sideloading path. `ANDROID-REL-01` is version/build identity only; the Play internal-testing proposal is declined in `ANDROID-REL-02` (2026-10-06).
 - **Dropped:** macOS-only behavior (window closure, Settings sheet layout); iOS stamping of `CFBundleVersion`.
 
-## Decisions needed before the affected tickets start
+## Decisions before the affected tickets start
 
-1. Background hands-free and background mic continuation (`ANDROID-HOME-08` D1/D2): iOS decisions were approved for iOS only.
-2. Add an Android control/idle deadline layer (`ANDROID-HOME-10` part 2): Android currently waits unboundedly.
+1. **Decided 2026-10-06 — background hands-free and microphone continuation (`ANDROID-HOME-08` D1/D2):** Android matches iOS (foreground-start only, mic continues while armed, 60 s idle timeout, interruption disarms and never re-arms). iOS's self-echo gap is not copied: wake suppression during replies plus a tail window is required (`ANDROID-HOME-08`, `ANDROID-VOICE-05`).
+2. **Decided 2026-10-06 — idle control lease (`ANDROID-HOME-10` part 2):** defined separately from audio/response timeouts and driven by `turn.alive`; values mirror iOS (`controlIdle` 45 s, `controlBackstop` 1800 s, 120 s without the capability) and Home's 15 s cadence.
 3. **Resolved 2026-10-06 — Play distribution:** stay out of scope per `README.md`; `ANDROID-REL-02` is closed as not planned.
-4. **Resolved 2026-10-06 — Home Android report support:** Home PR #80 extends the existing `home:HOME-NW-06-client-reports` key; deployed 2026-10-06 pending record.
+4. **Resolved 2026-10-06 — Home Android report support:** Home PR #80 extends the existing `home:HOME-NW-06-client-reports` key; deployed 2026-10-06, deployment record filed via Home PR #82.
 
 ## Device gates (none are satisfied by this ticketing pass)
 

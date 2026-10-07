@@ -32,23 +32,57 @@ Locking the phone or switching apps mid-reply cut the spoken answer off: lifecyc
 - PR #61 documents that Android cuts a backgrounded app's network ("Software caused connection abort"); a reply in flight therefore dies shortly after the Activity stops, and the app only reconnects on return.
 - Hands-free (`1-A-6`) and capture run inside the Activity (`PlatformSpeechInput`, `AndroidCaptureController`). Android restricts background microphone access; see decision D1.
 
-## Decisions to confirm before implementation (iOS decisions are approved only for iOS)
+## Decisions (D1/D2 approved 2026-10-06; D3–D6 remain proposed defaults)
 
-| # | iOS decision (2026-10-04, approved by Amanda) | Android default proposed here |
+| # | iOS decision (2026-10-04, approved by Amanda) | Android decision / default |
 |---|---|---|
-| D1 | Continue only a turn or hands-free session started in the foreground; never start the mic from the background. | Same. Reply retention is required. Background hands-free needs a foreground service of type `microphone` that must be started while the app is visible, and the recognizer may still refuse to run from the background. [INFERENCE — device-gate it.] If it proves infeasible, hands-free disarms on stop and the UI says so; this does not block the reply-retention acceptance. |
-| D2 | 60 s idle timeout after the last voice activity (hands-free armed), injected clock. | Same; applies only if D1 background hands-free ships. A paused reply is also covered by the timeout. |
+| D1 | Continue only a turn or hands-free session started in the foreground; never start the mic from the background. | **Decided 2026-10-06: match iOS.** Background hands-free and microphone continuation are required (armed hands-free keeps capturing after the app stops); the mic is never started from the background. Details and acceptance criteria: "D1/D2 decision" below. Needs a foreground service of type `microphone` started while the app is visible. If a physical-device check shows Android refuses background capture, the ticket is not accepted as parity: record the evidence and return to the owner; do not silently ship disarm-on-stop. |
+| D2 | 60 s idle timeout after the last voice activity (hands-free armed), injected clock. | **Decided 2026-10-06: match iOS.** 60 s, injected monotonic clock, applies to armed hands-free with no capture or reply in flight, and to a reply held paused. Not conditional on any other decision. |
 | D3 | Lock-screen card titled from the conversation with Pause/Play and Stop. Never display the user's prompt. | Media notification with Pause/Play and Stop; title from Home's current conversation title, else neutral "Hermes conversation". |
 | D4 | Other audio: duck in foreground; non-mixable only for backgrounded voice work. | Audio focus: `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` in the foreground; `AUDIOFOCUS_GAIN_TRANSIENT` when the reply starts or continues while stopped. Chosen when audio starts and never changed mid-playback (see "never reconfigure a live session"). |
 | D5 | Interruption (call) began → end the mic session; ended + should-resume → resume the reply only if transport alive and timeout not fired. | Same, mapped to audio-focus loss/gain events (`ANDROID-HOME-09`). |
 | D6 | (macOS closes the window → teardown.) | Swiping the task away (`Service.onTaskRemoved`) tears down: park the claim, stop the service, no replay. |
+
+## D1/D2 decision: background hands-free and microphone match iOS (Amanda, 2026-10-06)
+
+**What iOS does** (read from `hermes-relay-ios` `origin/main` at `dbe4bdd`: `spec-ios-home-07-background-voice.md` Decisions 1, 2 and 5 plus its Implementation Notes, `validation-ios-home-07.md`, and `VoiceSessionCoordinator.swift`):
+
+- **Retention.** `backgroundRetention` is `.reply` while a response task exists, `.voiceSession` while hands-free is armed, capture is live or a tapped capture task exists, otherwise `.none` (immediate teardown as IOS-HOME-06). The `.voiceSession` state keeps the mic and the Home transport alive after `.background`; with `.none` nothing is retained.
+- **Capture continues.** An armed hands-free session keeps listening in the background (iOS shows its orange microphone indicator and it cannot be suppressed). Speech in the background starts a turn: a follow-up within 60 s is submitted once, and the idle window restarts after that reply.
+- **Foreground-start only.** `armHandsFree` returns while backgrounded; `beginCapture` (tapped capture) refuses while backgrounded or while hands-free is armed. There is no remote-command push-to-talk, no CallKit/VoIP or push-to-wake, and no silent-audio keep-alive (spec "Never").
+- **Idle timeout.** 60 s on the injected `HomeMonotonicClock`, armed only while retention is `.voiceSession` with no capture and no reply in flight (or a reply held paused), cancelled by activity. On expiry (`idleTimeout`) hands-free is disarmed, capture stops and the normal teardown runs.
+- **Interruption.** On began: hands-free disarmed, capture cancelled, reply output paused. On ended with `shouldResume`: the reply resumes only if the transport is live and the idle timeout has not fired; the mic is never re-armed. Otherwise a backgrounded session tears down (foreground: stop playback).
+- **Route and lock screen.** Old output device unavailable pauses the reply (never moves it to the speaker); lock-screen Stop ends the session and tears down.
+- **Return to foreground** with a live transport is a no-op apart from leaving background mode; replies paused by lock-screen Pause or an interruption resume.
+- **Device evidence.** The spec's and validation's hands-free device checks (follow-up within 60 s; idle indicator clearing at 60 s) are listed as open device gates in `validation-ios-home-07.md`; this decision does not claim they were observed.
+
+**Android decision.** Android behaves the same, with these mechanism mappings: `mediaPlayback` + `microphone` foreground service started while visible, audio-focus events for interruptions, `ACTION_AUDIO_BECOMING_NOISY`/device removal for route loss, notification Stop for the lock-screen Stop.
+
+**Acceptance criteria (mirror iOS).**
+
+- Given hands-free armed in the foreground, when the app stops or the screen locks, then capture and the Home transport continue (foreground service type `microphone` is active) and the notification shows content-free "listening" state; the platform microphone indicator is not suppressed [INFERENCE: Android 12+ privacy indicators cannot be hidden by the app].
+- Given speech within 60 s of the last voice activity, when that follow-up completes, then exactly one turn is submitted and the 60 s idle window restarts after the reply.
+- Given 60 s with no voice activity while stopped, then hands-free is disarmed, capture stops, the microphone indicator clears and the normal `ANDROID-HOME-06` teardown runs (socket closed once, claim parked, notification and service removed). The timer uses the injected clock and counts only while armed with no capture or reply in flight, or while a reply is held paused.
+- Given the app is stopped and hands-free is not armed, then the mic is never started from the background: arming and tapped capture are refused while stopped, and no notification action starts capture.
+- Given an audio-focus loss or call during background hands-free, then hands-free is disarmed, capture is cancelled and the reply is paused; on focus gain the reply resumes only if the transport is live and the idle timeout has not fired; the mic is never re-armed.
+- Given output route loss mid-reply, then playback pauses and does not switch to the speaker; given notification Stop, then the session ends, teardown runs and the card is cleared.
+- Given return to the foreground with a live transport, then there is no reconnect, no duplicate submit, and a reply paused by notification Pause or an interruption resumes.
+- Device gate: Pixel, release-signed build, checks 3, 4 and 6–7 below prove the above; if the platform refuses background capture, see D1.
+
+**Do not copy the iOS self-echo gap.** Amanda reports that iOS hands-free has a known self-echo risk. Reading `VoiceSessionCoordinator.swift` at `dbe4bdd` is consistent with that, though it was not device-tested here: `handsFreeWakeSuppressed` is set only in `startVoiceResponse` when hands-free is already armed, so arming while a reply is speaking leaves it false (and `armHandsFree` resets it to false); it is consulted only for recognition updates when no response is active, and is bypassed on an echo-safe route; the microphone-activity `.speech` path calls `startHandsFreeCaptureIfNeeded` as a "fresh wake signal ... on any route"; and no voice-processing or echo-cancellation setup appears in the iOS sources. iOS is **not** claimed fixed. Android HOME-08 and `ANDROID-VOICE-05` must instead:
+
+- Suppress wake while a reply is active or its audio is draining, for every way hands-free can be armed (armed before the reply, armed during it, or re-armed after an interruption). Derive suppression from output state, not from a flag set when a reply starts.
+- Keep suppression through a **tail window** after the last output sample drains, covering recognizer latency and room decay. The tail duration is a named, injectable constant; no value is decided here. This ticket measures it on its Pixel device gate and records the chosen value in the validation record; it does not wait for `ANDROID-VOICE-05`.
+- Apply suppression to recognizer results and to level/activity-based wake alike, in the foreground and the background, on any route. Until `ANDROID-VOICE-05` (later scope) records a go decision, no route bypasses it; barge-in stays tap-only.
+- JVM tests: arm during a reply, then simulated speech does not start capture until drain plus tail; re-arm after interruption is suppressed while output is active; speech after the tail starts capture; a simulated echo of the reply never submits a second turn.
+- Device check: hands-free armed with the reply on the phone speaker and the built-in microphone must not start a new turn from Hermes's own voice, in the foreground and with the screen locked.
 
 ## Required behavior
 
 1. **Retention policy.** One injected predicate answers `none | reply | voiceSession` (iOS: `backgroundRetention`). `reply`: a Home turn is submitted, streaming, or its audio is pending or playing, including the post-text wait for audio (`ANDROID-HOME-05`). `voiceSession`: hands-free armed or capture live (D1). Everything else is `none`.
 2. **Stop with `none`:** teardown exactly as `ANDROID-HOME-06` (marks disconnected, parks the claim). **Stop with `reply`/`voiceSession`:** keep the Home socket, audio output and turn pipeline alive; when the work ends (reply finished, audio drained, deadline expired, playback failed, interruption that cannot resume, notification Stop, idle timeout), run the normal teardown through one serialized request if the app is still not foreground.
 3. **`onPause` is not background.** Notification shade, dialogs, permission prompts, multi-window focus loss and PiP never stop playback, capture or transport. Only `ON_STOP` (and task removal) counts.
-4. **Foreground service.** While retention != none the runtime runs a foreground service of type `mediaPlayback` (plus `microphone` only if D1 ships) with a low-importance notification. The service is started **while the app is still foreground** (at turn submit or at the first audio start in the foreground), not at `ON_STOP`, because starting a foreground service from the background is restricted on current Android. [INFERENCE; verify on the targetSdk 37 device matrix.] It stops itself the moment retention returns to `none`.
+4. **Foreground service.** While retention != none the runtime runs a foreground service of type `mediaPlayback` (plus `microphone` while hands-free is armed or capturing, per D1) with a low-importance notification. The service is started **while the app is still foreground** (at turn submit, at the first audio start, or when hands-free is armed in the foreground), not at `ON_STOP`, because starting a foreground service, and especially a microphone-type one, from the background is restricted on current Android. [INFERENCE; verify on the targetSdk 37 device matrix.] It stops itself the moment retention returns to `none`.
 5. **Socket stays open through the reply.** No `lifecycle deactivate`, no `home client close`, no socket cancel between `app phase=stopped` and the end of the reply. If the transport drops anyway, follow `ANDROID-HOME-06`: mark disconnected, no replay, keep the uncertain turn for Resend/Discard; a background reconnect is allowed only in `reply`/`voiceSession`, uses the `ANDROID-HOME-04` ladder, and never resends.
 6. **Return to foreground** with a kept live transport is a no-op apart from leaving background mode (no reconnect, conversation intact, UI shows the full reply and is not stuck "Speaking").
 7. **Never reconfigure a live audio session.** Backgrounding must not create a new `AudioTrack`, change `AudioAttributes`, or re-request focus with different options while a reply plays. Focus type is decided at stream start.
@@ -68,7 +102,7 @@ Locking the phone or switching apps mid-reply cut the spoken answer off: lifecyc
 - Given the transport drops during a background reply, then the uncertain prompt is not resubmitted and stays offered; retry exhausted → idle teardown.
 - Given the app is returned to the foreground mid-reply, then playback continues without a gap, no reconnect, no duplicate submit.
 - Given Activity recreation (rotation) or swipe-away, then rotation changes nothing (`ANDROID-HOME-07`) and swipe-away tears down once (D6).
-- If D1 ships: hands-free armed in the foreground continues after stop for up to 60 s idle, then disarms, capture stops and the normal teardown runs; a follow-up within 60 s submits exactly once and restarts the window; the mic is never started from the background.
+- Hands-free armed in the foreground continues after stop for up to 60 s idle, then disarms, capture stops and the normal teardown runs; a follow-up within 60 s submits exactly once and restarts the window; the mic is never started from the background (D1/D2, decided 2026-10-06). Wake suppression during replies plus a tail window holds throughout (see "Do not copy the iOS self-echo gap").
 
 ## Android design notes (iOS mechanism → Android)
 
@@ -86,7 +120,7 @@ Locking the phone or switching apps mid-reply cut the spoken answer off: lifecyc
 Additional implementation notes from the audit (section 4 and risk 7):
 
 - **MediaSession library is a spike, not a given.** Platform `MediaSession` with a hand-published `PlaybackState` (actions PLAY/PAUSE/STOP only) versus Media3 `MediaSessionService` with a `SimpleBasePlayer` facade over `AudioTrackAudioSink`. Do a one-day spike first; do not replace the proven `AudioTrack` path with ExoPlayer and a custom `DataSource`. Media3 is not in `gradle/libs.versions.toml` today.
-- Manifest: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, and `FOREGROUND_SERVICE_MICROPHONE` only if D1 ships; channel `voice_session` (importance low, no sound); `MediaStyle` notification with a Stop action, immutable `PendingIntent`s, public visibility with content-free text (conversation title up to 60 characters, never the prompt).
+- Manifest: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK` and `FOREGROUND_SERVICE_MICROPHONE` (D1 is decided, so the microphone type is required); channel `voice_session` (importance low, no sound); `MediaStyle` notification with a Stop action, immutable `PendingIntent`s, public visibility with content-free text (conversation title up to 60 characters, never the prompt).
 - A `WifiLock` or partial `WakeLock` is allowed only inside the service while a reply or capture is active and is released at the 60 s idle timeout; never request battery-optimization exemption.
 - Play Console foreground-service declaration was part of the declined `ANDROID-REL-02` (2026-10-06) and is out of scope. The Android foreground service itself, its manifest permissions, and physical-device verification remain `ANDROID-HOME-08` requirements.
 
@@ -108,7 +142,7 @@ Additional implementation notes from the audit (section 4 and risk 7):
 
 1. Submit a 30+ s prompt; lock the screen 10 s into the audio; stay locked through the reply. Whole reply plays without a gap; unlock: transcript complete, UI not stuck "Speaking".
 2. Pull the notification shade and open Quick Settings during playback and during hands-free capture: nothing stops.
-3. (D1) Hands-free armed, lock, speak within 60 s → one new turn; idle 60 s → mic indicator clears.
+3. (D1/D2) Hands-free armed, lock, speak within 60 s → one new turn; idle 60 s → mic indicator clears. Repeat with the reply on the phone speaker: Hermes's own voice must not start a turn.
 4. Notification/lock-screen Pause/Play and Stop: Pause/Play control output; Stop ends and clears the card.
 5. Play a podcast, start a reply from the background-capable path: the podcast pauses and resumes after Hermes abandons focus.
 6. Phone call during a reply: capture ends; reply resumes only when focus returns and the transport/timeout allow.
@@ -120,6 +154,8 @@ Additional implementation notes from the audit (section 4 and risk 7):
 ## Known iOS residual risk to carry
 
 iOS PR #122 recorded that the final Now Playing off-main change and the ~1 s stutter at background entry were verified by CI and the device journal only, not by a clean ear test; engine-restart coalescing was not stress-tested on device. Treat the same areas as unproven on Android and gate them with the `lead_ms` sampling in `ANDROID-HOME-09`.
+
+iOS hands-free self-echo (Amanda-reported, code-consistent, not device-verified here) is likewise unproven as fixed; Android must not inherit it (see "Do not copy the iOS self-echo gap").
 
 ## References
 

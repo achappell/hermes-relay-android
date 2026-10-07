@@ -33,12 +33,14 @@ iOS lets speaking interrupt Hermes ("Keep listening" with `voice.interruptByTalk
 - If go: an `EchoSafeRoute` classifier over `AudioDeviceInfo` (`TYPE_WIRED_HEADSET`, `TYPE_WIRED_HEADPHONES`, `TYPE_USB_HEADSET`, `TYPE_BLUETOOTH_SCO`, `TYPE_BLE_HEADSET`; decide A2DP) and a setting "Interrupt Hermes by talking (headphones only)", default off, gated on the classifier.
 - Capture takes audio focus (`AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE`) so a reply, call or navigation prompt is not talked over, and releases it on stop (shared with `ANDROID-HOME-09`).
 - If no-go: document it, hide the setting, and keep tap-to-interrupt only.
+- **Wake suppression during replies plus a tail window is required regardless of the spike outcome** (`ANDROID-HOME-08` D1/D2 decision, 2026-10-06). iOS hands-free has a known self-echo risk (suppression is set only when a reply starts while hands-free is already armed, and there is no echo cancellation); Android must not copy it, and iOS is not claimed fixed. `ANDROID-HOME-08` (migration scope) implements and measures it; suppression derives from output state for every way hands-free can be armed, covers recognizer results and level-based wake, and holds through an injectable tail window after output drains. This spike may later refine the tail value or justify a route that bypasses suppression; until a go decision is recorded, no route bypasses it.
 
 ## Acceptance criteria
 
 - Classifier table test over fake `AudioDeviceInfo` types.
 - Spike report with device models, route types tried and observed self-trigger rates; no content recorded.
 - Capture focus acquire/release asserted with a fake focus controller; a transient loss ends capture without re-arming.
+- Fake-recorder/recognizer JVM test: hands-free armed during a reply produces no capture until drain plus tail, and a simulated echo of the reply never submits a turn.
 
 ## Android design notes
 
