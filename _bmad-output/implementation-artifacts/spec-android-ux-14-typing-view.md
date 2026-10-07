@@ -20,7 +20,7 @@ Source: user feedback, 2026-10-07. Parity tag `FB-TYPE`; iOS and macOS twin `IOS
 
 ## Background
 
-The app opens in the voice view with a large orb. When the user wants to type, the orb keeps most of the screen and the transcript is a short recent rail. Typing should feel like a focused terminal session for reading and writing (TUI feel, not TUI features), while voice stays the default. Keep the voice view as the launch default; focusing the composer switches to a typing view; the voice control returns to voice and starts listening. The return-to-voice rule is decided: (a) + (d).
+On iOS and macOS the app opens in the voice view with a large orb; when the user wants to type, the orb keeps most of the screen and the transcript is a short recent rail. On Android there is no orb yet (`ANDROID-UX-02`): the composer and capture controls share a bottom bar under a width-capped conversation list, with no typing-focused arrangement. Typing should feel like a focused terminal session for reading and writing (TUI feel, not TUI features), while voice stays the default. Keep the voice view as the launch default; focusing the composer switches to a typing view; the voice control returns to voice and starts listening. The return-to-voice rule is decided: (a) + (d).
 
 **Parity:** tag `FB-TYPE`. iOS and macOS: `IOS-UX-F7` (hermes-relay-ios). Android: `ANDROID-UX-14` (hermes-relay-android). The acceptance criteria below are worded identically in both repos; only the platform notes differ. Mac and iPad stay the most alike.
 

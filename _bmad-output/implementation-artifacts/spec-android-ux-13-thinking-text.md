@@ -20,7 +20,7 @@ Source: user feedback, 2026-10-07. Parity tag `FB-THINK`; iOS and macOS twin `IO
 
 ## Background
 
-While Hermes thinks, its reasoning text flashes across the bottom bar one fragment at a time and is gone before it can be read. The user wants to actually read it. The owner wants to try a transcript-row design and judge it in use. An experiment: accumulate thinking text per turn in memory, show it as a collapsed row in the transcript, open it full-screen on tap (sheet on compact, pane on large), and announce it once to screen readers. Shared criteria below.
+On iOS and macOS, Hermes's reasoning text flashes across the bottom bar one fragment at a time and is gone before it can be read. On Android it is not shown at all: the reasoning text is dropped and only the "Thinking" phase label appears (see Android today). The user wants to actually read it on every platform. The owner wants to try a transcript-row design and judge it in use. An experiment: accumulate thinking text per turn in memory, show it as a collapsed row in the transcript, open it full-screen on tap (sheet on compact, pane on large), and announce it once to screen readers. Shared criteria below.
 
 **Parity:** tag `FB-THINK`. iOS and macOS: `IOS-UX-F6` (hermes-relay-ios). Android: `ANDROID-UX-13` (hermes-relay-android). The acceptance criteria below are worded identically in both repos; only the platform notes differ. Mac and iPad stay the most alike.
 
