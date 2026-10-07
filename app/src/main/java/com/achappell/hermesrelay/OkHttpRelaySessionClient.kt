@@ -1026,11 +1026,16 @@ internal class OkHttpRelaySessionClient(
     }
 
     override fun interruptTurn(binding: AndroidTurnBinding): Boolean {
+        // Home may already have ended the turn while the reply is still being
+        // spoken from the phone's buffer. That is the usual state for a long
+        // reply, and Interrupt must still stop the speech at once.
+        if (activeTurn.get() == binding && terminalObserved.get()) {
+            return stopBufferedSpeech(binding)
+        }
         val socket = activeSocket.get() ?: return false
         if (
             !supportsInterrupt() ||
-            activeTurn.get() != binding ||
-            terminalObserved.get()
+            activeTurn.get() != binding
         ) return false
         if (!interruptRequested.compareAndSet(false, true)) return false
 
@@ -1060,6 +1065,7 @@ internal class OkHttpRelaySessionClient(
         } else {
             requestTelemetry.recordInterruptRequest()
             interruptTelemetry.recordSent()
+            journal.record("home interrupt sent")
             Thread {
                 val frame = response.await(requestTimeoutMillis)
                 pending.remove(requestId)
@@ -1072,6 +1078,9 @@ internal class OkHttpRelaySessionClient(
                         } == true
                 } == true
                 if (acknowledged) interruptTelemetry.recordAcknowledgement()
+                journal.record(
+                    if (acknowledged) "home interrupt acknowledged" else "home interrupt unacknowledged",
+                )
                 if (!acknowledged) {
                     interruptRequested.set(false)
                 }
@@ -1081,6 +1090,31 @@ internal class OkHttpRelaySessionClient(
             }.start()
         }
         return sent
+    }
+
+    /**
+     * Home ended this turn, so there is nothing at Home to interrupt: stop the
+     * speech still buffered on this phone and end the turn here. Sends no frame.
+     */
+    private fun stopBufferedSpeech(binding: AndroidTurnBinding): Boolean {
+        if (!audioActive.get() && !audioDrainPending.get()) return false
+        val currentObserver = observer.get()
+        audioActive.set(false)
+        audioDrainPending.set(false)
+        synchronized(inboundLock) {
+            audioBytesRemainder = 0
+            audioRemainder = ByteArray(0)
+        }
+        audioSink.cancel()
+        journal.record("home speech stopped locally")
+        if (currentObserver != null) {
+            deliver(
+                currentObserver,
+                AndroidNormalizedEvent.TurnInterrupted(binding, "Speech was stopped on this phone."),
+            )
+        }
+        clearTurn(binding)
+        return true
     }
 
     /** Compatibility entry point used by the pre-Home live tests. */

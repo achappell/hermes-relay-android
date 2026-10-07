@@ -1232,6 +1232,111 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun interrupt_stops_speech_still_buffered_on_the_phone_after_home_ended_the_turn() {
+        // A long reply: Home finishes the turn while the phone is still playing the
+        // audio it already received. Found on a Pixel: Interrupt did nothing here.
+        val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+        val completed = CountDownLatch(1)
+        val interruptFrames = AtomicInteger(0)
+        val clientClosed = CountDownLatch(1)
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        val request = JSONObject(text)
+                        when (request.optString("method")) {
+                            "conversation.open", "conversation.reconnect" ->
+                                webSocket.send(readyResponse(request.getString("id")))
+                            "prompt.submit" -> {
+                                val turnId = "home-turn-tail"
+                                webSocket.send(
+                                    rpcResult(
+                                        request.getString("id"),
+                                        JSONObject()
+                                            .put("schema", 1)
+                                            .put("conversation_handle", CONVERSATION_HANDLE)
+                                            .put("turn_id", turnId)
+                                            .put("status", "submitted"),
+                                    ),
+                                )
+                                webSocket.send(eventFrame(turnId, "message.start", JSONObject()))
+                                webSocket.send(audioStartFrame(turnId))
+                                webSocket.send(ByteString.of(*byteArrayOf(1, 0, 2, 0)))
+                                webSocket.send(audioEndFrame(turnId))
+                                webSocket.send(
+                                    eventFrame(
+                                        turnId,
+                                        "message.complete",
+                                        JSONObject()
+                                            .put("rendered", "A long story")
+                                            .put("status", "complete"),
+                                    ),
+                                )
+                            }
+                            "session.interrupt" -> interruptFrames.incrementAndGet()
+                        }
+                    }
+
+                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                        clientClosed.countDown()
+                        webSocket.close(code, null)
+                    }
+
+                    // The client may cancel instead of closing; either way no more frames come.
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
+                        clientClosed.countDown()
+                    }
+
+                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                        clientClosed.countDown()
+                    }
+                },
+            ),
+        )
+        val delegate = RecordingAudioSink()
+        val cancelled = AtomicInteger(0)
+        // The tail never drains on its own, like minutes of buffered speech.
+        val sink = object : AndroidAudioSink by delegate {
+            override fun finish(onDrained: () -> Unit, onFailure: (String) -> Unit) = Unit
+            override fun cancel() {
+                cancelled.incrementAndGet()
+                delegate.cancel()
+            }
+        }
+        val journal = RecordingJournal()
+        val client = client(audioSink = sink, journal = journal)
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val binding = (
+            client.beginTurn(
+                AndroidTurnRequest(
+                    AndroidProfile(PROFILE_ID, "Amanda"),
+                    AndroidTurnInput.Typed("tell me a long story"),
+                ),
+            ) as AndroidInitiationResult.Accepted
+            ).binding
+        client.observeTurn(binding) { event ->
+            events += event
+            if (event is AndroidNormalizedEvent.TurnCompleted) completed.countDown()
+        }
+        assertTrue("Home never completed the turn", completed.await(5, TimeUnit.SECONDS))
+        assertTrue("the spoken tail still holds the turn", client.hasActiveTurn())
+        cancelled.set(0)
+
+        assertTrue("Interrupt did nothing while speech was still buffered", client.interruptTurn(binding))
+
+        assertEquals("local speech was not stopped", 1, cancelled.get())
+        assertFalse(client.hasActiveTurn())
+        assertTrue(events.any { it is AndroidNormalizedEvent.TurnInterrupted })
+        assertFalse("a second tap acted again", client.interruptTurn(binding))
+        assertEquals(1, journal.count("home speech stopped locally"))
+        // Frames reach Home in order, so once it sees the close, any interrupt would
+        // have arrived before it.
+        client.close()
+        assertTrue(clientClosed.await(5, TimeUnit.SECONDS))
+        assertEquals("nothing is left at Home to interrupt", 0, interruptFrames.get())
+    }
+
+    @Test
     fun an_interrupt_is_refused_when_home_does_not_advertise_it() {
         server.enqueue(
             MockResponse().withWebSocketUpgrade(
