@@ -268,6 +268,26 @@ class HomeRuntimeTest {
         }
     }
 
+    /** `ANDROID-HOME-05`: a reply waiting for late audio is still in flight. */
+    @Test
+    fun a_reply_waiting_for_late_audio_defers_teardown_until_the_audio_outcome() {
+        val fixture = Fixture(accepted())
+        val runtime = fixture.box.resolve()
+        runtime.activityCreated()
+        runtime.initiate(AndroidTurnInput.Typed("hello"))
+        fixture.port.emit(AndroidNormalizedEvent.TextCompleted(binding, "Answer"))
+
+        assertEquals(AndroidTurnPhase.Buffering, runtime.turnState.phase)
+        assertTrue(runtime.hasAcceptedTurn)
+        runtime.activityDestroyed(isFinishing = true, isChangingConfigurations = false)
+        assertEquals("waiting for audio is still in flight", 0, fixture.port.closeCount)
+
+        fixture.port.emit(AndroidNormalizedEvent.AudioFailed(binding, "transport_timeout"))
+
+        assertEquals(1, fixture.port.closeCount)
+        assertTrue(fixture.journal.lines.contains("runtime teardown reason=replySettled"))
+    }
+
     @Test
     fun an_overlapping_second_activity_keeps_the_runtime_when_the_first_finishes() {
         val fixture = Fixture(accepted())

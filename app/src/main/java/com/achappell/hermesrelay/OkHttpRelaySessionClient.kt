@@ -165,6 +165,14 @@ internal class OkHttpRelaySessionClient(
     private val interruptRequested = AtomicBoolean(false)
     private val terminalObserved = AtomicBoolean(false)
     private val audioDrainPending = AtomicBoolean(false)
+    /** Text is complete and Home advertised audio that has not started (`ANDROID-HOME-05`). */
+    private val awaitingAudio = AtomicBoolean(false)
+
+    /** Audio started, or failed, for the current turn. */
+    private val audioSeenThisTurn = AtomicBoolean(false)
+
+    @Volatile
+    private var textCompletedAtNanos = 0L
     private val hasOpenedConversation = AtomicBoolean(false)
     private val reconnectRequired = AtomicBoolean(false)
     private val reconnectRequiredProfileId = AtomicReference<String?>(null)
@@ -379,6 +387,8 @@ internal class OkHttpRelaySessionClient(
             }
             pending[requestId] = response
             normalizer.get()?.beginTurn()
+            audioSeenThisTurn.set(false)
+            awaitingAudio.set(false)
             audioActive.set(false)
             audioDrainPending.set(false)
             synchronized(inboundLock) {
@@ -903,6 +913,9 @@ internal class OkHttpRelaySessionClient(
                 ready.set(true)
                 if (result.unresolvedTurnBinding != null) {
                     activeTurn.set(result.unresolvedTurnBinding)
+                    // A resumed turn may have missed its audio frames: never wait for them.
+                    audioSeenThisTurn.set(true)
+                    awaitingAudio.set(false)
                     normalizer.set(
                         HermesEventNormalizer(profile.id, allowLegacyFrames = false).apply {
                             beginTurn()
@@ -1223,6 +1236,7 @@ internal class OkHttpRelaySessionClient(
 
     private fun closeTransport() {
         transportGeneration.incrementAndGet()
+        awaitingAudio.set(false)
         val socket = activeSocket.getAndSet(null)
         // Lifecycle teardown is not a protocol handshake. Force cancellation
         // so a peer that ignores the close frame cannot keep the app's socket
@@ -1327,6 +1341,7 @@ internal class OkHttpRelaySessionClient(
         when (event) {
             is AndroidNormalizedEvent.AudioStarted -> {
                 if (terminalObserved.get() || interruptRequested.get()) return
+                audioSeenThisTurn.set(true)
                 if (audioActive.get() || audioDrainPending.get()) {
                     audioActive.set(false)
                     audioDrainPending.set(false)
@@ -1340,6 +1355,7 @@ internal class OkHttpRelaySessionClient(
                             "The Home bridge started response audio twice.",
                         ),
                     )
+                    if (settleAwaitedAudio()) clearTurnIfTerminal(event.binding)
                     return
                 }
                 val format = event.format
@@ -1359,11 +1375,18 @@ internal class OkHttpRelaySessionClient(
                             "This device cannot play the Home response audio format.",
                         ),
                     )
+                    if (settleAwaitedAudio()) clearTurnIfTerminal(event.binding)
                 } else {
                     audioActive.set(true)
                     audioBytesPerFrame = bytesPerFrame(format.channels)
                     audioBytesRemainder = 0
                     audioRemainder = ByteArray(0)
+                    if (awaitingAudio.get()) {
+                        journal.record(
+                            "home audio started after_text_ms=" +
+                                TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - textCompletedAtNanos),
+                        )
+                    }
                     deliver(currentObserver, event)
                 }
             }
@@ -1376,6 +1399,7 @@ internal class OkHttpRelaySessionClient(
                             "The Home bridge ended response audio before a valid stream.",
                         ),
                     )
+                    settleAwaitedAudio()
                     clearTurnIfTerminal(event.binding)
                 } else if (audioRemainder.isNotEmpty()) {
                     audioBytesRemainder = 0
@@ -1388,6 +1412,7 @@ internal class OkHttpRelaySessionClient(
                             "The Home bridge ended on an incomplete PCM frame.",
                         ),
                     )
+                    settleAwaitedAudio()
                     clearTurnIfTerminal(event.binding)
                 } else {
                     audioDrainPending.set(true)
@@ -1399,6 +1424,8 @@ internal class OkHttpRelaySessionClient(
                             if (!interruptRequested.get()) {
                                 deliverIfCurrent(currentObserver, event)
                             }
+                            journal.record("home audio completed")
+                            settleAwaitedAudio()
                             clearTurnIfTerminal(event.binding)
                         },
                         onFailure = { reason ->
@@ -1411,6 +1438,8 @@ internal class OkHttpRelaySessionClient(
                                     AndroidNormalizedEvent.AudioFailed(event.binding, reason),
                                 )
                             }
+                            journal.record("home audio failed phase=drain")
+                            settleAwaitedAudio()
                             clearTurnIfTerminal(event.binding)
                         },
                     )
@@ -1423,13 +1452,34 @@ internal class OkHttpRelaySessionClient(
                 audioRemainder = ByteArray(0)
                 audioSink.cancel()
                 if (!interruptRequested.get()) deliver(currentObserver, event)
+                journal.record("home audio failed phase=${if (awaitingAudio.get()) "afterText" else "duringTurn"}")
+                audioSeenThisTurn.set(true)
+                settleAwaitedAudio()
                 clearTurnIfTerminal(event.binding)
             }
             is AndroidNormalizedEvent.TurnCompleted -> {
-                terminalObserved.set(true)
-                interruptTelemetry.recordTerminal()
-                deliver(currentObserver, event)
-                if (!audioActive.get() && !audioDrainPending.get()) clearTurn(event.binding)
+                // Home synthesises speech once the text is done, so audio may start well
+                // after this terminal. Advertised audio that has not started keeps the turn
+                // open (no timer is armed here; HOME-10's idle rules own any later expiry).
+                val waitForAudio = capabilities.get().audio &&
+                    !audioSeenThisTurn.get() &&
+                    !audioActive.get() &&
+                    !audioDrainPending.get()
+                if (waitForAudio) {
+                    awaitingAudio.set(true)
+                    textCompletedAtNanos = clock.nanoTime()
+                    journal.record("home turn terminal completed audio=pending")
+                    deliver(
+                        currentObserver,
+                        AndroidNormalizedEvent.TextCompleted(event.binding, event.finalText),
+                    )
+                } else {
+                    journal.record("home turn terminal completed audio=none")
+                    terminalObserved.set(true)
+                    interruptTelemetry.recordTerminal()
+                    deliver(currentObserver, event)
+                    if (!audioActive.get() && !audioDrainPending.get()) clearTurn(event.binding)
+                }
             }
             is AndroidNormalizedEvent.TurnFailed,
             is AndroidNormalizedEvent.TurnInterrupted,
@@ -1441,6 +1491,7 @@ internal class OkHttpRelaySessionClient(
                 audioRemainder = ByteArray(0)
                 audioSink.cancel()
                 interruptRequested.set(false)
+                awaitingAudio.set(false)
                 deliver(currentObserver, event)
                 clearTurn(event.binding)
             }
@@ -1458,6 +1509,14 @@ internal class OkHttpRelaySessionClient(
         if (current == binding && activeTurn.compareAndSet(current, null)) {
             terminalObserved.set(false)
         }
+    }
+
+    /** The awaited audio started or failed, so the held turn can now end. */
+    private fun settleAwaitedAudio(): Boolean {
+        if (!awaitingAudio.getAndSet(false)) return false
+        terminalObserved.set(true)
+        interruptTelemetry.recordTerminal()
+        return true
     }
 
     private fun deliverIfCurrent(observer: TurnObserver, event: AndroidNormalizedEvent) {
@@ -1499,6 +1558,7 @@ internal class OkHttpRelaySessionClient(
     private fun reportDisconnect(socket: WebSocket, reason: String) {
         if (activeSocket.get() !== socket) return
         journal.record("home bridge transport lost")
+        awaitingAudio.set(false)
         synchronized(turnAdmissionLock) {
             if (activeTurn.get() != null && !terminalObserved.get()) {
                 uncertainDelivery.set(true)

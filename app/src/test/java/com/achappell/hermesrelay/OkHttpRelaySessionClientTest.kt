@@ -181,6 +181,174 @@ class OkHttpRelaySessionClientTest {
         }
     }
 
+    /**
+     * `ANDROID-HOME-05`: Home sends the control terminal (text complete) and only
+     * later starts audio, because Standard synthesises speech once the text is
+     * done (Home PR #74). The test double holds the audio back until the test has
+     * seen the turn waiting; nothing here sleeps. No audio-start timer exists, so
+     * how long the gap is cannot matter; the gate stands in for the 40 s and 60 s
+     * of the spec.
+     */
+    @Test
+    fun a_slow_reply_still_plays_audio_that_starts_after_the_turn_completed() {
+        val promptCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val releaseAudio = CountDownLatch(1)
+        val textDone = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    val request = JSONObject(text)
+                    when (request.optString("method")) {
+                        "conversation.open" ->
+                            webSocket.send(readyResponse(request.getString("id"), audio = true))
+                        "prompt.submit" -> {
+                            promptCount.incrementAndGet()
+                            val turnId = "home-turn-slow"
+                            webSocket.send(
+                                rpcResult(
+                                    request.getString("id"),
+                                    JSONObject()
+                                        .put("schema", 1)
+                                        .put("conversation_handle", CONVERSATION_HANDLE)
+                                        .put("turn_id", turnId)
+                                        .put("status", "submitted"),
+                                ),
+                            )
+                            Thread {
+                                webSocket.send(
+                                    eventFrame(turnId, "message.delta", JSONObject().put("text", "Slow answer")),
+                                )
+                                webSocket.send(
+                                    eventFrame(
+                                        turnId,
+                                        "message.complete",
+                                        JSONObject().put("rendered", "Slow answer").put("status", "complete"),
+                                    ),
+                                )
+                                if (releaseAudio.await(10, TimeUnit.SECONDS)) {
+                                    webSocket.send(audioStartFrame(turnId))
+                                    webSocket.send(ByteString.of(*byteArrayOf(1, 0, 2, 0)))
+                                    webSocket.send(audioEndFrame(turnId))
+                                }
+                            }.apply { isDaemon = true }.start()
+                        }
+                    }
+                }
+            }),
+        )
+        val sink = RecordingAudioSink()
+        val journal = RecordingJournal()
+        val client = client(audioSink = sink, journal = journal)
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val accepted = client.beginTurn(
+            AndroidTurnRequest(AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("slow")),
+        ) as AndroidInitiationResult.Accepted
+        val state = AtomicReference(AndroidTurnState.awaitingEvents(accepted.binding))
+        val observation = client.observeTurn(accepted.binding) { event ->
+            events += event
+            state.set(AndroidTurnStateReducer.reduce(state.get(), event))
+            // Either the old terminal or the new text-complete notice.
+            if (event::class.simpleName in setOf("TurnCompleted", "TextCompleted")) textDone.countDown()
+            if (state.get().phase == AndroidTurnPhase.Complete) finished.countDown()
+        }
+
+        assertTrue("text never completed", textDone.await(5, TimeUnit.SECONDS))
+        // Text is complete, audio has not started: honestly waiting, not failed.
+        val waiting = state.get()
+        assertFalse("waiting turn must not be terminal: $waiting", waiting.isTerminal)
+        assertEquals("Slow answer", waiting.responseText)
+        assertTrue(client.hasActiveTurn())
+        assertFalse(events.any { it is AndroidNormalizedEvent.AudioFailed })
+
+        releaseAudio.countDown()
+        assertTrue("turn never completed after late audio: ${state.get()}", finished.await(5, TimeUnit.SECONDS))
+        observation.cancel()
+
+        assertEquals(AndroidTurnPhase.Complete, state.get().phase)
+        assertEquals(AndroidAudioDelivery.Delivered, state.get().audio)
+        assertTrue(events.any { it is AndroidNormalizedEvent.AudioStarted })
+        assertFalse(events.any { it is AndroidNormalizedEvent.AudioFailed })
+        assertEquals("the sink received all PCM", 4, sink.bytesWritten)
+        assertEquals("exactly one submission", 1, promptCount.get())
+        assertTrue(journal.lines.toString(), journal.lines.contains("home turn terminal completed audio=pending"))
+        assertTrue(journal.lines.any { it.startsWith("home audio started after_text_ms=") })
+        assertTrue(journal.lines.contains("home audio completed"))
+        assertContentFree(journal.lines)
+        client.close()
+    }
+
+    @Test
+    fun home_audio_unavailable_after_a_long_pre_speech_wait_keeps_the_text() {
+        val textDone = CountDownLatch(1)
+        val releaseFallback = CountDownLatch(1)
+        val failed = CountDownLatch(1)
+        val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    val request = JSONObject(text)
+                    when (request.optString("method")) {
+                        "conversation.open" ->
+                            webSocket.send(readyResponse(request.getString("id"), audio = true))
+                        "prompt.submit" -> {
+                            val turnId = "home-turn-timeout"
+                            webSocket.send(
+                                rpcResult(
+                                    request.getString("id"),
+                                    JSONObject()
+                                        .put("schema", 1)
+                                        .put("conversation_handle", CONVERSATION_HANDLE)
+                                        .put("turn_id", turnId)
+                                        .put("status", "submitted"),
+                                ),
+                            )
+                            Thread {
+                                webSocket.send(
+                                    eventFrame(turnId, "message.delta", JSONObject().put("text", "Kept text")),
+                                )
+                                webSocket.send(
+                                    eventFrame(
+                                        turnId,
+                                        "message.complete",
+                                        JSONObject().put("rendered", "Kept text").put("status", "complete"),
+                                    ),
+                                )
+                                if (releaseFallback.await(10, TimeUnit.SECONDS)) {
+                                    webSocket.send(audioFallbackFrame(turnId, "transport_timeout"))
+                                }
+                            }.apply { isDaemon = true }.start()
+                        }
+                    }
+                }
+            }),
+        )
+        val client = client()
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val accepted = client.beginTurn(
+            AndroidTurnRequest(AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("slow")),
+        ) as AndroidInitiationResult.Accepted
+        val state = AtomicReference(AndroidTurnState.awaitingEvents(accepted.binding))
+        val observation = client.observeTurn(accepted.binding) { event ->
+            events += event
+            state.set(AndroidTurnStateReducer.reduce(state.get(), event))
+            if (event::class.simpleName in setOf("TurnCompleted", "TextCompleted")) textDone.countDown()
+            if (event is AndroidNormalizedEvent.AudioFailed) failed.countDown()
+        }
+
+        assertTrue(textDone.await(5, TimeUnit.SECONDS))
+        assertFalse("must wait for Home, not fail on its own", state.get().isTerminal)
+        releaseFallback.countDown()
+        assertTrue(failed.await(5, TimeUnit.SECONDS))
+        observation.cancel()
+
+        assertEquals("Kept text", state.get().responseText)
+        assertEquals(AndroidAudioDelivery.Unavailable, state.get().audio)
+        assertTrue(state.get().isTerminal)
+        client.close()
+    }
+
     @Test
     fun live_gate_cleanup_closes_the_conversation_without_submitting_a_prompt() {
         val methods = Collections.synchronizedList(mutableListOf<String>())

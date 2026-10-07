@@ -389,6 +389,7 @@ stories:
     parity_epic: ANDROID-PARITY-01
     parity_stream: S2
     spec: _bmad-output/implementation-artifacts/spec-android-home-05-audio-start-after-turn.md
+    validation: _bmad-output/implementation-artifacts/validation-android-home-05.md
     depends_on:
       - android:ANDROID-HOME-02
       - home:HOME-NW-18
