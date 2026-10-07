@@ -1012,6 +1012,67 @@ stories:
       - android:ANDROID-PARITY-01
       - android:ANDROID-PARITY-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/110
+  - id: ANDROID-UX-13
+    title: 'Make Hermes's thinking text readable'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-13
+    release_scope: later
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-13-thinking-text.md
+    depends_on:
+      - android:ANDROID-UX-15
+    parity_source: 'User feedback 2026-10-07 (parity tag FB-THINK)'
+    parity_tag: FB-THINK
+    ios_reference: 'IOS-UX-F6'
+  - id: ANDROID-UX-14
+    title: 'Switch to a typing-focused view when the composer is focused'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-14
+    release_scope: later
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-14-typing-view.md
+    depends_on:
+      - android:ANDROID-UX-02
+      - android:ANDROID-UX-15
+    parity_source: 'User feedback 2026-10-07 (parity tag FB-TYPE)'
+    parity_tag: FB-TYPE
+    ios_reference: 'IOS-UX-F7'
+  - id: ANDROID-VOICE-06
+    title: 'Mute Hermes's voice without interrupting the reply'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-voice-06
+    release_scope: later
+    parity_epic: ANDROID-PARITY-01
+    parity_stream: S2
+    spec: _bmad-output/implementation-artifacts/spec-android-voice-06-mute.md
+    depends_on:
+      - android:ANDROID-UX-15
+    parity_source: 'User feedback 2026-10-07 (parity tag FB-MUTE)'
+    parity_tag: FB-MUTE
+    ios_reference: 'IOS-UX-F8'
+  - id: ANDROID-UX-15
+    title: 'Propose the large-format whole-screen layout'
+    kind: local
+    product_epic: 1
+    owner: hermes-relay-android
+    tracker_key: android-ux-15
+    release_scope: later
+    parity_epic: ANDROID-PARITY-03
+    parity_stream: S7
+    spec: _bmad-output/implementation-artifacts/spec-android-ux-15-large-layout.md
+    depends_on:
+      - android:ANDROID-HOME-11
+    parity_source: 'User feedback 2026-10-07 (parity tag FB-LAYOUT)'
+    parity_tag: FB-LAYOUT
+    ios_reference: 'IOS-UX-F9'
 epic_scheme: hermes-home-2026-09-23
 epics:
   1: Connect personal clients through HomeBridge
