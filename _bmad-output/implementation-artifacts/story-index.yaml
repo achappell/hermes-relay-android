@@ -828,6 +828,7 @@ stories:
     parity_epic: ANDROID-PARITY-03
     parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-03-session-header.md
+    validation: _bmad-output/implementation-artifacts/validation-android-ux-03.md
     depends_on:
       - android:ANDROID-UX-01
       - android:ANDROID-HOME-12
