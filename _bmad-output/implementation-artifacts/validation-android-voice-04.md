@@ -1,8 +1,8 @@
 # ANDROID-VOICE-04 validation record
 
-Status: `in-progress`; PR #129 stays draft pending physical TalkBack speech. The resumed functional Pixel gate passed both controlled scenarios below. Home `d803994d1d47c63bb1b3c92cff42695de19a4434` is deployed and source/health verified by the deploy owner; older deployment blockers below are historical. Baseline: rebased onto `origin/main` at `b865c0b` (VOICE-03 #125, HOME-13 #122 and UX-09 #128 merged). A deliberate Disconnect (HOME-12) discards a pending interrupt so interrupt-and-listen never opens the microphone afterwards.
+Status: `review` (ready for review, not done). Amanda waived manual physical TalkBack spoken-output/focus-gesture acceptance on 2026-10-07; spoken output and focus gestures remain unverified, not passed. Existing automated accessibility and the 2/2 controlled functional Pixel scenarios stand. Residual risk: spoken labels, focus order and gesture activation. Home `d803994d1d47c63bb1b3c92cff42695de19a4434` is deployed/source-verified. All earlier draft/deployment/manual-check requirements below are historical and superseded by the current closeout and this limited owner decision; no other gate is waived and no merge is authorized.
 
-## Implemented
+## Historical implementation progression (superseded by current closeout)
 
 - Interrupt stops local playback before sending the existing `session.interrupt` frame, and the runtime prevents a second send for the same active turn.
 - The action shows `Interrupting…` while awaiting acknowledgement, exposes a visible/announced unconfirmed state at 2 seconds, and starts capture once after a terminal or the deadline when hands-free is off.
@@ -11,7 +11,7 @@ Status: `in-progress`; PR #129 stays draft pending physical TalkBack speech. The
 - Content-free journal lines so a device run can count Home interrupts: `home interrupt sent`, `home interrupt acknowledged|unacknowledged` (`2f6419a`), `home speech stopped locally` (`2f6419a`) and `home turn terminal interrupted|failed` (`537d30b`).
 - **Supersedes the "sends no frame" and "no `home interrupt sent`" statements for the spoken tail (unit-tested only; not yet re-run on a device):** Home retains prompt admission until its response-audio sidecar ends, so a local-only stop left the next prompt rejected. A tail stop now cancels local playback, then sends one `session.interrupt` for the same turn (frame sent before the turn is released, so it precedes any following prompt on the socket), then delivers `TurnInterrupted`. Home answers `accepted`, stops only the sidecar and sends no upstream interrupt (hermes-relay-home `fix/home-interrupt-audio-lifecycle`). Without a socket or `interrupt` capability the local stop still stands. Covered by `OkHttpRelaySessionClientTest.interrupt_stops_speech_still_buffered_on_the_phone_after_home_ended_the_turn` (order `cancel`, `frame`; same `turn_id`; second tap no-op; one frame total).
 
-## Checks
+## Historical checks
 
 - Issue-tracking tests (18), `scripts/check-apk-metadata.sh` and `git diff --check origin/main..HEAD` passed.
 - Full Gradle at the rebased head code (`537d30b` on `b865c0b`; later commits are docs-only): `testDebugUnitTest assembleDebug lintDebug compileDebugAndroidTestKotlin --no-daemon` — `BUILD SUCCESSFUL`, 394 unit tests, 0 failures/errors/skipped.
@@ -19,7 +19,7 @@ Status: `in-progress`; PR #129 stays draft pending physical TalkBack speech. The
 - Spoken-tail interrupt frame (on top of `1fa1e56`): `testDebugUnitTest compileDebugAndroidTestKotlin lintDebug --no-daemon` — `BUILD SUCCESSFUL`, 394 unit tests, 0 failures. The first run failed `interrupt_stops_speech_still_buffered_on_the_phone_after_home_ended_the_turn` only because the test read the server-side frame list before Home saw the frame; the test now awaits the frame. Repetition gate again: 30 consecutive runs, 0 failures (56 tests per run). Companion Home change: hermes-relay-home `fix/home-interrupt-audio-lifecycle` (1039 tests passed; a websocket-level test stops the audio tail, admits the next prompt, and treats a repeated interrupt as a no-op). No device run for this change.
 - **Next prompt after a tail interrupt needs no client wait (Home-side proof, not Android):** the frame is sent before the turn is released, so it precedes any later prompt on the same socket; Home's `prompt.submit` already joins a still-running response-audio worker before its admission check, and Home now acknowledges the tail interrupt only after that worker has exited and released the turn. Proven at hermes-relay-home by a websocket-level test (interrupt, then an immediate prompt) and by a smoke of the real `hermes-home` process against a local fake Standard Hermes (0.2 s sidecar flush): the acknowledgement arrived after the audio ended and the next prompt was admitted at once, with no upstream interrupt and no effect from a repeated old-turn interrupt on the new turn. Android therefore keeps sending one frame and does not hold the next prompt for the acknowledgement. Not yet exercised with the Android client against a running Home.
 
-## Device verification (Pixel 6a, Android 17; `adb install -r` only; app data hashes verified unchanged after every install)
+## Historical device verification (Pixel 6a, Android 17; `adb install -r` only; app data hashes preserved)
 
 - **Instrumented via `am instrument`:** `AccessibilityOrderTest` + `InterruptControlTest`: `OK (10 tests)` on `3faa86d`, and again `OK (10 tests)` on the fixed build (state description = turn phase, click label `Interrupt`, traversal order).
 - **Unfixed build (`3faa86d`), spoken tail of a long reply:** two taps on Interrupt, `AudioTrack` `state:started` stayed, UI stayed `Turn phase: Speaking` with `Interrupt`, journal unchanged (the defect above).
@@ -28,7 +28,7 @@ Status: `in-progress`; PR #129 stays draft pending physical TalkBack speech. The
 - **Interrupt-and-listen (hands-free off):** in each Home-owned run `Listening…` appeared once, at the deadline or the terminal, and ended without speech; there is no journal line for capture, so this rests on the UI observation plus `TurnInterruptCoordinatorTest`.
 - **TalkBack:** enabled with `settings put secure enabled_accessibility_services …TalkBackService` + `accessibility_enabled 1`, then restored to `null`/`0` (verified). `adb input` cannot perform TalkBack gestures or capture its speech, so the spoken announcement was **not** captured; with TalkBack on, a tap on Interrupt interrupted the turn normally. The announced semantics are proved by the instrumented tests above.
 
-## Remaining
+## Historical remaining gates (superseded)
 
 - **Not captured on a device:** Interrupt while Home still owns the turn *and* speech is already playing (local stop and one Home frame in the same run). In the 3 Home-owned runs on the fixed build Hermes was still `Thinking` (no audio) for minutes; the speech-before-terminal window is ~14 s and was hit only on the unfixed build. Local-stop-before-frame ordering is proved by `interrupt_stops_local_audio_before_the_frame_reaches_home_and_is_sent_once`.
 - **"Terminal within 2 s" on a real Home** held once (0.49 s) and not twice (3.5 s, 4.0 s): the 2 s is the client's deadline (unconfirmed notice), the terminal depends on Hermes stopping.
@@ -36,7 +36,7 @@ Status: `in-progress`; PR #129 stays draft pending physical TalkBack speech. The
 - The shared `HomeTurnDeadlines` type described in the design note is not present in the current base; ANDROID-HOME-10 remains backlog. The acknowledgement is injected through existing `VoiceTimings` until that shared type is available.
 - **Home-side counterpart to the separate finding above:** needs Home deployed with the audio-tail interrupt before a device re-run; then the spoken-tail stop should show `home interrupt sent` + `acknowledged` and the next prompt should be admitted without a reconnect. Not deployed and not run on a device here.
 
-## Device run on Home b964082 (Pixel 6a, Android 17, 2026-10-07, Spark claim; `adb install -r` only)
+## Historical device run on Home b964082 (Pixel 6a, Android 17, 2026-10-07; superseded)
 
 Home b964082 (hermes-relay-home#83) was live (deploy owner's evidence: restart 12:32:29 CDT, installed sources match `b964082`). Android builds: `f34a1a2` first, then `cb794e7` (this branch). App data hashes: profiles, pairings, credentials, permission prefs and the Amanda history identical after every install; the Spark history grew by exactly the test turns.
 
@@ -45,7 +45,7 @@ Home b964082 (hermes-relay-home#83) was live (deploy owner's evidence: restart 1
 - **Next prompt after that interrupt FAILED on the live Home (not an Android defect):** `prompt.submit` → `reason=HermesUnavailable` 38 ms (journal), then Home refused every later prompt on that bridge. Home-side records (content-free) showed the interrupt acknowledged, an audio-phase `protocol_error` at that instant, and the next submit rejected in 29 ms by `bridge.submit_prompt`. Root cause (grounded in source and reproduced locally against `b964082`): the Standard sidecar answers `stop` by closing without an `end` frame; `WebsocketsAudioSocket.receive` let `websockets.ConnectionClosed` escape the bridge's typed handling, `_close_audio` never ran, and `HomeBridge` kept the terminal turn active while the endpoint had released it. This corrects the earlier claim in this record that #83 alone made the next prompt admissible: it was proven only against fakes that returned `end`, not against a sidecar that closes. Fix: hermes-relay-home#85 (head `7abf5fa`, CI success; merged by the user as `d803994`; **not deployed**, so the live Home still has the defect).
 - **Gate state:** tail interrupt + immediate next prompt, Home-owned speech interrupt + next prompt, and interrupt-and-listen "exactly once" with a following prompt are NOT passed and NOT claimed. `Listening…` appeared once after the tail interrupt in the runs above, but no next-prompt flow could be completed on this Home. Re-run only after the merged `d803994` is deployed (explicit authorization); the live Home was not hammered further once the cause was found. TalkBack remains unverified (no speech capture possible over `adb`).
 
-## Resume on deployed Home d803994 — authoritative next-turn diagnosis
+## Historical resume on deployed Home d803994 — next-turn diagnosis
 
 The preceding sections preserve the earlier diagnoses and failed attempts; this section supersedes their open deployment gate.
 
@@ -85,10 +85,20 @@ There were zero turn/audio failures, unavailable outcomes, generated/request rej
 
 After the matrix, the driver unconditionally force-stopped the app and reinstalled the exact baseline APK with `install -r`. Restored SHA-256: `5692a179b2347214b7e31cc1010f650ec8a224fe00439b8533ecbb5437ddeb0b`. Profiles, credential prefs and permission prefs were byte-identical; pairing material was unchanged except the app-written `last_session_refs` cache; Amanda history unchanged and Spark history grew by the test turns. Baseline settings were unchanged; no live capture or test driver remained.
 
-### Human-only TalkBack handoff
+### Historical human-only TalkBack handoff (superseded by Amanda's 2026-10-07 waiver)
 
 The first independent human build is **PR #129 only**, tested code `a48ecd3654b1b371b9d2ed1a0bedd2580a90d5a2`, APK SHA-256 `84be513f6e65704af322e7295f4d5355b28154c836ca79590dafbc0ff91a7b5f`, at this worktree's `app/build/outputs/apk/debug/app-debug.apk`. Later closeout commits change documentation only. Stage it with `adb install -r` and preserve the baseline for restoration; do not uninstall, clear-data or re-pair.
 
 For Amanda: enable TalkBack on the Pixel, open **Hermes conversation** with Spark selected, submit a neutral reply request, and swipe to the **Interrupt** button while the reply is thinking/speaking. Hear one action announcement **Interrupt** and its current phase/state (**Thinking**, **Buffering** or **Speaking**), not a silent or duplicated stop. Double-tap: local speech stops, the interrupted state is announced truthfully, and **Listening** opens once. Confirm the next normal spoken or typed turn remains usable. No automated test or adb speech capture substitutes for hearing this.
 
 Do not combine the other human checks into this build. PR #127 is `feat/android-ux-01-design-tokens` at `41a1d7e2a9d36b777329fc7cc331bbafca9dc938` (exact-head worktree `.worktrees/device-ux-01`), and PR #134 is `feat/android-ux-03-header-layout` at `197a884429d93a9207920f8902252944617875b7` (`.worktrees/android-ux-03-header`). They conflict in `DoorwayZones.kt`; each needs its own independently built/installed APK, not an implicit merge. For #134, hear once in order: Hermes conversation heading, subtitle, Selected Hermes Profile, full Profile name even if ellipsized, Authorization: Verified, Open conversation menu; double-tap the last stop opens the menu. #127's human/visual check and broader token callsites remain distinct; this VOICE-04 handoff does not close them.
+
+## Owner waiver and final device restoration — 2026-10-07
+
+Amanda explicitly accepted the manual physical TalkBack spoken-output/focus-gesture waiver for PR #129 and requested ready-for-review metadata, not a manual pass or a claim of fully verified TalkBack. Automated semantics/order assertions and the actual functional Pixel matrix remain valid. Spoken labels, physical focus order and gesture activation are unverified residual risks; this is no longer a blocking human-check requirement.
+
+The additional bounded accessibility attempt enabled the installed TalkBack normally and established that its service was bound with touch exploration. It did not establish focused Interrupt: the cropped UI showed no focus outline, and the off-target double-tap following injected left/right swipes produced zero interrupts or capture decisions. This is not spoken-output or gesture-pass evidence, and no app defect was established. The incidental phase-selector/tool failure did not justify changing the application.
+
+At the owner's restoration request, the original APK was reinstalled using only `adb install -r`. Its actual pulled SHA-256 is `5692a179b2347214b7e31cc1010f650ec8a224fe00439b8533ecbb5437ddeb0b`. All six current app-data hashes were identical before/after that install, including pairing, profiles, credential/permission prefs and histories. Original settings match the preserved baseline: font `0.85`, night `auto`, TalkBack services `null`/enabled `0`, animation scales `1.0`/`1.0`/`null`; music volume `0`, accessibility volume `1`. Hermes is force-stopped with no process, capture or test driver; temporary drivers/screenshots were removed. PR #127/#134 were not installed.
+
+The spec and sprint status are `review`, not `done`. Exact final-head CI and PR readiness are recorded in PR #129; previous exact-head CI `427dde9ef779829a91d8336ae5fd5089d34ac67e` passed [run 37691221753](https://github.com/achappell/hermes-relay-android/actions/runs/37691221753). The waiver changes acceptance metadata only, not the tested implementation.

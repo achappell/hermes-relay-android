@@ -663,6 +663,7 @@ stories:
     depends_on:
       - android:ANDROID-UX-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/88
+    scope_note: 'Ready for review; Amanda waived manual physical TalkBack spoken-output/focus-gesture acceptance on 2026-10-07. Automated accessibility and functional Pixel evidence stand; spoken output, focus order and gesture activation remain unverified risks, not a manual pass. No merge authorized.'
     parity_source: 'PX-16 (matrix V5)'
   - id: ANDROID-VOICE-05
     title: 'Echo-safe route classifier, capture audio focus and a barge-in spike'

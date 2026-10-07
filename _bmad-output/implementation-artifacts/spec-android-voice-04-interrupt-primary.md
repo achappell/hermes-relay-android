@@ -1,7 +1,7 @@
 ---
 id: ANDROID-VOICE-04
 title: Interrupt as the primary voice action with a 2 s acknowledgement
-status: in-progress
+status: review
 baseline_commit: 64f12cb6292c7a2eee205eb0bedf875942af9e53
 product_epic: 1
 release_scope: migration
@@ -18,6 +18,11 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/88
 
 Source: PX-16 (matrix V5) (`android-ios-parity-audit.md`, 2026-10-06; PX numbers are cross-references only). Priority P1, size S.
 
+## Owner acceptance decision — 2026-10-07
+
+Amanda waived manual physical TalkBack spoken-output and focus-gesture acceptance for PR #129. Existing automated accessibility assertions and actual Pixel interruption/next-turn evidence stand. Physical spoken output and TalkBack focus/gesture behavior remain unverified, not passed; residual risk includes spoken labels, focus order and gesture activation. This limited waiver removes the manual gate as a review blocker, not any functional gate. Status is `review` (ready for review), not `done`; no merge is authorized.
+
+
 ## Background
 
 On iOS the orb becomes "Tap to interrupt" while Hermes speaks; it stops local audio first, sends `session.interrupt`, and waits at most 2 s (`interruptAcknowledgement`) for the terminal. When hands-free is off it can interrupt and begin capture in one tap.
@@ -32,7 +37,7 @@ On iOS the orb becomes "Tap to interrupt" while Hermes speaks; it stops local au
 - `OkHttpRelaySessionClient.interruptTurn` is the protocol seam: it cancels local playback before sending `session.interrupt`.
 - `TurnInterruptCoordinator` owns the once-per-turn guard, 2 s acknowledgement state, timeout, and interrupt-and-listen handoff; `HomeRuntime` wires it to normalized terminal events and capture.
 - `DoorwayZones.kt::TurnZone` renders the Interrupt action, phase state description, and unconfirmed announcement; `MainActivity` routes the control through `HomeRuntime`.
-- `TurnInterruptCoordinatorTest`, `HomeRuntimeInterruptTest`, `OkHttpRelaySessionClientTest`, `InterruptControlTest`, and `AccessibilityOrderTest` cover timing, ordering, capture handoff, and accessibility semantics. The physical Pixel pass remains a device gate.
+- `TurnInterruptCoordinatorTest`, `HomeRuntimeInterruptTest`, `OkHttpRelaySessionClientTest`, `InterruptControlTest`, and `AccessibilityOrderTest` cover timing, ordering, capture handoff, and accessibility semantics. The actual functional Pixel gate passed; manual TalkBack spoken-output/focus-gesture acceptance was waived by Amanda on 2026-10-07.
 
 ## Required behavior
 
@@ -46,7 +51,7 @@ On iOS the orb becomes "Tap to interrupt" while Hermes speaks; it stops local au
 
 - Fake client: interrupt cancels audio before the frame is sent; terminal within 2 s completes; no terminal at 2 s shows the unconfirmed state; a second tap never sends a second `session.interrupt`.
 - Interrupt-and-listen starts capture exactly once.
-- TalkBack: the control announces the mode and the action (extend `AccessibilityOrderTest`).
+- Accessibility assertions: the control exposes the mode and action (extended `AccessibilityOrderTest`). Manual physical TalkBack spoken-output/focus-gesture acceptance is waived by Amanda (2026-10-07); it is unverified, not a manual pass.
 - Given interrupt-and-listen is Starting, Listening or Transcribing, when the user sends a typed prompt, then capture is cancelled before the one typed submission and late recognizer callbacks cannot change its accepted state or response observation.
 - Given the old interrupt still has a pending listen deadline, when the typed next turn begins, then that deadline cannot open a microphone over the typed reply.
 
@@ -82,7 +87,7 @@ Use the runtime's injected `DiagnosticsJournal` for the two bounded, content-fre
 - [x] Keep the saved `88ed7123da256459ae0c9087e1bfbe1022df7f26` protocol fixes: an actual Home text terminal followed by audio still permits a scoped tail interrupt; PCM in flight after a user stop is not a new failed stream.
 - [x] Run failing-before ownership regression, full JVM/build/lint/tracking gates and the combined repetition gate. The local metadata script cannot run without `apkanalyzer`; equivalent metadata and signing inspection passed, and CI runs the repository script.
 - [x] Exercise tail and before-terminal speech interrupt followed immediately by legitimate typed Send during automatic listening on the Pixel; verify local audio stop, exactly one interrupt and next submit, no replay or false Unavailable, and one capture opening. Restore the baseline APK/data/settings.
-- [ ] Publish exact-head CI and an honest validation/PR record. Physical TalkBack speech remains a separate human-only gate.
+- [x] Publish exact-head CI and an honest validation/PR record. Manual physical TalkBack spoken-output/focus-gesture acceptance is waived by Amanda (2026-10-07), not verified or blocking review.
 
 ## Review Triage Log — resumed closeout
 
