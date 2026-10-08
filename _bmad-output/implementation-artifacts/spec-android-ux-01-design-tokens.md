@@ -1,7 +1,7 @@
 ---
 id: ANDROID-UX-01
 title: 'Night Console design tokens: spacing, shapes, typography, state washes and vector icons'
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-03
@@ -50,7 +50,11 @@ Owner approval (2026-10-07): “Exempt pre-existing header clipping from #127 ac
 
 Amanda (2026-10-07) waived manual physical TalkBack spoken-output/focus-gesture acceptance for PR #127. Spoken output and focus gestures remain unverified, with known residual spoken-label, focus-order and gesture risk; automated semantics/focus-order checks are not a manual TalkBack pass. This supersedes the historical required/open TalkBack gate, not the independent header-clipping exemption or any other acceptance criterion.
 
-Delivery status remains `review`: PR #127 is merged and exact-head CI passed, but the explicit Device verification requirement below — contrast readable outdoors — has no recorded outdoor run and is not waived. Amanda's 2026-10-08 closeout instruction preserves that gate. AA calculations and indoor/display screenshots do not prove outdoor readability. Completion requires recorded outdoor acceptance or Amanda's explicit decision to waive that specific criterion; neither existing waiver covers it.
+## Owner decision: outdoor-readability waiver and closeout
+
+On **2026-10-07 CDT (2026-10-08 UTC)**, Amanda explicitly selected option **2 — waive the outdoor check**, after being offered an actual outdoor pass, an outdoor waiver, or testing. This waives only the Device verification criterion “contrast readable outdoors.” No outdoor test ran and no outdoor pass is claimed; actual outdoor/glare readability remains unverified.
+
+Delivery status is **`done` under the recorded owner acceptance**: all other non-waived criteria have retained implementation, automated and layout/device evidence in [validation](validation-android-ux-01.md), including merged PR #127 and its final exact-head CI. The earlier physical TalkBack waiver and independent pre-existing header-clipping exemption remain separate and unchanged. This explicit new decision supersedes PR #140's remaining outdoor gate; it is not inferred from merge, AA calculations or screenshots. UX-03 remains in-progress. No documentation PR merge or deployment is authorized.
 
 
 ## Android design notes

@@ -1,7 +1,7 @@
 ---
 id: ANDROID-DIAG-01
 title: Share content-free connection diagnostics from the app
-status: review
+status: done
 product_epic: 6
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -13,6 +13,10 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/76
 ---
 
 # ANDROID-DIAG-01 — On-device journal and Share diagnostics
+
+## Owner acceptance — release-build-specific physical check waived
+
+Amanda explicitly selected **option 2** on **2026-10-07 CDT / 2026-10-08 UTC**, waiving only DIAG-01's release-signed-build-specific physical check and accepting the verified debug results plus owner-confirmed email receipt/opening/inspection. Status is **done under owner acceptance**. Release-signed physical behavior remains **unverified, waived, not passed**. Retained evidence in [validation](validation-android-diag-01.md) includes the 130.005 s background/reconnect, airplane-mode content-safe export, actual Gmail Sent attachment and owner's “yep its good” confirmation. No waiver extends to another story; no release/deployment or PR merge is authorized.
 
 Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): PX-32 (connection journal), PX-33 (Share diagnostics), matrix D1/D2. Single ticket for both; no duplicate filed.
 

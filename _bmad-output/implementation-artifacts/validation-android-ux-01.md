@@ -1,18 +1,22 @@
 ---
 story: ANDROID-UX-01
 spec: spec-android-ux-01-design-tokens.md
-status: review
-story_status: review
+status: done
+story_status: done
 updated: 2026-10-08
 ---
 
 # ANDROID-UX-01 validation record
 
-## Current remaining gate — 2026-10-08
+## Current owner acceptance — 2026-10-07 CDT / 2026-10-08 UTC
 
-**Keep `review`, not done.** The spec's explicit Device verification criterion, “contrast readable outdoors,” has **not been run or waived**. AA contrast calculations, font-scale screenshots and indoor/display readability do not prove outdoor-light readability. Amanda explicitly required this gate to remain on 2026-10-08; the existing TalkBack waiver and independent header-clipping exemption do not cover it.
+**`Done` under explicit owner waivers, not fully physically verified.** Amanda selected **option 2 — waive the outdoor check** in the sequential UX-01 closeout. This specifically waives “contrast readable outdoors”; no outdoor run occurred and outdoor readability is **unverified, not passed**. The workstation clock was checked: 2026-10-07 21:16:58 CDT (2026-10-08 UTC); the frontmatter retains the UTC update date.
 
-To close UX-01, record actual outdoor readability acceptance at the specified font-scale/light/dark conditions, or obtain Amanda's explicit decision to waive that named outdoor criterion. No new outdoor waiver or acceptance is inferred from the general closeout request or PR merge. This docs-only pass performs no device scenarios.
+The 2026-10-07 manual physical TalkBack spoken-output/focus-gesture waiver and independent pre-existing header-clipping exemption remain separate and unchanged. Outdoor/glare readability and spoken labels, physical focus order and gesture activation remain unverified residual risks. All other required criteria retain the recorded token/contrast, screenshot/layout and instrumented evidence below. No new phone, outdoor, TalkBack or functional test was performed for this docs-only closeout.
+
+PR #140 correctly kept UX-01 in review before this explicit decision. Its “outdoor leg unrun and unwaived” state is now historical: the leg remains unrun, but is expressly waived. Merge alone, AA calculations and indoor/display screenshots still do not establish outdoor readability. No further non-waived UX-01 acceptance gate remains; UX-03 is unchanged and in-progress.
+
+Docs-only closeout checks passed: 18 issue-tracking tests, override shell syntax and `--check`; an actual canonical story-index/sprint/spec/validation join rendered UX-01 `done` and UX-03 `in-progress`, with matching record statuses. No local Gradle/build or device scenario was rerun. The ready documentation PR records its exact-head CI result; `main` and board status must not be advanced before that PR is merged.
 
 PR #127 was merged at `1967e9c0458955176339d93c3e158faf09fa01fe` on 2026-10-08. Final head `8d5e825f1934b69c7af649b2938c6e620230b0c1` passed [CI run 37704743060](https://github.com/achappell/hermes-relay-android/actions/runs/37704743060). Post-integration direct instrumentation on `db34461` passed **8 tests**: header layout 1, overflow semantics 1, accessibility order 6 (17.485 s). These establish their own automated/layout scope only, not outdoor contrast or spoken TalkBack.
 
@@ -48,12 +52,12 @@ Installed with `adb install -r` only (app data hashes unchanged after each insta
 - **Wash blocks, notices and buttons:** the state card title and connection line on the identity/live/unavailable washes, the unavailable-wash unconfirmed notice and the attention-wash unresolved notice are fully readable at 2.0x in light and dark, with no clipped text inside the card or notices; the overflow icon renders as the 17th vector icon and opens the menu (`Configure relay`, `Local History`) at 1.0x.
 - **Fails the spec's "no text clipped at 2.0" check — in the header, and identically on main:** with a real Profile label (`Spark · caticornqueen.taila59979.ts.net`) the header row runs out of width. At 1.0x the title reads `Hermes conve…`; at 2.0x the title and subtitle are truncated or dropped and the overflow icon is pushed out of view, so Configure/Conversations/History/Disconnect are unreachable at 2.0x with a long Profile label. The same harness on main shows the same header at 2.0x, so this is not a UX-01 regression; it is the large-font reachability risk owned by `ANDROID-HOME-11` (and the header rebuild in `ANDROID-UX-03`).
 
-## Accepted exceptions and remaining review gate
+## Accepted exceptions and closeout
 
 - **Independent header OWNER EXEMPTION (2026-10-07):** “Exempt pre-existing header clipping from #127 acceptance.” This exception covers only the pre-existing session-header clipping documented above, reproduced unchanged on `main`, and tracked for UX-03 (#134) with HOME-11 reachability coordination; it is not a UX-01 regression. The exemption remains intact and is separate from the TalkBack waiver.
 - **Amanda's TalkBack waiver (2026-10-07):** manual physical TalkBack spoken-output/focus-gesture acceptance for PR #127 is waived. Physical TalkBack was not run; spoken output and focus gestures remain unverified, with known residual spoken-label, focus-order and gesture risk. Automated semantics and focus-order tests do not establish manual spoken-output or gesture acceptance.
 - **Superseded history:** before this owner decision, physical TalkBack was not waived and remained an open device-verification gate. That requirement no longer blocks review; it is not a historical pass.
-- **Status:** `review` because the explicit outdoor-contrast device leg remains unrun and unwaived. Final merged-head CI and post-integration header/menu checks passed as recorded above; they do not replace outdoor acceptance. The independent header exemption and TalkBack waiver retain only their named scope; spoken output/focus/gestures remain unverified.
+- **Outdoor waiver and status:** Amanda explicitly selected option 2 on 2026-10-07 CDT (2026-10-08 UTC), waiving the outdoor-readability criterion. Status is `done` on the existing non-waived evidence plus the three distinct owner decisions. Outdoor and TalkBack behavior remain unverified, not passed. The closeout does not authorize merging its documentation PR.
 
 ## Verification
 

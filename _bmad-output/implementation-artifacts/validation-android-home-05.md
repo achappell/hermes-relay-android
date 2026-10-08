@@ -1,12 +1,20 @@
 ---
 story: ANDROID-HOME-05
 spec: spec-android-home-05-audio-start-after-turn.md
-status: done-with-environment-limitation
-story_status: review
-updated: 2026-10-07
+status: done
+story_status: done
+updated: 2026-10-08
 ---
 
 # ANDROID-HOME-05 validation record
+
+## Current owner acceptance — 2026-10-07 CDT / 2026-10-08 UTC
+
+**Done under an explicit live-timing waiver, not a delayed-start pass.** Amanda selected option 2: waive the live >30 s / ≥60 s delayed-start checks (including the spec's >35 s device scenario) and accept the retained automated coverage plus the actual 19.214 s acceptance-to-output-track proof. Slow live start remains unverified. Long playback is not a substitute, and no synthetic producer delay or new phone scenario was introduced.
+
+All other required criteria retain the evidence below: baseline-red ordering reproduced and fixed, latch-controlled late-audio/PCM/no-replay and unavailable/text-preservation coverage, and waiting without an invented post-text deadline. `HomeTurnDeadlines` is still absent and HOME-10 is backlog; its conditional future guard remains required there, not waived. Real-Home `unavailable` and microphone scenarios remain unrun but are not additional required live acceptance criteria for this story. The waiver is **Android HOME-05 only**, with no extension to IOS-HOME-05.
+
+This supersedes the historical review gate below. PR #141 is the shared Android status-only batch; main/board must not advance until it is merged. No other story is closed by this decision.
 
 Stacked on `ANDROID-DIAG-01` (#120): the journal lines asserted here need it. Device runs also include the #119 paired-Profile fix.
 
@@ -15,7 +23,7 @@ Stacked on `ANDROID-DIAG-01` (#120): the journal lines asserted here need it. De
 | Baseline-red | Done | The two new client tests failed on the pre-change code (below) |
 | Local (JVM) | Passed | Below |
 | Real turn on a Pixel 6a against the deployed Home | Passed for the ordinary shape; **slow (>30 s) shape not exercised** | Below |
-| Reply slower than 30/60 s end to end | **Unverified** | Needs a prompt that takes that long to generate |
+| Reply slower than 30/60 s end to end | **Waived by Amanda; unverified, not passed** | Explicit option 2, 2026-10-07 CDT / 2026-10-08 UTC; retained 19.214 s actual start below |
 
 ## The defect (reproduced, not just read)
 
@@ -54,7 +62,7 @@ Not exercised: a reply that takes more than 30 s to produce (Home `0effbf9` path
 
 ## Bounded follow-up — 2026-10-08 UTC (not slow-audio acceptance)
 
-Story remains `review`. The shared HOME-07 acceptance used one neutral bounded
+Historical state before the explicit timing waiver: `review`. The shared HOME-07 acceptance used one neutral bounded
 household prompt, source `98ee22932036aff9871dcfebd9f62995bf82417b`, APK
 `b8c91c3be1a95a3b5d2c931a1472051aaf01066d2e3e69cecf4ceba6b6440cdc`, Pixel API 37,
 against source-verified Home `d803994d1d47c63bb1b3c92cff42695de19a4434`.
@@ -73,9 +81,8 @@ no audio. No second prompt was sent merely to seek an uncontrollable delay.
 PR #129's recorded post-text starts (375 ms and 2,705 ms), plus this story's
 earlier 629 ms result, support ordinary late-audio ordering, not a measured
 >30/60-second start. Existing deterministic delay/failure tests remain valid;
-the required slow live shape remains unverified. Next owner: Android/Home
-acceptance operator must obtain a legitimate measured slow producer response,
-or the product owner must explicitly decide acceptance scope. No producer
-delay, Home configuration/deployment or new waiver was introduced here.
+the required slow live shape remains unverified. The then-open owner decision
+is superseded by the explicit timing waiver above, not by a new timing result.
+No producer delay, Home configuration/deployment or new device test was introduced.
 Phone APK/settings/media volume and mute state restored; pairing/credentials
 and saved Profile/session references preserved, legitimate history retained.

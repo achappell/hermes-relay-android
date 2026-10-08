@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-05
 title: Play Home audio for replies slower than any client audio-start wait
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -19,6 +19,12 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/69
 Source (audit cross-reference, `android-ios-parity-audit.md` 2026-10-06): matrix V17 (audio deadline after text; pre-speech tolerance). The audit found no matching iOS constant for ">30 s tolerance"; the requirement here is the arming rule plus the late-audio test.
 
 Parity with `IOS-HOME-05` (`hermes-relay-ios` commit `8c3f163`) and the Home fix in `hermes-relay-home` PR #74 (`9b445bc`, "start the response-audio timeout only once speech is requested"), deployed on CaticornQueen as `0effbf9`.
+
+## Owner acceptance — live delayed-start timing waived
+
+Amanda explicitly selected **option 2** on **2026-10-07 CDT (2026-10-08 UTC)**: waive the live **>30 s / ≥60 s delayed-start timing checks** and accept the existing automated coverage plus the actual **19.214 s** acceptance-to-output-track playback proof. This covers the >35 s device scenario below, not a measured pass of it. The 19.214 s start and 377.408 s playback are not evidence of a >30/≥60 s start.
+
+Status is **`done` under that owner acceptance**. The deterministic ordering, waiting-state, PCM/no-replay and unavailable/text-preservation evidence remains in [validation](validation-android-home-05.md). No audio-start deadline exists; the conditional HOME-10 guard remains owned by HOME-10 when its deadline type is introduced, not waived here. No other acceptance criterion is waived. This decision applies only to **ANDROID-HOME-05**, not IOS-HOME-05; no new device run or deployment occurred.
 
 ## Background
 
