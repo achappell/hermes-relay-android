@@ -363,6 +363,7 @@ stories:
       - home:HOME-NW-17
       - home:HOME-NW-18
     github_issue: https://github.com/achappell/hermes-relay-android/issues/67
+    validation: _bmad-output/implementation-artifacts/validation-android-home-03.md
     ios_reference: 'IOS-HOME-03'
   - id: ANDROID-HOME-04
     title: Reconnect to Home after a long background
@@ -923,6 +924,7 @@ stories:
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/105
     parity_source: 'PX-26 (matrix X9; design section 3.2; audit section 4 predictive back)'
+    validation: _bmad-output/implementation-artifacts/validation-android-ux-09.md
   - id: ANDROID-UX-10
     title: 'Live reduced-motion tracking and a recorded TalkBack pass'
     kind: local

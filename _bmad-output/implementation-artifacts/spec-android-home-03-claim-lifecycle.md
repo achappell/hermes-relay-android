@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-03
 title: Keep Home conversations resumable, stop leaking claims, and let people close open ones
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01

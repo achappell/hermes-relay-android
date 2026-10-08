@@ -1,14 +1,13 @@
 ---
 story: ANDROID-HOME-13
 spec: spec-android-home-13-paired-homes-refresh-unpair.md
-status: done-with-environment-limitation
-story_status: review
+status: review
 updated: 2026-10-07
 ---
 
 # ANDROID-HOME-13 validation record
 
-Gates are kept separate. Refresh Profiles and Unpair were **not** run against a real Home, and the Paired Homes screen was **not** driven on the device: the device holds the owner's real pairing, and Unpair would remove it.
+Gates are kept separate. **Owner waiver 2026-10-07:** the destructive Unpair + re-pair device leg is waived (would remove the device's real household pairing on a physical device). The non-destructive Paired Homes render and Refresh Profiles ('No new profiles') device checks **remain required**.
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
@@ -16,7 +15,8 @@ Gates are kept separate. Refresh Profiles and Unpair were **not** run against a 
 | Repetition gate | Passed | Rebased onto `main` `3fd3d76`: `scripts/run-flake-gate.sh HomePairedHomesTest,HomeClientPairingTest 30`: 30 consecutive runs of 55 tests, 0 failures |
 | Build, lint, `compileDebugAndroidTestKotlin` | Passed | Rebased onto `main` `3fd3d76`: `./gradlew testDebugUnitTest assembleDebug lintDebug compileDebugAndroidTestKotlin --no-daemon`; `check-apk-metadata.sh`, 18 issue-tracking tests and `git diff --check` pass. The one rebase conflict was `sprint-status.yaml` (HOME-12 `review` from main plus HOME-13 `review`) |
 | Device smoke (Pixel 6a) | Passed, limited | Installed with `adb install -r`; `AccessibilityOrderTest` 4/4. It does not open the Paired Homes section |
-| Device: pair, owner approves a second grant, Refresh Profiles, Unpair, re-pair | **Not run** | Needs a Home and the owner; the device's real pairing must not be unpaired |
+| Device: Paired Homes render and Refresh Profiles | **Pending** | Requires device with paired Home; non-destructive checks only (render screen, Refresh with no new profiles) |
+| Device: pair, owner approves a second grant, Unpair, re-pair | **Waived by owner 2026-10-07** | Needs a Home and the owner; the device's real pairing must not be unpaired. Destructive leg is not exercised. |
 | Instrumented test of the Paired Homes screen | **Not written / not run** | The spec asks for JVM tests; the Compose section has no instrumented test |
 | TalkBack | **Not run** | The section uses text, buttons with labels and a polite live region; no TalkBack session was exercised |
 | CI | Pending the pull request | `ci.yml` |
