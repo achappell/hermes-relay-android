@@ -27,7 +27,7 @@ development_status:
   android-home-02: done
   android-home-03: done
   android-home-04: backlog
-  android-home-05: review
+  android-home-05: done # Amanda explicitly waived live >30/60s delayed-start checks; 19.214s actual start is not a delayed-gate pass.
   android-home-06: backlog
   android-home-07: done
   android-home-08: backlog

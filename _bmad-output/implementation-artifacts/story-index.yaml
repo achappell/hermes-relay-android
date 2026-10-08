@@ -396,6 +396,7 @@ stories:
       - home:HOME-NW-18
     github_issue: https://github.com/achappell/hermes-relay-android/issues/69
     ios_reference: 'IOS-HOME-05'
+    scope_note: 'Done under explicit owner acceptance 2026-10-07 CDT / 2026-10-08 UTC: Amanda chose option 2, waiving live >30s/60s delayed-start checks and accepting existing automated coverage plus actual 19.214s playback-start proof. Timing remains unverified, not passed; no other criterion or IOS-HOME-05 acceptance is waived. Conditional future HOME-10 deadline guard remains owned there.'
   - id: ANDROID-HOME-06
     title: Treat a backgrounded Home transport as disconnected, and close or reconnect it exactly once
     kind: local
