@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-12
 title: Disconnect from Home deliberately
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-02
