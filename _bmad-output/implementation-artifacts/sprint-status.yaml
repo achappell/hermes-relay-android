@@ -27,7 +27,7 @@ development_status:
   android-home-02: done
   android-home-03: done
   android-home-04: backlog
-  android-home-05: review
+  android-home-05: done # Amanda explicitly waived live >30/60s delayed-start checks; 19.214s actual start is not a delayed-gate pass.
   android-home-06: backlog
   android-home-07: done
   android-home-08: backlog
@@ -39,20 +39,20 @@ development_status:
   android-parity-01: backlog
   android-arch-01: backlog
   android-net-01: backlog
-  android-voice-01: review
-  android-voice-02: review
-  android-voice-03: review
+  android-voice-01: done # Actual spoken Home turn accepted; missing-pack/offline live check explicitly waived, unverified not passed.
+  android-voice-02: done # Explicit owner waiver of both manual denial/recovery and physical TalkBack legs; unverified not passed.
+  android-voice-03: done # Owner-confirmed pause, automatic no-Send submission and reply; journal/UI corroborated.
   android-voice-04: done # Owner closeout 2026-10-08; functional acceptance plus 2026-10-07 TalkBack waiver, not manual verification.
   android-voice-05: backlog
   android-voice-06: backlog
   android-home-12: done # All nonwaived HOME12 acceptance passed; physical TalkBack speech/focus/gesture remains explicitly waived, unverified, not passed. Canonical status becomes effective on PR #142 merge.
-  android-home-13: review
+  android-home-13: done # Owner explicitly waived newly-active-grant device acceptance and physical TalkBack 2026-10-08; both remain unverified, not passed. Prior Unpair/re-pair waiver retained.
   android-home-14: backlog
   android-qa-01: backlog
   android-entry-01: backlog
   android-bug-f3: backlog
   android-watch-f1: backlog
-  android-ux-01: review # Outdoor contrast device leg unrun/unwaived; TalkBack waiver and header exemption do not cover it.
+  android-ux-01: done # Explicit outdoor waiver 2026-10-07 CDT/2026-10-08 UTC; prior TalkBack waiver/header exemption retained, no physical pass implied.
   android-ux-02: backlog
   android-ux-03: in-progress
   # PR #134 header reachability slice is ready for review (review), not done; broader story stays in-progress.
@@ -90,7 +90,7 @@ development_status:
   android-rel-02: done
   android-rel-03: backlog
   epic-6: backlog
-  android-diag-01: review
+  android-diag-01: done # Explicit owner release-build physical waiver; debug Share and recipient acceptance passed, release behavior unverified.
   android-diag-02: backlog
   android-diag-03: backlog
   epic-7: backlog

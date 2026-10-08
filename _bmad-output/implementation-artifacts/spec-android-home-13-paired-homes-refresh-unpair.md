@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-13
 title: 'Paired Homes screen: Refresh Profiles and Unpair Home'
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-02
@@ -81,5 +81,20 @@ before and 7/7 green after. Exactly one fixed-APK real Refresh kept the section,
 three saved active grants and truthful `No new profiles.` result visible.
 Original app/test APKs and settings were restored. See the validation record
 for exact hashes and the retained additive Home capability metadata.
-The narrow defect is complete; story status remains `review` because the
-newly-active-grant real-device and unwaived TalkBack gates are not yet accepted.
+ 
+## Owner decision and closeout — 2026-10-08
+
+Amanda explicitly selected option 2 to waive both remaining HOME-13 acceptance
+checks: a newly approved grant becoming a Profile after **Refresh Profiles**,
+and physical TalkBack. Both scenarios remain **unverified, waived, not passed**;
+the deterministic grant-refresh tests, parent-sheet regression and existing
+non-destructive fixed-APK refresh evidence are accepted as sufficient closeout
+evidence. No grant approval, device interaction or settings change was performed
+for this decision. The earlier destructive Unpair + re-pair waiver remains
+unchanged and is not represented as a pass. No other acceptance criterion is
+waived.
+
+The refresh-feedback defect remains fixed and device-verified as recorded above
+and in the validation history. Delivery status is `done` under this explicit
+owner acceptance; the retained evidence does not claim either waived scenario
+was exercised.

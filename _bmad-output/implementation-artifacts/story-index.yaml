@@ -396,6 +396,7 @@ stories:
       - home:HOME-NW-18
     github_issue: https://github.com/achappell/hermes-relay-android/issues/69
     ios_reference: 'IOS-HOME-05'
+    scope_note: 'Done under explicit owner acceptance 2026-10-07 CDT / 2026-10-08 UTC: Amanda chose option 2, waiving live >30s/60s delayed-start checks and accepting existing automated coverage plus actual 19.214s playback-start proof. Timing remains unverified, not passed; no other criterion or IOS-HOME-05 acceptance is waived. Conditional future HOME-10 deadline guard remains owned there.'
   - id: ANDROID-HOME-06
     title: Treat a backgrounded Home transport as disconnected, and close or reconnect it exactly once
     kind: local
@@ -506,6 +507,7 @@ stories:
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/76
     ios_reference: 'IOS-DIAG-01 (journal and Share diagnostics), plus the PR #122 journal lines'
+    scope_note: 'Done under Amanda explicit option 2 acceptance, 2026-10-07 CDT / 2026-10-08 UTC: DIAG-01 release-build-specific physical check waived, unverified not passed. Verified debug background/offline/content-safe Gmail Share plus owner-confirmed receipt/open/inspection retained. No waiver extends to other stories.'
   - id: ANDROID-DIAG-02
     title: Automatically send opted-in connection reports to Home
     kind: local
@@ -625,6 +627,7 @@ stories:
       - android:5-A-3
     github_issue: https://github.com/achappell/hermes-relay-android/issues/85
     parity_source: 'PX-12 (matrix V2)'
+    scope_note: 'Done under owner acceptance 2026-10-07 CDT / 2026-10-08 UTC: actual spoken Home turn confirmed; explicit option 2 waives English-pack-missing/offline physical check, unverified not passed. Automated coverage retained; no waiver extension.'
   - id: ANDROID-VOICE-02
     title: 'Microphone permission rationale and Open Settings after permanent denial'
     kind: local
@@ -639,6 +642,7 @@ stories:
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/86
     parity_source: 'PX-13 (matrix V3)'
+    scope_note: 'Done under explicit owner option 2 acceptance, 2026-10-07 CDT / 2026-10-08 UTC: manual deny-twice/Settings-grant/return/capture and physical TalkBack permission-state/action speech waived, unverified not passed; retained automated/instrumented coverage accepted. No permission changes or extension to HOME-12/HOME-13.'
   - id: ANDROID-VOICE-03
     title: 'Endpointing parity and auto-send on tap-to-talk'
     kind: local
@@ -654,6 +658,7 @@ stories:
       - android:ANDROID-VOICE-01
     github_issue: https://github.com/achappell/hermes-relay-android/issues/87
     parity_source: 'PX-14 (matrix V1)'
+    scope_note: 'Done under owner acceptance 2026-10-07 CDT / 2026-10-08 UTC: owner confirmed one-second midphrase pause preserved, automatic submission without Send tap, and actual Home reply. One successful submit/text/audio completion observed; no current partial-to-submit latency claimed. Prior endpointing measurements retained separately.'
   - id: ANDROID-VOICE-04
     title: 'Interrupt as the primary voice action with a 2 s acknowledgement'
     kind: local
@@ -808,7 +813,7 @@ stories:
       - android:5-A-3
     github_issue: https://github.com/achappell/hermes-relay-android/issues/97
     parity_source: 'PX-17 (design section 3.1: color, state roles, typography, spacing/shape, iconography)'
-    scope_note: 'Review: the explicit outdoor-contrast device leg is unrun and unwaived; AA calculations and screenshots do not establish outdoor readability. Amanda must accept recorded outdoor evidence or explicitly waive that criterion before done. The 2026-10-07 manual TalkBack waiver and independent pre-existing header-clipping exemption remain limited to their named gates; spoken labels/focus order/gestures remain unverified. Merged #127 and its green CI alone do not close this story.'
+    scope_note: 'Done under owner acceptance: Amanda explicitly chose option 2, waive outdoor readability, on 2026-10-07 CDT (2026-10-08 UTC). The outdoor leg remains unrun/unverified, not passed; AA/screenshots/merge are not outdoor proof. Prior physical TalkBack waiver and independent pre-existing header-clipping exemption remain separate and intact. Other criteria retain token/contrast, layout/instrumentation and exact-head CI evidence in validation-android-ux-01.md. UX-03 remains in-progress.'
   - id: ANDROID-UX-02
     title: 'Voice orb and nine-mode ambient HUD'
     kind: local

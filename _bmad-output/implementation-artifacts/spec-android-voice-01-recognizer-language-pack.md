@@ -1,7 +1,7 @@
 ---
 id: ANDROID-VOICE-01
 title: Recognizer language-pack handling, error mapping and a confirmed spoken turn
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-02
@@ -14,6 +14,10 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/85
 ---
 
 # ANDROID-VOICE-01 — Recognizer language-pack and error mapping, and a confirmed spoken turn
+
+## Owner acceptance — 2026-10-07 CDT / 2026-10-08 UTC
+
+Amanda confirmed the actual spoken Home turn worked, including a roughly one-second mid-sentence pause and automatic submission without tapping Send. She then explicitly selected **option 2**: waive the English-speech-pack-missing/offline live check and accept existing automated coverage plus that spoken turn. Status is **done under owner acceptance**. Missing-pack/offline physical behavior remains **unverified, waived, not passed**. No pack, permission or network settings were changed; no waiver extends to another story. See [validation](validation-android-voice-01.md) for observed journal evidence versus owner-reported behavior.
 
 Source: PX-12 (matrix V2) (`android-ios-parity-audit.md`, 2026-10-06; PX numbers are cross-references only). Priority P1, size S.
 

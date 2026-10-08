@@ -1,14 +1,16 @@
 ---
 story: ANDROID-VOICE-01
 spec: spec-android-voice-01-recognizer-language-pack.md
-status: done-with-environment-limitation
-story_status: review
-updated: 2026-10-06
+status: done
+story_status: done
+updated: 2026-10-08
 ---
 
 # ANDROID-VOICE-01 validation record
 
-Gates are kept separate. The recogniser was exercised on a physical Pixel with a real utterance, but **not** end to end through a Home turn: the device was not paired, so a spoken Home turn is still open. The "pack removed / airplane mode" scenario was **not** run.
+**Done under owner acceptance (2026-10-07 CDT / 2026-10-08 UTC).** Amanda confirmed the actual spoken Home turn and explicitly selected option 2 to waive only the English-pack-missing/offline live check, accepting retained automated coverage. That physical scenario remains **unverified, waived, not passed**; no other story or TalkBack waiver is implied.
+
+The shared actual turn and exact journal/UI/restoration evidence are recorded in [VOICE-03 validation](validation-android-voice-03.md#actual-spoken-home-turn--2026-10-08-utc). The prior recognizer-only test below remains separate historical evidence, not a claim it exercised Home. No pack, permission, network or account changes were made for the accepted Home turn.
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
@@ -16,9 +18,9 @@ Gates are kept separate. The recogniser was exercised on a physical Pixel with a
 | Repetition gate | Passed | `scripts/run-flake-gate.sh SpeechRecognitionPolicyTest,AndroidCaptureControllerTest 30`: 30 consecutive runs, 0 failures (30 tests per iteration) |
 | Instrumented UI on a physical device | Passed | Pixel 6a, Android 17 (API 37): `SpeechLanguagePackTest` 3/3, `MicrophoneCaptureTest` 7/7, `MicrophonePermissionTest` 5/5, `AccessibilityOrderTest` 5/5 |
 | Real recogniser, one spoken phrase | Passed (recogniser only) | `LiveSpeechRecognizerTest` on the Pixel 6a: on-device recogniser (`network=false`), a neutral phrase spoken by the host (`say`) near the device; `ready` at 264 ms, final transcript matched the spoken phrase. Transcript text is never logged. |
-| Spoken turn end to end through Home | **Not run** | Needs a paired Home on the device |
-| Pack removed / airplane mode on the Pixel | **Not run** | Would disrupt the shared device; the missing-pack path is covered by JVM tests only |
-| CI | Pending the pull request | `ci.yml` |
+| Spoken turn end to end through Home | **Passed: owner-confirmed, journal/UI corroborated** | One successful prompt.submit, text terminal, audio completion and UI Complete; owner confirmed spoken reply worked |
+| Pack removed / airplane mode on the Pixel | **Owner-waived; unverified, not passed** | Amanda explicitly selected option 2; existing missing-pack JVM coverage retained |
+| Historical implementation CI note | Pending at original validation | Not current-head CI evidence; this status-only PR does not watch CI |
 
 The first live attempt failed with `NoSpeechHeard` after about 13 s (recogniser listening, nothing heard): host speaker volume was too low for the distance. Kept here because it shows a no-speech result is not a recogniser fault.
 

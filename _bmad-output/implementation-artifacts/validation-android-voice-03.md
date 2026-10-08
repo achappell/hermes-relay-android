@@ -1,14 +1,14 @@
 ---
 story: ANDROID-VOICE-03
 spec: spec-android-voice-03-endpointing.md
-status: done-with-environment-limitation
-story_status: review
-updated: 2026-10-06
+status: done
+story_status: done
+updated: 2026-10-08
 ---
 
 # ANDROID-VOICE-03 validation record
 
-Gates are kept separate. Endpoint latency was measured on a physical Pixel with the real recogniser and a host-spoken neutral phrase; the turn was sent to a recording fake port, **not** to a Home (the device was not paired).
+**Done under owner acceptance (2026-10-07 CDT / 2026-10-08 UTC).** Retained deterministic and real-recognizer evidence is now complemented by the actual spoken Home turn below. Earlier measured endpoint latency used a recording fake port; those measurements are not attributed to this Home turn.
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
@@ -16,8 +16,8 @@ Gates are kept separate. Endpoint latency was measured on a physical Pixel with 
 | Repetition gate | Passed | `scripts/run-flake-gate.sh AndroidEndpointingTest,AndroidCaptureControllerTest,AndroidHandsFreeTest 30`: 30 consecutive runs, 0 failures |
 | Real recogniser, silence-only send, one request | Passed | `LiveEndpointingTest` on the Pixel 6a (Android 17 / API 37), on-device recogniser: 1 request, sent with no screen interaction |
 | Real recogniser, 1 s mid-sentence pause | Passed | same test; the whole 4-word phrase was sent once; the pause did not cut it off |
-| Through Home | **Not run** | Device not paired |
-| CI | Pending the pull request | `ci.yml` |
+| Through Home | **Passed: owner-confirmed, journal/UI corroborated** | Actual spoken turn, roughly 1 s pause preserved, automatic send without Send tap, reply worked |
+| Historical implementation CI note | Pending at original validation | Not current-head CI evidence; no CI watch for this status-only update |
 
 ## Measured on the device (content-free)
 
@@ -48,3 +48,15 @@ If no final arrives within 2 s, the controller shows the **no-speech state** and
 - `HomeRuntime` passes `MainLooperVoiceTimers` (one line).
 - `FakeSpeechInput.stopCount`.
 - `LiveEndpointingTest` (instrumented, skipped unless `-e liveSpeech true`).
+
+## Actual spoken Home turn — 2026-10-08 UTC
+
+Existing Pixel 6a / Android 17 (API 37), debug 0.3.1 (301), embedded revision `b865c0b`, APK SHA-256 `5692a179b2347214b7e31cc1010f650ec8a224fe00439b8533ecbb5437ddeb0b`. Source ancestry includes VOICE-01 merge `688bbf2` and VOICE-03 merge `64f12cb`. Microphone permission was already granted; the app was Ready with Tap to speak and Start hands-free (hands-free off). No install or assistant-triggered capture occurred.
+
+Amanda reported “voice turn worked,” then explicitly answered yes to pausing about one second mid-sentence, finishing speech, and automatic submission **without tapping Send**. These pause/interaction observations are **owner-reported**, not instrumented timing.
+
+Existing content-free journal from this launch records **one** successful `prompt.submit` response at `03:17:55.324Z` (149 ms RPC duration), **one** text terminal at `03:17:57.817Z`, and **one** audio completion at `03:18:08.623Z`. UI showed Ready and Turn phase: Complete. This corroborates one successful actual Home turn; it is not an independently instrumented controller auto-submit counter.
+
+The user completed the turn before observability preparation finished. Initial journal lookup used the wrong `files/` location; the retained journal was recovered from `no_backup/diagnostics/connection-journal.jsonl`. No partial-to-submit latency, current recognizer package or acoustic pause duration was captured; the historical recognizer measurements above are not substituted. No repeat prompt or rerun was performed.
+
+Safe conclusion: Hermes stopped, phone returned to launcher, temporary UI dump removed; all captured settings and three profile/pairing/credential baseline files restored exactly. Only this launch's removed optional pairing capability flag was restored after confirming it was the sole difference. Legitimate new turn history was retained. No language-pack, permission, network, account or APK changes occurred. No TalkBack waiver extends from VOICE-04.
