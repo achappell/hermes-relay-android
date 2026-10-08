@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-07
 title: Own the Home runtime in one process-scoped object that survives Activity recreation
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -69,3 +69,14 @@ Start a 30+ s reply, rotate twice and change font scale once during playback; au
 ## References
 
 iOS: `validation-ios-home-07.md` section "Follow-up: build 17 retest — lifecycle bound to an orphaned voice coordinator"; tests `testViewReinitialisationReusesOneRuntimeBoundToTheVoiceCoordinatorInUse`, `testRuntimeLifecycleKeepsAReplyWhoseControlTurnCompletedBeforeItsAudioEnded`.
+
+## Acceptance closeout — 2026-10-07 owner authorization
+
+Accepted on retained deterministic runtime/uncertain-state evidence plus the
+actual Pixel run in `validation-android-home-07.md`: 377.408-second real reply,
+two rotations/font recreation, one runtime/same process and output track,
+advancing PCM with zero underruns, unmuted speaker route, retained transcript
+and Speaking→Complete state. `HomeRuntimeRecreationTest` also passed on API 37.
+Routed playback is proven; no human-heard or acoustic-recording claim is made.
+No new waiver, microphone/permission mutation or future lifecycle-policy
+completion is inferred. Original APK/settings/media state restored.

@@ -29,12 +29,12 @@ development_status:
   android-home-04: backlog
   android-home-05: review
   android-home-06: backlog
-  android-home-07: review
+  android-home-07: done
   android-home-08: backlog
   android-home-09: backlog
   android-home-10: backlog
   android-home-11: backlog
-  android-test-01: review
+  android-test-01: done
   # Umbrella epics (kind: epic in story-index.yaml): not stories; exclude from story counts.
   android-parity-01: backlog
   android-arch-01: backlog
@@ -84,7 +84,7 @@ development_status:
   android-home-01: done
   epic-4: backlog
   android-retire-01: backlog
-  android-rel-01: review
+  android-rel-01: done
   # Declined 2026-10-06 (disposition: declined in story-index.yaml): Play Store distribution stays out of
   # scope per README. `done` is the closest value in the shared status vocabulary; nothing was delivered.
   android-rel-02: done
