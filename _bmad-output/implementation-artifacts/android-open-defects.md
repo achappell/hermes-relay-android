@@ -20,6 +20,22 @@ cross-surface dependency, record that decision in the private product hub and
 update the coverage index as context; do not copy Android status into the TUI
 tracker.
 
+## `ANDROID-HOME-13` — Refresh Profiles dismisses its result
+
+Observed on the real Pixel on 2026-10-07 local time: Paired Homes rendered one
+Home and three existing saved grants, but one Refresh Profiles tap immediately
+closed configuration and returned to Ready. All Profile, grant, pairing,
+credential and stored session-reference data stayed unchanged.
+
+This device observation uses the restored original `0.3.1` / `301` APK
+`5692a179…deb0b`, not current main. Source review at `d30182e` still shows
+`PairedHomesSection.onChanged` → `RelayConfigurationScreen.refresh` →
+`MainActivity`'s selected-Profile configuration-dismissal callback. Keep the
+refresh result visible by separating data refresh from deliberate setup
+completion; no fix is authorized or included yet. See
+`validation-android-home-13.md` for exact provenance, preservation, receipt
+limitations and remaining acceptance gates. Story stays `review`.
+
 ## `ANDROID-BUG-F1` — off-tailnet state is unreachable for the live endpoint
 
 `A-4` requires an honest off-tailnet unavailable state. Detection depends on
