@@ -1,7 +1,7 @@
 ---
 id: ANDROID-VOICE-04
 title: Interrupt as the primary voice action with a 2 s acknowledgement
-status: review
+status: done
 baseline_commit: 64f12cb6292c7a2eee205eb0bedf875942af9e53
 product_epic: 1
 release_scope: migration
@@ -18,9 +18,11 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/88
 
 Source: PX-16 (matrix V5) (`android-ios-parity-audit.md`, 2026-10-06; PX numbers are cross-references only). Priority P1, size S.
 
-## Owner acceptance decision — 2026-10-07
+## Owner acceptance and closeout — 2026-10-08
 
-Amanda waived manual physical TalkBack spoken-output and focus-gesture acceptance for PR #129. Existing automated accessibility assertions and actual Pixel interruption/next-turn evidence stand. Physical spoken output and TalkBack focus/gesture behavior remain unverified, not passed; residual risk includes spoken labels, focus order and gesture activation. This limited waiver removes the manual gate as a review blocker, not any functional gate. Status is `review` (ready for review), not `done`; no merge is authorized.
+Amanda authorized `done` closeout on 2026-10-08 using the recorded functional Pixel acceptance and her 2026-10-07 waiver of manual physical TalkBack spoken-output/focus-gesture acceptance. PR #129 is merged at `df78efdd02c5f8541f2cf4f51102048c3f83c13f`; its final head `028bac752d41cacfb070d3b8ca7920c5039641b3` passed [CI run 37704823261](https://github.com/achappell/hermes-relay-android/actions/runs/37704823261). The two controlled interruption/next-turn scenarios and deterministic deadline, once-only capture, typed-ownership and accessibility assertions satisfy this story's non-waived criteria; see [validation](validation-android-voice-04.md).
+
+Physical spoken output and TalkBack focus/gesture behavior remain unverified, not passed. The accepted residual risks are spoken labels, focus order and gesture activation. This closes VOICE-04's approved existing-button delivery; the final orb belongs to UX-02. It neither closes VOICE-01/03 nor authorizes merging this documentation PR.
 
 
 ## Background
