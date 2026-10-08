@@ -869,6 +869,8 @@ internal fun AndroidClientScreen(
                             onPendingPairingLinkConsumed = onPendingPairingLinkConsumed,
                             onChanged = {
                                 configurationRevision += 1
+                            },
+                            onSetupCompleted = {
                                 if (configurationController.collection.selectedId != null) {
                                     configurationVisible = false
                                 }

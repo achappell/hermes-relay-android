@@ -50,6 +50,7 @@ internal fun RelayConfigurationScreen(
     onShareDiagnostics: (() -> Unit)? = null,
     versionLabel: String? = null,
     onChanged: () -> Unit,
+    onSetupCompleted: () -> Unit = {},
 ) {
     var collection by remember { mutableStateOf(controller.collection) }
     var endpoint by rememberSaveable { mutableStateOf("") }
@@ -67,6 +68,11 @@ internal fun RelayConfigurationScreen(
         collection = controller.collection
         pairedHomesRevision += 1
         onChanged()
+    }
+
+    fun completeSetup() {
+        refresh()
+        onSetupCompleted()
     }
 
     Column(
@@ -103,7 +109,7 @@ internal fun RelayConfigurationScreen(
                         TextButton(
                             onClick = {
                                 controller.select(profile.id)
-                                refresh()
+                                completeSetup()
                             },
                         ) {
                             Text(stringResource(R.string.android_relay_select))
@@ -111,7 +117,7 @@ internal fun RelayConfigurationScreen(
                         TextButton(
                             onClick = {
                                 controller.delete(profile.id)
-                                refresh()
+                                completeSetup()
                             },
                         ) {
                             Text(stringResource(R.string.android_relay_delete))
@@ -126,7 +132,7 @@ internal fun RelayConfigurationScreen(
                 coordinator = coordinator,
                 pendingLink = pendingPairingLink,
                 onPendingLinkConsumed = onPendingPairingLinkConsumed,
-                onPaired = ::refresh,
+                onPaired = ::completeSetup,
             )
             PairedHomesSection(
                 coordinator = coordinator,
@@ -193,7 +199,7 @@ internal fun RelayConfigurationScreen(
                     deviceId = ""
                     displayName = ""
                     token = ""
-                    refresh()
+                    completeSetup()
                 }
             },
         ) {
