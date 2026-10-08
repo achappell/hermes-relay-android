@@ -808,7 +808,7 @@ stories:
       - android:5-A-3
     github_issue: https://github.com/achappell/hermes-relay-android/issues/97
     parity_source: 'PX-17 (design section 3.1: color, state roles, typography, spacing/shape, iconography)'
-    scope_note: 'Review: the explicit outdoor-contrast device leg is unrun and unwaived; AA calculations and screenshots do not establish outdoor readability. Amanda must accept recorded outdoor evidence or explicitly waive that criterion before done. The 2026-10-07 manual TalkBack waiver and independent pre-existing header-clipping exemption remain limited to their named gates; spoken labels/focus order/gestures remain unverified. Merged #127 and its green CI alone do not close this story.'
+    scope_note: 'Done under owner acceptance: Amanda explicitly chose option 2, waive outdoor readability, on 2026-10-07 CDT (2026-10-08 UTC). The outdoor leg remains unrun/unverified, not passed; AA/screenshots/merge are not outdoor proof. Prior physical TalkBack waiver and independent pre-existing header-clipping exemption remain separate and intact. Other criteria retain token/contrast, layout/instrumentation and exact-head CI evidence in validation-android-ux-01.md. UX-03 remains in-progress.'
   - id: ANDROID-UX-02
     title: 'Voice orb and nine-mode ambient HUD'
     kind: local
