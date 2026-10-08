@@ -1,7 +1,7 @@
 ---
 id: ANDROID-REL-01
 title: Show the app version and build identity in settings and diagnostics
-status: review
+status: done
 product_epic: 4
 release_scope: migration
 parity_epic: ANDROID-PARITY-02
@@ -67,3 +67,13 @@ Read the row on the device; compare with `apkanalyzer manifest version-name/vers
 ## References
 
 iOS: `docs/testflight.md` ("Local build numbers"), `scripts/stamp-ios-build-number.sh`, `RelayConfigurationView.swift` (`appVersionLabel`); Android: `app/build.gradle.kts`, `scripts/check-apk-metadata.sh`, `.github/workflows/release.yml`.
+
+## Acceptance closeout — 2026-10-07 owner authorization
+
+All named criteria are covered by retained formatter/build/docs checks and
+the actual Pixel comparison in `validation-android-rel-01.md`: same-version
+debug builds `f11f62d` and `98ee229` showed distinct revision rows in the real
+configuration sheet and matching real Share diagnostics headers. Original
+app/test APKs and settings restored. Release-signed runtime labeling remains
+unverified, outside the specified two-debug-build device gate; no signing or
+distribution-policy change and no new waiver is implied.

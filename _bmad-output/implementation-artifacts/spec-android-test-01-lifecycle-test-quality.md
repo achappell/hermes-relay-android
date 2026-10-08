@@ -1,7 +1,7 @@
 ---
 id: ANDROID-TEST-01
 title: Make lifecycle, reconnect and voice tests platform-independent and flake-free
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -71,3 +71,13 @@ None beyond the two-API instrumented smoke noted above.
 ## References
 
 iOS: `validation-ios-home-07.md` (sections "Follow-up: PR #122 CI failure on the iOS Simulator destination"), `validation-ios-home-04.md`, `validation-ios-home-06.md`; commits `b46e8fc`, `31d8a2e`.
+
+## Acceptance closeout — 2026-10-07 owner authorization
+
+Retained seam/audit/race/repetition/build evidence plus the formerly missing
+two-API instrumented smoke now cover all named criteria. Direct targeted
+`AndroidPlatformSmokeTest` passed on physical API 37 and the official API 26
+arm64 image in an isolated disposable AVD; exact provenance and accepted-license
+checks are in `validation-android-test-01.md`. No existing SDK package/device
+configuration was replaced and no new license was accepted blindly. These are
+local manual gates, not CI/emulator evidence for microphones or speakers.

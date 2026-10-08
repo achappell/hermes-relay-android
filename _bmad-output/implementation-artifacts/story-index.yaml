@@ -427,6 +427,7 @@ stories:
       - android:ANDROID-HOME-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/71
     ios_reference: 'IOS-HOME-07 (root cause "orphaned voice coordinator", 8482051)'
+    scope_note: 'Accepted under 2026-10-07 owner review-closeout authorization: retained runtime/uncertain-state tests and actual 377-second reply with rotation/font recreation, one runtime, same advancing unmuted speaker track, retained response and Complete. Routed PCM evidence, not human-heard/acoustic capture; no new waiver. See validation; no merge implied.'
   - id: ANDROID-HOME-08
     title: Keep Home reply and voice conversations running in the background
     kind: local
@@ -552,6 +553,7 @@ stories:
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/79
     ios_reference: 'iOS 19669cf, 89c40a4 (version label), 27139b6 (automated build numbers), docs/testflight.md'
+    scope_note: 'Accepted under 2026-10-07 owner review-closeout authorization: actual two-commit same-version debug rows and matching Share diagnostics headers, retained tests/build/docs; release-signed runtime label remains outside the named debug acceptance gate. See validation; no merge implied.'
   - id: ANDROID-TEST-01
     title: Make lifecycle, reconnect and voice tests platform-independent and flake-free
     kind: local
@@ -566,6 +568,7 @@ stories:
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/80
     ios_reference: 'iOS b46e8fc, 31d8a2e, aabb275 (PR #122); validation-ios-home-07.md "Follow-up: PR #122 CI failure on the iOS Simulator destination"'
+    scope_note: 'Accepted under 2026-10-07 owner review-closeout authorization: retained deterministic/race/repetition evidence plus direct API 26 arm64 emulator and physical API 37 platform smokes. No emulator audio/mic or CI instrumentation claim; see validation. No merge implied.'
   - id: ANDROID-PARITY-01
     title: 'Android parity with iOS: top-level index'
     kind: epic

@@ -51,3 +51,31 @@ Not exercised: a reply that takes more than 30 s to produce (Home `0effbf9` path
 
 - Two connects within 100 ms of launch (`conversation.open` then `conversation.reconnect`): needs the single-flight guard (`ANDROID-HOME-03/04`).
 - After `am force-stop` (no `conversation.close`), the next launch shows "Your last conversation is still held by another connection" and opens a fresh conversation: the parked claim was not released (`ANDROID-HOME-03`/`-06`).
+
+## Bounded follow-up — 2026-10-08 UTC (not slow-audio acceptance)
+
+Story remains `review`. The shared HOME-07 acceptance used one neutral bounded
+household prompt, source `98ee22932036aff9871dcfebd9f62995bf82417b`, APK
+`b8c91c3be1a95a3b5d2c931a1472051aaf01066d2e3e69cecf4ceba6b6440cdc`, Pixel API 37,
+against source-verified Home `d803994d1d47c63bb1b3c92cff42695de19a4434`.
+`prompt.submit` response at `01:34:59.260Z`; AudioTrack creation at
+`01:35:18.474Z`; text terminal at `01:35:21.888Z`; audio completed at
+`01:41:35.882Z`, final UI Complete. Acceptance-response to actual output-track
+creation is **19.214 seconds**, not >30 or ≥60 seconds. Long playback
+(377.408 seconds) is not a slow-start substitute.
+
+`home turn terminal completed audio=none` in this run means no *post-text
+audio wait*: speech had already started. The client emits `home audio started
+after_text_ms=...` only for a post-text start. Actual UI and AudioFlinger proved
+ongoing speech; absence of that particular journal event is not evidence of
+no audio. No second prompt was sent merely to seek an uncontrollable delay.
+
+PR #129's recorded post-text starts (375 ms and 2,705 ms), plus this story's
+earlier 629 ms result, support ordinary late-audio ordering, not a measured
+>30/60-second start. Existing deterministic delay/failure tests remain valid;
+the required slow live shape remains unverified. Next owner: Android/Home
+acceptance operator must obtain a legitimate measured slow producer response,
+or the product owner must explicitly decide acceptance scope. No producer
+delay, Home configuration/deployment or new waiver was introduced here.
+Phone APK/settings/media volume and mute state restored; pairing/credentials
+and saved Profile/session references preserved, legitimate history retained.
