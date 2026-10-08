@@ -48,6 +48,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
+import com.achappell.hermesrelay.ui.theme.HermesSpacing
 import com.achappell.hermesrelay.ui.theme.LocalHermesStateColors
 
 class MainActivity : ComponentActivity() {
@@ -641,8 +642,8 @@ internal fun AndroidClientScreen(
                                 .widthIn(max = 720.dp)
                                 .heightIn(max = 280.dp)
                                 .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                .padding(horizontal = HermesSpacing.lg, vertical = HermesSpacing.sm),
+                            verticalArrangement = Arrangement.spacedBy(HermesSpacing.sm),
                         ) {
                             TypedComposerZone(
                                 prompt = prompt,
@@ -706,8 +707,8 @@ internal fun AndroidClientScreen(
                         .fillMaxWidth()
                         .widthIn(max = 720.dp)
                         .testTag("android_conversation_rail"),
-                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(horizontal = HermesSpacing.xl, vertical = HermesSpacing.lg),
+                    verticalArrangement = Arrangement.spacedBy(HermesSpacing.lg),
                 ) {
                     doorwayState?.let { currentState ->
                         item {
@@ -845,8 +846,8 @@ internal fun AndroidClientScreen(
                             .fillMaxWidth()
                             .heightIn(max = 720.dp)
                             .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 24.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                            .padding(horizontal = HermesSpacing.xl, vertical = HermesSpacing.md),
+                        verticalArrangement = Arrangement.spacedBy(HermesSpacing.md),
                     ) {
                         RelayConfigurationScreen(
                             controller = configurationController,

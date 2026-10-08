@@ -28,6 +28,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -61,6 +62,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.achappell.hermesrelay.ui.theme.HermesShapes
+import com.achappell.hermesrelay.ui.theme.HermesStateWashes
+import com.achappell.hermesrelay.ui.theme.HermesIcons
+import com.achappell.hermesrelay.ui.theme.HermesSpacing
 import com.achappell.hermesrelay.ui.theme.LocalHermesStateColors
 import java.text.DateFormat
 import java.util.Date
@@ -113,7 +118,7 @@ internal fun DoorwayHeaderZone(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = HermesSpacing.lg, vertical = HermesSpacing.sm),
             verticalAlignment = Alignment.Top,
         ) {
             Column(
@@ -137,7 +142,7 @@ internal fun DoorwayHeaderZone(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp),
+                        .padding(top = HermesSpacing.xs),
                     horizontalAlignment = Alignment.Start,
                 ) {
                     Text(
@@ -179,10 +184,11 @@ internal fun DoorwayHeaderZone(
                             },
                         onClick = { menuExpanded = true },
                     ) {
-                        Text(
-                            text = "⋮",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Icon(
+                            imageVector = HermesIcons.overflow,
+                            // The IconButton's semantics already carry the menu description.
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     DropdownMenu(
@@ -275,7 +281,7 @@ internal fun DoorwayBoundaryZone(
         ),
     ) {
         Text(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(HermesSpacing.lg),
             text = stringResource(snapshot.boundaryRes),
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -350,31 +356,44 @@ internal fun DoorwayStateZone(
         ),
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(HermesSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(HermesSpacing.sm),
         ) {
-            Text(
+            // State-role ink sits only on its own wash (measured over the panel);
+            // the description and actions stay on the plain panel.
+            Column(
                 modifier = Modifier
-                    .testTag("android_doorway_state")
-                    .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
-                text = label,
-                color = stateColor,
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            if (state is AndroidDoorwayState.Unavailable &&
-                connectionState != AndroidConnectionState.Connected
+                    .fillMaxWidth()
+                    .background(
+                        HermesStateWashes.overlay(stateColor, stateColors.panel),
+                        HermesShapes.field,
+                    )
+                    .padding(HermesSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(HermesSpacing.xs),
             ) {
                 Text(
                     modifier = Modifier
-                        .testTag("android_connection_state")
+                        .testTag("android_doorway_state")
                         .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
-                    text = stringResource(
-                        R.string.android_connection_label,
-                        connectionState.label(),
-                    ),
-                    color = stateColors.unavailable,
-                    style = MaterialTheme.typography.titleMedium,
+                    text = label,
+                    color = stateColor,
+                    style = MaterialTheme.typography.headlineSmall,
                 )
+                if (state is AndroidDoorwayState.Unavailable &&
+                    connectionState != AndroidConnectionState.Connected
+                ) {
+                    Text(
+                        modifier = Modifier
+                            .testTag("android_connection_state")
+                            .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                        text = stringResource(
+                            R.string.android_connection_label,
+                            connectionState.label(),
+                        ),
+                        color = stateColors.unavailable,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
             }
             Text(
                 modifier = Modifier
@@ -453,7 +472,7 @@ internal fun ColumnScope.TypedComposerZone(
         )
     }
     if (!promptHistory.isEmpty) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(HermesSpacing.xs)) {
             Text(
                 modifier = Modifier
                     .testTag("android_prompt_history_label")
@@ -464,7 +483,7 @@ internal fun ColumnScope.TypedComposerZone(
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(HermesSpacing.sm),
             ) {
                 TextButton(
                     modifier = Modifier
@@ -580,7 +599,7 @@ internal fun VoiceActivityIndicator(
         contentAlignment = Alignment.Center,
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(HermesSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             fractions.forEach { fraction ->
@@ -887,12 +906,13 @@ internal fun ColumnScope.ConnectionRecoveryZone(
     if (recoveryState.hasUnconfirmedTurn) {
         Card(
             colors = CardDefaults.cardColors(
-                containerColor = stateColors.panel,
+                containerColor = HermesStateWashes.overlay(stateColors.unavailable, stateColors.panel),
+                contentColor = MaterialTheme.colorScheme.onSurface,
             ),
         ) {
             Text(
                 modifier = Modifier
-                    .padding(20.dp)
+                    .padding(HermesSpacing.lg)
                     .testTag("android_unconfirmed_turn"),
                 text = stringResource(R.string.android_unconfirmed_turn),
                 style = MaterialTheme.typography.bodyMedium,
@@ -919,12 +939,13 @@ internal fun ColumnScope.ConnectionRecoveryZone(
     if (recoveryState.unresolvedHomeTurn && !recoveryState.hasUnconfirmedTurn) {
         Card(
             colors = CardDefaults.cardColors(
-                containerColor = stateColors.panel,
+                containerColor = HermesStateWashes.overlay(stateColors.attention, stateColors.panel),
+                contentColor = MaterialTheme.colorScheme.onSurface,
             ),
         ) {
             Text(
                 modifier = Modifier
-                    .padding(20.dp)
+                    .padding(HermesSpacing.lg)
                     .testTag("android_home_unresolved_turn"),
                 text = stringResource(R.string.android_home_unresolved_turn),
                 style = MaterialTheme.typography.bodyMedium,
@@ -1163,8 +1184,8 @@ internal fun LocalHistoryZone(
             colors = CardDefaults.cardColors(containerColor = stateColors.panel),
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(HermesSpacing.lg),
+                verticalArrangement = Arrangement.spacedBy(HermesSpacing.xs),
             ) {
                 Text(
                     modifier = Modifier
@@ -1205,13 +1226,13 @@ internal fun LocalHistoryZone(
                     .fillMaxWidth()
                     .heightIn(max = 560.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(horizontal = HermesSpacing.xl, vertical = HermesSpacing.sm),
+                verticalArrangement = Arrangement.spacedBy(HermesSpacing.md),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(HermesSpacing.sm),
                 ) {
                     Text(
                         modifier = Modifier
@@ -1288,7 +1309,7 @@ internal fun LocalHistoryZone(
                 } else {
                     val timeFormat = remember { DateFormat.getTimeInstance(DateFormat.SHORT) }
                     entries.takeLast(20).forEach { entry ->
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(HermesSpacing.xs)) {
                             Text(
                                 modifier = Modifier
                                     .testTag("android_history_entry_meta")
