@@ -507,6 +507,7 @@ stories:
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/76
     ios_reference: 'IOS-DIAG-01 (journal and Share diagnostics), plus the PR #122 journal lines'
+    scope_note: 'Done under Amanda explicit option 2 acceptance, 2026-10-07 CDT / 2026-10-08 UTC: DIAG-01 release-build-specific physical check waived, unverified not passed. Verified debug background/offline/content-safe Gmail Share plus owner-confirmed receipt/open/inspection retained. No waiver extends to other stories.'
   - id: ANDROID-DIAG-02
     title: Automatically send opted-in connection reports to Home
     kind: local

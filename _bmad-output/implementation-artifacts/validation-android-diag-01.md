@@ -1,21 +1,21 @@
 ---
 story: ANDROID-DIAG-01
 spec: spec-android-diag-01-share-diagnostics.md
-status: done-with-environment-limitation
-story_status: review
+status: done
+story_status: done
 updated: 2026-10-08
 ---
 
 # ANDROID-DIAG-01 validation record
 
-**Current story status: `review`.** All actual debug Share legs now pass: offline export, background/reconnect observations, authorized Gmail send, and owner-confirmed recipient receipt/open/inspection. The separate release-signed physical gate remains unverified and unwaived. No story completion is inferred.
+**Current story status: `done` under owner acceptance.** Amanda explicitly selected **option 2** on **2026-10-07 CDT / 2026-10-08 UTC**: waive DIAG-01's release-build-specific physical check and close on verified debug results plus owner-confirmed email receipt/opening/inspection. All actual debug Share legs passed. Release-signed physical behavior remains **unverified and waived, not passed**; this decision extends to no other story.
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
 | Local (JVM) | Passed | Below |
 | Repetition gate (30 runs) | Passed | Below |
 | Instrumented share test on a real device | **Passed**, Pixel 6a, Android 17 (API 37) | `DiagnosticsShareTest` 2/2 after a real-device fix, below |
-| Release-signed physical acceptance | **Unverified** | No DIAG-01-inclusive genuinely release-signed APK on a compatible physical device |
+| Release-signed physical acceptance | **Owner-waived; unverified, not passed** | Amanda explicitly selected option 2; only this DIAG-01 release-build-specific physical gate is waived |
 | Share to another device and inspect received export | **Passed on debug; owner-confirmed receipt/open/inspection** | Amanda replied “yep its good” to the explicit request to confirm the received diagnostic attachment opens; not an automated mailbox read |
 | Background journal and airplane-mode export | **Observed on debug build only** | 130.005 s locked interval, actual reconnect journal and offline UI export below; not release-build or HOME-04 acceptance |
 
@@ -63,8 +63,8 @@ Device owner `android-diag01-acceptance` tested the existing Pixel 6a / Android 
 
 Sanitized local records: `/tmp/diag01-acceptance-20261007/sanitized-evidence.json` for the earlier debug observations and `email-sent-evidence.json` for the completed email send/restoration. Amanda's subsequent confirmation above supersedes their historical pending/unverified recipient state. No private export, addresses, credentials or sensitive values are committed.
 
-## Remaining acceptance prerequisites
+## Accepted release-build exception
 
-1. **Release-signed physical acceptance:** obtain a DIAG-01-inclusive genuinely release-signed APK and a compatible separate physical device. The available official September 12 `v0.3.1` predates DIAG-01; its signer (`f99a4999…`) differs from the installed debug signer (`59743ca2…`). The documented local `release.jks` is absent. No incompatible install, keystore change, debug-signing fallback claim or deployment was attempted.
+The waived physical check was not run: no DIAG-01-inclusive genuinely release-signed APK on a compatible device was available. Official September 12 `v0.3.1` predates DIAG-01; its signer (`f99a4999…`) differs from the installed debug signer (`59743ca2…`), and documented local `release.jks` is absent. No incompatible install, keystore change, debug-signing fallback claim or deployment was attempted. These limitations remain evidence, not a release-build pass.
 
-The release-signed physical gate remains unverified and unwaived; spec, sprint and story status stay `review`. Audio continuity during rotation was not exercised and is not implied by the bounded journal run. Next action is an owner decision on the remaining release-build gate or a compatible release artifact/device, not another debug Share test.
+No non-waived DIAG-01 acceptance gate remains. The spec, sprint and validation are `done` in PR #141 under Amanda's explicit decision; main/board must not advance before merge. Audio continuity during rotation was not exercised and is not implied by this journal/Share acceptance. No other story is closed or waived. Next action: review the existing status-only PR; no automatic merge.
