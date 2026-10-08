@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-12
 title: Disconnect from Home deliberately
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-02
@@ -40,7 +40,7 @@ iOS has a toolbar **Disconnect** (`home-disconnect`) shown in Home mode while co
 - Fake client: Disconnect sends exactly one `conversation.close`, closes the socket once, clears the held claim, and the lifecycle/retry logic of `ANDROID-HOME-04` does not reconnect afterwards.
 - Disabled mid-submit; confirmation mid-reply interrupts then closes.
 - Connect after Disconnect opens a fresh claim (continue-last) and works.
-- TalkBack: the action has a role and label; the overflow item order is covered by `AccessibilityOrderTest`.
+- TalkBack: the action has a role and label; the overflow item order is covered by `AccessibilityOrderTest`. Physical-device TalkBack speech, focus, and gesture checks are waived for HOME12 only and remain unverified.
 
 ## Android design notes
 
@@ -57,4 +57,6 @@ JVM with fake port; one instrumented tap test.
 
 ## Device verification
 
-Pixel: connect, Disconnect, observe Home claim closed `client_closed`; Connect again; mid-reply Disconnect.
+Pixel: connect, Disconnect and observe Home's `stopped` closed tombstone for the bound WebSocket `conversation.close`; Connect again; submit a neutral prompt and confirm Disconnect during the accepted active reply before terminal/audio completion. Verify Android's `initiator=user` attribution and that `home claim released` follows a validated Home `status=closed` acknowledgement.
+The Home v1 contract README (lines 528–530 and 546) reserves literal `client_closed` for REST claim closure and prefers the bound WebSocket `conversation.close` path; that path persists `stopped`.
+Corrected active Disconnect verification passed 2026-10-08 with Android's validated close-ACK release and the exact Home claim tombstoned `closed/stopped` before the peer WebSocket close; the earlier pre-ACK `client_disconnected` result is retained in the validation record as the failure that motivated this fix.

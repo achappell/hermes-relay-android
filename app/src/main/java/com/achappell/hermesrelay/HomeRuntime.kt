@@ -358,6 +358,7 @@ internal class HomeRuntime(
         val interrupting = if (hasAcceptedTurn) acceptedBinding else null
         // Set first and on the main thread so no automatic path can race the close.
         userDisconnected = true
+        journal.record("home disconnect initiator=user")
         captureController?.let { capture ->
             capture.disarmHandsFree()
             capture.cancelCapture()

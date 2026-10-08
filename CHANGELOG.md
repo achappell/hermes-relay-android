@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Features
+- Add deliberate Home Disconnect with user-only attribution and mid-reply confirmation.
 - Add 2-second interrupt acknowledgement and interrupt-and-listen behavior to Android voice controls.
 - Tell Home when Interrupt stops speech still buffered on the phone after the text turn ended, so Home releases the reply audio and accepts the next prompt.
 - Interrupt speech that starts after Home's text terminal, without treating in-flight PCM or the stopped sidecar's end as an audio failure.
@@ -11,6 +12,7 @@
 - Add durable Home claim-management capability detection and an "Open on Home" list/close flow for the conversations sheet.
 
 ### Fixes
+- Await Home's `conversation.close` acknowledgement before recording a claim released; report unacknowledged close truthfully.
 - Reflow the conversation header title and Profile block to preserve the accessible overflow action at large font scales.
 
 ## 0.3.1 (2026-09-12)
