@@ -1,7 +1,7 @@
 ---
 id: ANDROID-VOICE-03
 title: Endpointing parity and auto-send on tap-to-talk
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-02
@@ -14,6 +14,10 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/87
 ---
 
 # ANDROID-VOICE-03 — Endpointing parity and auto-send on tap-to-talk
+
+## Owner acceptance — 2026-10-07 CDT / 2026-10-08 UTC
+
+Status **done** on retained deterministic/real-recognizer coverage plus Amanda's actual spoken Home turn. Amanda explicitly confirmed a roughly one-second mid-sentence pause, finishing speech, automatic submission without tapping Send, and a working reply. Existing journal/UI observations support one successful Home submission, text/audio completion and UI Complete; no live partial-to-submit latency was measured. See [validation](validation-android-voice-03.md). No neighboring story or TalkBack waiver is inferred.
 
 Source: PX-14 (matrix V1) (`android-ios-parity-audit.md`, 2026-10-06; PX numbers are cross-references only). Priority P1, size M.
 

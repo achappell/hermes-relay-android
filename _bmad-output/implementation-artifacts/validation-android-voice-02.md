@@ -1,22 +1,23 @@
 ---
 story: ANDROID-VOICE-02
 spec: spec-android-voice-02-mic-permission-ux.md
-status: done-with-environment-limitation
-story_status: review
-updated: 2026-10-06
+status: done
+story_status: done
+updated: 2026-10-08
 ---
 
 # ANDROID-VOICE-02 validation record
 
-Gates are kept separate. The hand-run device scenario (deny twice, Open settings, grant in Settings, return, capture works) was **not** run: it needs a connected Home session, and the device was not paired.
+**Done under owner acceptance (2026-10-07 CDT / 2026-10-08 UTC).** Amanda explicitly chose option 2 to waive both the manual deny-twice → Open settings → grant → return → capture sequence and physical TalkBack permission-state/action speech, accepting retained automated/instrumented evidence. Both manual legs remain **unverified, waived, not passed**. No permission/device actions were performed for closeout. No waiver extends to HOME-12/HOME-13 TalkBack or any other story.
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
 | Local (JVM, deterministic) | Passed | 294 unit tests, 0 failures/errors/skipped (`RuntimePermissionTest` adds 5) |
 | Repetition gate | Passed | `scripts/run-flake-gate.sh RuntimePermissionTest 30`: 30 consecutive runs, 0 failures |
 | Instrumented on a physical device | Passed | Pixel 6a, Android 17 (API 37): `MicrophonePermissionTest` 5/5, `MicrophonePermissionGrantedTest` 1/1, `MicrophoneCaptureTest` 7/7, `AccessibilityOrderTest` 5/5 (one new) |
-| Hand-run denial sequence on the device | **Not run** | Needs a paired Home; see above |
-| CI | Pending the pull request | `ci.yml` |
+| Hand-run denial sequence on the device | **Owner-waived; unverified, not passed** | Explicit option 2; retained automated permission-state/Settings-return coverage accepted |
+| Physical TalkBack state/action speech | **Owner-waived; unverified, not passed** | Explicit option 2; semantics/order tests remain automated evidence, not spoken-output proof |
+| Historical implementation CI note | Pending at original validation | Not current-head CI evidence; no CI watch for this status-only closeout |
 
 ## What changed
 

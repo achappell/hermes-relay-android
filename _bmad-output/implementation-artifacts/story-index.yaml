@@ -627,6 +627,7 @@ stories:
       - android:5-A-3
     github_issue: https://github.com/achappell/hermes-relay-android/issues/85
     parity_source: 'PX-12 (matrix V2)'
+    scope_note: 'Done under owner acceptance 2026-10-07 CDT / 2026-10-08 UTC: actual spoken Home turn confirmed; explicit option 2 waives English-pack-missing/offline physical check, unverified not passed. Automated coverage retained; no waiver extension.'
   - id: ANDROID-VOICE-02
     title: 'Microphone permission rationale and Open Settings after permanent denial'
     kind: local
@@ -641,6 +642,7 @@ stories:
     depends_on: []
     github_issue: https://github.com/achappell/hermes-relay-android/issues/86
     parity_source: 'PX-13 (matrix V3)'
+    scope_note: 'Done under explicit owner option 2 acceptance, 2026-10-07 CDT / 2026-10-08 UTC: manual deny-twice/Settings-grant/return/capture and physical TalkBack permission-state/action speech waived, unverified not passed; retained automated/instrumented coverage accepted. No permission changes or extension to HOME-12/HOME-13.'
   - id: ANDROID-VOICE-03
     title: 'Endpointing parity and auto-send on tap-to-talk'
     kind: local
@@ -656,6 +658,7 @@ stories:
       - android:ANDROID-VOICE-01
     github_issue: https://github.com/achappell/hermes-relay-android/issues/87
     parity_source: 'PX-14 (matrix V1)'
+    scope_note: 'Done under owner acceptance 2026-10-07 CDT / 2026-10-08 UTC: owner confirmed one-second midphrase pause preserved, automatic submission without Send tap, and actual Home reply. One successful submit/text/audio completion observed; no current partial-to-submit latency claimed. Prior endpointing measurements retained separately.'
   - id: ANDROID-VOICE-04
     title: 'Interrupt as the primary voice action with a 2 s acknowledgement'
     kind: local

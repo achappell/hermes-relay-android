@@ -1,7 +1,7 @@
 ---
 id: ANDROID-VOICE-02
 title: Microphone permission rationale and Open Settings after permanent denial
-status: review
+status: done
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-02
@@ -13,6 +13,10 @@ github_issue: https://github.com/achappell/hermes-relay-android/issues/86
 ---
 
 # ANDROID-VOICE-02 — Microphone permission rationale and Open Settings
+
+## Owner acceptance — 2026-10-07 CDT / 2026-10-08 UTC
+
+Amanda explicitly selected **option 2**, accepting existing automated/instrumented evidence and waiving both remaining manual checks: **deny microphone twice → Open settings → grant → return → capture**, and **physical TalkBack permission-state/action speech**. Status is **done under owner acceptance**. Both manual legs remain **unverified, waived, not passed**. No permission/device action was performed for this closeout; the waiver does not extend to HOME-12, HOME-13 or any other story. See [validation](validation-android-voice-02.md).
 
 Source: PX-13 (matrix V3) (`android-ios-parity-audit.md`, 2026-10-06; PX numbers are cross-references only). Priority P1, size S.
 
