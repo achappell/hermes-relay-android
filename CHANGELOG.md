@@ -5,6 +5,7 @@
 ### Features
 - Add day/night-aware Android splash styling and enable platform predictive-back support for modal sheets.
 - Add durable Home claim-management capability detection and an "Open on Home" list/close flow for the conversations sheet.
+- Add an explicit Standard-only mode (ANDROID-STD-01 slice 1): first setup asks Home or Standard, Standard connects straight to unmodified Hermes at `/api/ws` with its own credential slot, typed streaming chat, per-endpoint private history, a deliberate New conversation action, a "Hermes is finishing" busy state, no-replay recovery and a switch guard. Voice, response audio and remote interrupt are not in this slice.
 
 ### Fixes
 - Reflow the conversation header title and Profile block to preserve the accessible overflow action at large font scales.

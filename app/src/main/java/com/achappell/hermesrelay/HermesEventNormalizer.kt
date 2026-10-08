@@ -16,6 +16,11 @@ internal class HermesEventNormalizer(
     private val clientId: String,
     /** Legacy fixtures are useful in unit tests, but the live client is Home-only. */
     private val allowLegacyFrames: Boolean = true,
+    /**
+     * Standard typed chat (`ANDROID-STD-01` slice 1) has no response audio, so
+     * a completed turn is text-only rather than "audio was not delivered".
+     */
+    private val textOnlyTurns: Boolean = false,
 ) {
     private var rendered = ""
     private var streamed = false
@@ -25,6 +30,25 @@ internal class HermesEventNormalizer(
         rendered = ""
         streamed = false
         audioStarted = false
+    }
+
+    /**
+     * A direct Standard `/api/ws` event, already parsed and session-checked by
+     * the transport. Uses the same event mapping as the Home envelope, so
+     * cumulative previews and final text behave identically.
+     */
+    fun normalizeStandardEvent(
+        type: String,
+        payload: JSONObject,
+        binding: AndroidTurnBinding,
+    ): List<AndroidNormalizedEvent> {
+        if (type == "message.interim" && payload.optBoolean("already_streamed", false)) {
+            // Hermes is sealing text the deltas already showed; showing it again
+            // would duplicate the paragraph.
+            return emptyList()
+        }
+        val correlationId = firstExactNonBlank(payload, "correlation_id", "request_id", "prompt_id", "id")
+        return standardEvents(type, payload, binding, correlationId)
     }
 
     /** A binary frame is delivery evidence; the bytes are deliberately dropped. */
@@ -337,7 +361,7 @@ internal class HermesEventNormalizer(
                 payload.optString("status").lowercase(),
             )
         } else {
-            events += AndroidNormalizedEvent.TurnCompleted(binding)
+            events += AndroidNormalizedEvent.TurnCompleted(binding, textOnly = textOnlyTurns)
         }
         return events
     }

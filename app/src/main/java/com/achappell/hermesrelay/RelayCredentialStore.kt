@@ -16,7 +16,9 @@ import javax.crypto.spec.GCMParameterSpec
  * The credential slots have different jobs and are never interchangeable. The
  * Home Device credential is the only credential the active bridge reads; the
  * Home admin credential is restricted to administrative HTTP; the old bearer
- * remains available solely for a deliberate rollback operation.
+ * remains available solely for a deliberate rollback operation. The Standard
+ * token authenticates a direct Hermes `/api/ws` connection in Standard-only
+ * mode; it is a fifth, separate slot that never reads or writes the others.
  */
 internal interface RelayCredentialStore {
     /** Legacy API: writes the rollback-only credential slot. */
@@ -66,9 +68,24 @@ internal interface RelayCredentialStore {
     fun hasStoredRollbackCredential(profileId: String): Boolean =
         hasReadableRollbackCredential(profileId)
 
-    /** Removes both slots when the owning Profile is deleted. */
+    /** Stores a Standard-mode gateway token in its own slot; blank or spaced tokens are refused. */
+    fun putStandardCredential(profileId: String, token: String): Boolean = false
+
+    /** Reads the Standard token, or fails closed. Never falls back to another slot. */
+    fun readStandardCredential(profileId: String): String? = null
+
+    /** This is intentionally a secure read, not a presence check. */
+    fun hasReadableStandardCredential(profileId: String): Boolean =
+        readStandardCredential(profileId) != null
+
+    fun deleteStandardCredential(profileId: String): Boolean = false
+
+    /** Removes every slot (Standard, Home device, Home admin, rollback) when the owning Profile is deleted. */
     fun delete(profileId: String)
 }
+
+private fun isValidStandardToken(token: String): Boolean =
+    token.isNotEmpty() && token.none { it.isWhitespace() }
 
 /** The production representation required by the Home credential contract. */
 internal object HomeCredentialValidator {
@@ -128,6 +145,18 @@ internal class KeystoreRelayCredentialStore(
         preferences.edit().remove(homeAdminKey(profileId)).commit()
     }
 
+    override fun putStandardCredential(profileId: String, token: String): Boolean {
+        val trimmed = token.trim()
+        if (!isValidStandardToken(trimmed)) return false
+        return writeSecret(standardKey(profileId), trimmed)
+    }
+
+    override fun readStandardCredential(profileId: String): String? =
+        readSecret(standardKey(profileId))?.takeIf(::isValidStandardToken)
+
+    override fun deleteStandardCredential(profileId: String): Boolean =
+        preferences.edit().remove(standardKey(profileId)).commit()
+
     override fun putRollbackCredential(profileId: String, credential: String): Boolean =
         credential.isNotBlank() && writeSecret(rollbackKey(profileId), credential.trim())
 
@@ -143,6 +172,7 @@ internal class KeystoreRelayCredentialStore(
         preferences.edit()
             .remove(homeKey(profileId))
             .remove(homeAdminKey(profileId))
+            .remove(standardKey(profileId))
             .remove(rollbackKey(profileId))
             // Keep deletion compatible with profiles written before the slot
             // split, where the old bearer lived under token:<profile>.
@@ -184,6 +214,8 @@ internal class KeystoreRelayCredentialStore(
 
     private fun homeAdminKey(profileId: String) = "home-admin:$profileId"
 
+    private fun standardKey(profileId: String) = "standard:$profileId"
+
     private fun rollbackKey(profileId: String) = "rollback:$profileId"
 
     private fun legacyTokenKey(profileId: String) = "token:$profileId"
@@ -221,10 +253,12 @@ internal class InMemoryRelayCredentialStore(
     initial: Map<String, String> = emptyMap(),
     homeCredentials: Map<String, String> = emptyMap(),
     homeAdminCredentials: Map<String, String> = emptyMap(),
+    standardCredentials: Map<String, String> = emptyMap(),
 ) : RelayCredentialStore {
     private val rollback = initial.toMutableMap()
     private val home = homeCredentials.toMutableMap()
     private val homeAdmin = homeAdminCredentials.toMutableMap()
+    private val standard = standardCredentials.toMutableMap()
 
     override fun put(profileId: String, token: String): Boolean =
         putRollbackCredential(profileId, token)
@@ -260,6 +294,20 @@ internal class InMemoryRelayCredentialStore(
         homeAdmin.remove(profileId)
     }
 
+    override fun putStandardCredential(profileId: String, token: String): Boolean {
+        val trimmed = token.trim()
+        if (!isValidStandardToken(trimmed)) return false
+        standard[profileId] = trimmed
+        return true
+    }
+
+    override fun readStandardCredential(profileId: String): String? = standard[profileId]
+
+    override fun deleteStandardCredential(profileId: String): Boolean {
+        standard.remove(profileId)
+        return true
+    }
+
     override fun putRollbackCredential(profileId: String, credential: String): Boolean {
         if (credential.isBlank()) return false
         rollback[profileId] = credential.trim()
@@ -274,6 +322,7 @@ internal class InMemoryRelayCredentialStore(
     override fun delete(profileId: String) {
         home.remove(profileId)
         homeAdmin.remove(profileId)
+        standard.remove(profileId)
         rollback.remove(profileId)
     }
 }

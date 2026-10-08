@@ -115,6 +115,13 @@ internal sealed interface AndroidNormalizedEvent {
     data class TurnCompleted(
         override val binding: AndroidTurnBinding,
         val finalText: String? = null,
+        /**
+         * The turn has no response audio by design (Standard typed chat,
+         * `ANDROID-STD-01` slice 1), so its completion is not "audio was not
+         * delivered". Home leaves this false: a Home turn without audio stays
+         * unavailable.
+         */
+        val textOnly: Boolean = false,
     ) : AndroidNormalizedEvent
 
     /**
@@ -264,6 +271,7 @@ internal object AndroidTurnStateReducer {
                     responseText = event.finalText ?: state.responseText,
                     turnCompleteObserved = true,
                 ),
+                textOnly = event.textOnly,
             )
 
             is AndroidNormalizedEvent.TextCompleted -> advance(
@@ -321,17 +329,21 @@ internal object AndroidTurnStateReducer {
         }
     }
 
-    private fun finishTurn(state: AndroidTurnState): AndroidTurnState {
+    private fun finishTurn(state: AndroidTurnState, textOnly: Boolean = false): AndroidTurnState {
         return when (state.audio) {
             AndroidAudioDelivery.Delivered -> state.copy(phase = AndroidTurnPhase.Complete)
             AndroidAudioDelivery.Buffering,
             AndroidAudioDelivery.Speaking -> state
 
-            AndroidAudioDelivery.NotStarted -> state.copy(
-                phase = AndroidTurnPhase.Unavailable,
-                audio = AndroidAudioDelivery.Unavailable,
-                unavailableReason = "Response audio was not delivered.",
-            )
+            AndroidAudioDelivery.NotStarted -> if (textOnly) {
+                state.copy(phase = AndroidTurnPhase.Complete)
+            } else {
+                state.copy(
+                    phase = AndroidTurnPhase.Unavailable,
+                    audio = AndroidAudioDelivery.Unavailable,
+                    unavailableReason = "Response audio was not delivered.",
+                )
+            }
 
             AndroidAudioDelivery.Unavailable -> state.copy(phase = AndroidTurnPhase.Unavailable)
         }

@@ -2,9 +2,20 @@ package com.achappell.hermesrelay
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.util.concurrent.ExecutorService
+
+/** Progress of the Standard New conversation action. */
+internal sealed interface StandardNewConversationState {
+    data object Idle : StandardNewConversationState
+
+    data object InFlight : StandardNewConversationState
+
+    /** The create failed: the turn stays uncertain and sending stays blocked. */
+    data class Failed(val reason: AndroidHomeUnavailableReason) : StandardNewConversationState
+}
 
 /**
  * The one Home runtime of a process (`ANDROID-HOME-07`).
@@ -32,8 +43,13 @@ internal class HomeRuntime(
     private val onTornDown: () -> Unit = {},
     /** Content-free connection journal (`ANDROID-DIAG-01`); never receives prompts or replies. */
     val journal: DiagnosticsJournal = DiagnosticsJournal.None,
+    /** The selected Profile's mode, read at the moment of use; null while no Profile exists. */
+    private val selectedMode: () -> RelayProfileMode? = { null },
+    /** Local History divider written for a deliberate New conversation or a fresh Standard session. */
+    private val newConversationLabel: String = "New conversation",
 ) {
     val homeConversations: AndroidHomeConversations? = clientPort as? AndroidHomeConversations
+    val standardSession: AndroidStandardSession? = clientPort as? AndroidStandardSession
     val initiationController = AndroidInitiationController(clientPort)
     val recorder: AndroidHistoryRecorder? = historyStore?.let { AndroidHistoryRecorder(it) }
 
@@ -55,7 +71,20 @@ internal class HomeRuntime(
         private set
     var resendInFlight by mutableStateOf(false)
         private set
-    var promptHistory by mutableStateOf(AndroidPromptHistory())
+    // Prompt recall belongs to one history identity (mode + endpoint + Hermes
+    // Profile for Standard, the Profile for Home): switching never shows another's.
+    private val promptHistories = mutableStateMapOf<String, AndroidPromptHistory>()
+    private var promptHistoryKey by mutableStateOf<String?>(null)
+    var promptHistory: AndroidPromptHistory
+        get() = promptHistoryKey?.let { promptHistories[it] } ?: AndroidPromptHistory()
+        set(value) {
+            promptHistoryKey?.let { promptHistories[it] = value }
+        }
+
+    /** Points prompt recall at the selected Profile's history identity. */
+    fun openPromptHistory(historyKey: String?) {
+        promptHistoryKey = historyKey
+    }
 
     /** Bumped when Local History changes outside Compose; the sheet re-reads on change. */
     var historyRevision by mutableIntStateOf(0)
@@ -76,6 +105,24 @@ internal class HomeRuntime(
     var userDisconnected by mutableStateOf(false)
         private set
 
+    /** True while the selected Profile is a Standard (direct Hermes) Profile. */
+    val standardMode: Boolean
+        get() = selectedMode() == RelayProfileMode.Standard
+
+    /** Hermes may still be producing a response the user stopped locally. */
+    var standardFinishing by mutableStateOf(standardSession?.isFinishingPreviousResponse() == true)
+        private set
+
+    var newConversationState by mutableStateOf<StandardNewConversationState>(
+        StandardNewConversationState.Idle,
+    )
+        private set
+
+    private val finishingObservation: AndroidTurnObservation? =
+        standardSession?.observeFinishing { finishing -> postToMain { standardFinishing = finishing } }
+    private var dividedConnectionId: String? = null
+    private var observedSelection: Pair<String?, RelayProfileMode?>? = null
+
     /**
      * Set by the visible screen: reconnects a paired Profile whose socket
      * Android cut, only while the screen is resumed. No screen, no automatic
@@ -91,6 +138,7 @@ internal class HomeRuntime(
                 updateInitiation(AndroidInitiationState.Accepted(binding))
                 updateTurn(AndroidTurnState.awaitingEvents(binding))
             }
+            recordFreshStandardSession(changed)
         }
     }
 
@@ -101,8 +149,11 @@ internal class HomeRuntime(
             initiation = initiationController,
             isConnected = { recoveryState.connection == AndroidConnectionState.Connected },
             isAuthorized = {
+                // Voice in Standard mode is slice 2 of ANDROID-STD-01: until it is
+                // verified, capture never starts for a Standard Profile.
                 val current = clientPort.snapshot()
-                current.selectedProfile != null &&
+                !standardMode &&
+                    current.selectedProfile != null &&
                     current.authorizationState == AndroidAuthorizationState.Verified
             },
             currentSessionId = { recoveryController.state.connectionId },
@@ -355,6 +406,12 @@ internal class HomeRuntime(
     }
 
     fun resendUnconfirmedTurn() {
+        if (standardMode) {
+            // Standard never replays an uncertain turn; only a deliberate New
+            // conversation clears the uncertainty.
+            journal.record("standard resend ignored")
+            return
+        }
         if (resendInFlight) return
         resendInFlight = true
         runOnWork {
@@ -372,11 +429,130 @@ internal class HomeRuntime(
     }
 
     fun discardUnconfirmedTurn() {
+        if (standardMode) {
+            journal.record("standard discard ignored")
+            return
+        }
         recoveryController.discardUnconfirmedTurn()
         lastRequest = null
         updateInitiation(AndroidInitiationState.Idle)
         updateTurn(AndroidTurnState())
         resendResult = null
+    }
+
+    /**
+     * True while the selected conversation has an active, uncertain or
+     * finishing turn, so a Profile or mode switch would strand it. Feeds the
+     * configuration controller's switch guard.
+     */
+    val isConversationBusy: Boolean
+        get() = hasAcceptedTurn ||
+            initiationInFlight ||
+            recoveryState.hasUnconfirmedTurn ||
+            (standardMode && (standardFinishing || standardSession?.hasUncertainTurn() == true))
+
+    /**
+     * The deliberate Standard New conversation (`session.create`). Only success
+     * clears the uncertain turn and the "Hermes is finishing" state, starts a
+     * fresh local conversation and records a divider; a failure changes nothing
+     * and keeps sending blocked.
+     */
+    fun startNewConversation() {
+        val session = standardSession ?: return
+        if (!standardMode) return
+        if (newConversationState == StandardNewConversationState.InFlight) return
+        if (hasAcceptedTurn || initiationInFlight) return
+        newConversationState = StandardNewConversationState.InFlight
+        runOnWork {
+            val result = session.newConversation()
+            // The call may have had to open the socket; adopt it into the visible state.
+            if (
+                result is AndroidNewConversationResult.Created &&
+                recoveryController.state.connection != AndroidConnectionState.Connected
+            ) {
+                recoveryController.recover()
+            }
+            runOnMain {
+                when (result) {
+                    AndroidNewConversationResult.Created -> {
+                        recoveryState = recoveryController.discardUnconfirmedTurn()
+                        lastRequest = null
+                        resendResult = null
+                        updateInitiation(AndroidInitiationState.Idle)
+                        updateTurn(AndroidTurnState())
+                        standardFinishing = false
+                        userDisconnected = false
+                        recorder?.recordDivider(newConversationLabel)
+                        historyRevision += 1
+                        newConversationState = StandardNewConversationState.Idle
+                        journal.record("standard new_conversation applied")
+                    }
+
+                    is AndroidNewConversationResult.Failed -> {
+                        newConversationState = StandardNewConversationState.Failed(result.reason)
+                        journal.record("standard new_conversation kept_state reason=${result.reason.name}")
+                    }
+                }
+            }
+        }
+    }
+
+    /** The user has seen the failure notice. */
+    fun dismissNewConversationFailure() {
+        if (newConversationState is StandardNewConversationState.Failed) {
+            newConversationState = StandardNewConversationState.Idle
+        }
+    }
+
+    /**
+     * Called by the screen when the selected Profile or its mode changes. A change
+     * into or out of Standard ends the previous transport and shows nothing of the
+     * previous conversation's turn or connection: modes never share a session.
+     * Other changes keep their existing behavior.
+     */
+    fun profileSelectionChanged(profileId: String?, mode: RelayProfileMode?) {
+        val previous = observedSelection
+        observedSelection = profileId to mode
+        if (previous == null || previous == (profileId to mode)) return
+        if (
+            previous.second != RelayProfileMode.Standard &&
+            mode != RelayProfileMode.Standard
+        ) {
+            return
+        }
+        journal.record("standard selection changed reset=true")
+        captureController?.let { capture ->
+            capture.disarmHandsFree()
+            capture.cancelCapture()
+        }
+        lastRequest = null
+        resendResult = null
+        userDisconnected = false
+        newConversationState = StandardNewConversationState.Idle
+        updateInitiation(AndroidInitiationState.Idle)
+        updateTurn(AndroidTurnState())
+        recoveryState = recoveryController.disconnectDeliberately()
+        runOnWork { clientPort.endSession() }
+    }
+
+    /**
+     * A Standard connect that had to create a new Hermes session (rather than
+     * resume the held one) means earlier local history is no longer Hermes's
+     * context; say so with a divider, once per connection.
+     */
+    private fun recordFreshStandardSession(state: AndroidRecoveryState) {
+        if (
+            !standardMode ||
+            state.connection != AndroidConnectionState.Connected ||
+            !state.startedFreshSession ||
+            state.connectionId == dividedConnectionId
+        ) {
+            return
+        }
+        dividedConnectionId = state.connectionId
+        recorder?.recordDivider(newConversationLabel)
+        historyRevision += 1
+        journal.record("standard fresh session divider=true")
     }
 
     /** A screen attached. A pending teardown is cancelled: someone is looking again. */
@@ -424,6 +600,7 @@ internal class HomeRuntime(
         tornDown = true
         journal.record("runtime teardown reason=$reason")
         connectionObservation.cancel()
+        finishingObservation?.cancel()
         turnObservation?.cancel()
         turnObservation = null
         captureController?.let { capture ->

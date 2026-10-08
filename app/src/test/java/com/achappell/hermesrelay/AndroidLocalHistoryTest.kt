@@ -6,8 +6,8 @@ import org.junit.Test
 
 class AndroidLocalHistoryTest {
     private var now = 1_000L
-    private fun recorder(store: AndroidHistoryStore, profileId: String? = "profile-1") =
-        AndroidHistoryRecorder(store) { now++ }.apply { open(profileId) }
+    private fun recorder(store: AndroidHistoryStore, historyKey: String? = "profile-1") =
+        AndroidHistoryRecorder(store) { now++ }.apply { open(historyKey) }
 
     @Test
     fun a_conversation_is_recorded_in_order_and_survives_a_reload() {
@@ -62,7 +62,7 @@ class AndroidLocalHistoryTest {
     @Test
     fun nothing_is_recorded_without_a_selected_profile() {
         val store = InMemoryAndroidHistoryStore()
-        val recorder = recorder(store, profileId = null)
+        val recorder = recorder(store, historyKey = null)
 
         recorder.recordUserTurn("orphan question")
 

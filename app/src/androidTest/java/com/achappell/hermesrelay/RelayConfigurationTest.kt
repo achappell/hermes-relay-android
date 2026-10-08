@@ -216,6 +216,8 @@ class RelayConfigurationTest {
             }
         }
 
+        // First setup asks which door to open (ANDROID-STD-01); this test is the Home form.
+        composeRule.onNodeWithTag("android_setup_choice_home").performClick()
         composeRule.onNodeWithTag("android_relay_endpoint")
             .performTextInput("wss://relay.example/voice-session")
         composeRule.onNodeWithTag("android_relay_client_id").performTextInput("amanda-laptop")
@@ -249,6 +251,7 @@ class RelayConfigurationTest {
             }
         }
 
+        composeRule.onNodeWithTag("android_setup_choice_home").performClick()
         composeRule.onNodeWithTag("android_relay_endpoint")
             .performTextInput("ws://relay.example:8792/voice-session")
         composeRule.onNodeWithTag("android_relay_client_id").performTextInput("amanda-laptop")

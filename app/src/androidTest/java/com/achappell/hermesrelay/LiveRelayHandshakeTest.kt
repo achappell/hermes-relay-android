@@ -620,6 +620,9 @@ class LiveRelayHandshakeTest {
             AndroidInitiationFailure.AuthorizationRequired -> AndroidHomeUnavailableReason.AuthorizationUnavailable
             AndroidInitiationFailure.EmptyTypedPrompt -> AndroidHomeUnavailableReason.InvalidBinding
             AndroidInitiationFailure.RequestRejected -> AndroidHomeUnavailableReason.RequestRejected
+            // Standard only; the live Home gate never reaches it.
+            AndroidInitiationFailure.PreviousResponseFinishing ->
+                AndroidHomeUnavailableReason.UnresolvedTurn
         }
         is AndroidInitiationResult.Uncertain -> reason
     }

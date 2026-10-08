@@ -88,13 +88,13 @@ internal data class AndroidLocalHistory(
     }
 }
 
-/** Per-Profile history storage. One Profile's history never reaches another. */
+/** History storage keyed by a Profile's history key (see RelayProfile.historyKey). One key's history never reaches another. */
 internal interface AndroidHistoryStore {
-    fun load(profileId: String): AndroidLocalHistory
+    fun load(historyKey: String): AndroidLocalHistory
 
-    fun save(profileId: String, history: AndroidLocalHistory)
+    fun save(historyKey: String, history: AndroidLocalHistory)
 
-    fun delete(profileId: String)
+    fun delete(historyKey: String)
 }
 
 internal class FileAndroidHistoryStore(
@@ -102,9 +102,9 @@ internal class FileAndroidHistoryStore(
 ) : AndroidHistoryStore {
     constructor(context: Context) : this(context.filesDir)
 
-    override fun load(profileId: String): AndroidLocalHistory =
+    override fun load(historyKey: String): AndroidLocalHistory =
         runCatching {
-            val file = fileFor(profileId)
+            val file = fileFor(historyKey)
             if (!file.exists()) {
                 AndroidLocalHistory()
             } else {
@@ -112,18 +112,18 @@ internal class FileAndroidHistoryStore(
             }
         }.getOrElse { AndroidLocalHistory() }
 
-    override fun save(profileId: String, history: AndroidLocalHistory) {
-        runCatching { fileFor(profileId).writeText(history.toJson()) }
+    override fun save(historyKey: String, history: AndroidLocalHistory) {
+        runCatching { fileFor(historyKey).writeText(history.toJson()) }
     }
 
-    override fun delete(profileId: String) {
-        runCatching { fileFor(profileId).delete() }
+    override fun delete(historyKey: String) {
+        runCatching { fileFor(historyKey).delete() }
     }
 
-    // The profile id comes from our own storage, but a filename is built from
+    // The history key comes from our own storage, but a filename is built from
     // it, so it is constrained rather than trusted.
-    private fun fileFor(profileId: String): File {
-        val safe = profileId.map { char ->
+    private fun fileFor(historyKey: String): File {
+        val safe = historyKey.map { char ->
             if (char.isLetterOrDigit() || char == '-' || char == '_') char else '_'
         }.joinToString("").take(64).ifBlank { "unknown" }
         return File(directory, "history-$safe.json")
@@ -133,17 +133,17 @@ internal class FileAndroidHistoryStore(
 internal class InMemoryAndroidHistoryStore : AndroidHistoryStore {
     private val stored = mutableMapOf<String, AndroidLocalHistory>()
 
-    override fun load(profileId: String) = stored[profileId] ?: AndroidLocalHistory()
+    override fun load(historyKey: String) = stored[historyKey] ?: AndroidLocalHistory()
 
-    override fun save(profileId: String, history: AndroidLocalHistory) {
-        stored[profileId] = history
+    override fun save(historyKey: String, history: AndroidLocalHistory) {
+        stored[historyKey] = history
     }
 
-    override fun delete(profileId: String) {
-        stored.remove(profileId)
+    override fun delete(historyKey: String) {
+        stored.remove(historyKey)
     }
 
-    fun contains(profileId: String) = stored.containsKey(profileId)
+    fun contains(historyKey: String) = stored.containsKey(historyKey)
 }
 
 /**
@@ -156,16 +156,16 @@ internal class AndroidHistoryRecorder(
     private val store: AndroidHistoryStore,
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) {
-    var profileId: String? = null
+    var historyKey: String? = null
         private set
 
     var history: AndroidLocalHistory = AndroidLocalHistory()
         private set
 
     /** Loads the given Profile's history, replacing whatever was in view. */
-    fun open(profileId: String?) {
-        this.profileId = profileId
-        history = profileId?.let { store.load(it) } ?: AndroidLocalHistory()
+    fun open(historyKey: String?) {
+        this.historyKey = historyKey
+        history = historyKey?.let { store.load(it) } ?: AndroidLocalHistory()
     }
 
     fun recordUserTurn(text: String) = record(AndroidTranscriptRole.User, text)
@@ -179,20 +179,20 @@ internal class AndroidHistoryRecorder(
     }
 
     fun recordDraft(value: String) {
-        val id = profileId ?: return
+        val id = historyKey ?: return
         if (history.draft == value) return
         history = history.withDraft(value)
         store.save(id, history)
     }
 
     fun clear() {
-        val id = profileId ?: return
+        val id = historyKey ?: return
         history = history.cleared()
         store.save(id, history)
     }
 
     private fun record(role: AndroidTranscriptRole, text: String) {
-        val id = profileId ?: return
+        val id = historyKey ?: return
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
 

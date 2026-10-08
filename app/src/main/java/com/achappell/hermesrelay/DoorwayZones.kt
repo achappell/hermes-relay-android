@@ -156,6 +156,16 @@ internal fun DoorwayHeaderZone(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    snapshot.mode?.let { mode ->
+                        Text(
+                            modifier = Modifier
+                                .testTag("android_mode_status")
+                                .a11yOrder(A11yOrder.PROFILE),
+                            text = stringResource(mode.statusRes()),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text(
                         modifier = Modifier.a11yOrder(A11yOrder.PROFILE, LiveRegionMode.Polite),
                         text = stringResource(
@@ -290,6 +300,7 @@ internal fun DoorwayStateZone(
     canEditRelay: Boolean,
     onConfigure: () -> Unit,
     onEditRelay: () -> Unit,
+    standardMode: Boolean = false,
 ) {
     val stateColors = LocalHermesStateColors.current
     val stateColor: Color
@@ -313,15 +324,29 @@ internal fun DoorwayStateZone(
 
                 AndroidDoorwayUnavailableReason.Connection -> when (connectionState) {
                     is AndroidConnectionState.Failed -> stringResource(
-                        R.string.android_state_unavailable_connection_failed,
+                        if (standardMode) {
+                            R.string.android_state_unavailable_connection_failed_standard
+                        } else {
+                            R.string.android_state_unavailable_connection_failed
+                        },
                         connectionState.reason,
                     )
 
                     is AndroidConnectionState.Reconnecting -> stringResource(
-                        R.string.android_state_unavailable_connection_reconnecting,
+                        if (standardMode) {
+                            R.string.android_state_unavailable_connection_reconnecting_standard
+                        } else {
+                            R.string.android_state_unavailable_connection_reconnecting
+                        },
                     )
 
-                    else -> stringResource(R.string.android_state_unavailable_connection)
+                    else -> stringResource(
+                        if (standardMode) {
+                            R.string.android_state_unavailable_connection_standard
+                        } else {
+                            R.string.android_state_unavailable_connection
+                        },
+                    )
                 }
 
                 AndroidDoorwayUnavailableReason.Microphone -> stringResource(
@@ -329,7 +354,11 @@ internal fun DoorwayStateZone(
                 )
 
                 AndroidDoorwayUnavailableReason.UnconfirmedTurn -> stringResource(
-                    R.string.android_state_unavailable_unconfirmed,
+                    if (standardMode) {
+                        R.string.android_state_unavailable_unconfirmed_standard
+                    } else {
+                        R.string.android_state_unavailable_unconfirmed
+                    },
                 )
             }
         }
@@ -369,7 +398,11 @@ internal fun DoorwayStateZone(
                         .testTag("android_connection_state")
                         .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
                     text = stringResource(
-                        R.string.android_connection_label,
+                        if (standardMode) {
+                            R.string.android_connection_label_standard
+                        } else {
+                            R.string.android_connection_label
+                        },
                         connectionState.label(),
                     ),
                     color = stateColors.unavailable,
@@ -430,6 +463,7 @@ internal fun ColumnScope.TypedComposerZone(
     isConnected: Boolean,
     composerBlock: AndroidComposerBlock?,
     isInitiating: Boolean = false,
+    standardMode: Boolean = false,
     onSend: () -> Unit,
 ) {
     OutlinedTextField(
@@ -500,7 +534,7 @@ internal fun ColumnScope.TypedComposerZone(
             modifier = Modifier
                 .testTag("android_send_blocked")
                 .a11yOrder(A11yOrder.ACTION, LiveRegionMode.Polite),
-            text = stringResource(block.messageRes()),
+            text = stringResource(block.messageRes(standardMode)),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -852,6 +886,7 @@ internal fun ColumnScope.ConnectionRecoveryZone(
     onEditRelay: () -> Unit,
     onResend: () -> Unit,
     onDiscard: () -> Unit,
+    standardMode: Boolean = false,
 ) {
     val stateColors = LocalHermesStateColors.current
 
@@ -894,25 +929,35 @@ internal fun ColumnScope.ConnectionRecoveryZone(
                 modifier = Modifier
                     .padding(20.dp)
                     .testTag("android_unconfirmed_turn"),
-                text = stringResource(R.string.android_unconfirmed_turn),
+                text = stringResource(
+                    if (standardMode) {
+                        R.string.android_unconfirmed_turn_standard
+                    } else {
+                        R.string.android_unconfirmed_turn
+                    },
+                ),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        OutlinedButton(
-            modifier = Modifier
-                .fillMaxWidth()
-                .a11yOrder(A11yOrder.ACTION),
-            onClick = onResend,
-        ) {
-            Text(stringResource(R.string.android_resend_unconfirmed_turn))
-        }
-        TextButton(
-            modifier = Modifier
-                .fillMaxWidth()
-                .a11yOrder(A11yOrder.ACTION),
-            onClick = onDiscard,
-        ) {
-            Text(stringResource(R.string.android_discard_unconfirmed_turn))
+        // Standard never offers a resend or a discard: only a deliberate New
+        // conversation clears the uncertainty.
+        if (!standardMode) {
+            OutlinedButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .a11yOrder(A11yOrder.ACTION),
+                onClick = onResend,
+            ) {
+                Text(stringResource(R.string.android_resend_unconfirmed_turn))
+            }
+            TextButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .a11yOrder(A11yOrder.ACTION),
+                onClick = onDiscard,
+            ) {
+                Text(stringResource(R.string.android_discard_unconfirmed_turn))
+            }
         }
     }
 
@@ -946,7 +991,7 @@ internal fun ColumnScope.ConnectionRecoveryZone(
         )
 
         is AndroidResendResult.Rejected -> Text(
-            text = stringResource(resendResult.reason.messageRes()),
+            text = stringResource(resendResult.reason.messageRes(standardMode)),
             color = stateColors.unavailable,
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -967,6 +1012,7 @@ internal fun ColumnScope.TurnZone(
     supportsInterrupt: Boolean,
     motionMode: AndroidMotionMode,
     onInterrupt: (AndroidTurnBinding) -> Unit,
+    standardMode: Boolean = false,
 ) {
     when (initiationState) {
         AndroidInitiationState.Idle -> Unit
@@ -977,7 +1023,11 @@ internal fun ColumnScope.TurnZone(
                 Text(
                     modifier = Modifier.testTag("android_turn_status"),
                     text = stringResource(
-                        R.string.android_initiation_accepted,
+                        if (standardMode) {
+                            R.string.android_initiation_accepted_standard
+                        } else {
+                            R.string.android_initiation_accepted
+                        },
                         snapshot.selectedProfile?.displayName
                             ?: initiationState.binding.profileId,
                     ),
@@ -1013,7 +1063,13 @@ internal fun ColumnScope.TurnZone(
                 Text(
                     text = stringResource(
                         R.string.android_turn_phase_label,
-                        stringResource(turnState.phase.labelRes()),
+                        stringResource(
+                            if (standardMode && turnState.phase == AndroidTurnPhase.Idle) {
+                                R.string.android_turn_phase_waiting_standard
+                            } else {
+                                turnState.phase.labelRes()
+                            },
+                        ),
                     ),
                     modifier = Modifier
                         .testTag("android_turn_phase")
@@ -1091,7 +1147,13 @@ internal fun ColumnScope.TurnZone(
                     modifier = Modifier
                         .testTag("android_disconnected")
                         .a11yOrder(A11yOrder.STATE, LiveRegionMode.Assertive),
-                    text = stringResource(R.string.android_turn_disconnected),
+                    text = stringResource(
+                        if (standardMode) {
+                            R.string.android_turn_disconnected_standard
+                        } else {
+                            R.string.android_turn_disconnected
+                        },
+                    ),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -1100,7 +1162,7 @@ internal fun ColumnScope.TurnZone(
 
         is AndroidInitiationState.Rejected -> {
             Text(
-                text = stringResource(initiationState.reason.messageRes()),
+                text = stringResource(initiationState.reason.messageRes(standardMode)),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -1108,7 +1170,13 @@ internal fun ColumnScope.TurnZone(
 
         is AndroidInitiationState.Uncertain -> {
             Text(
-                text = stringResource(R.string.android_failure_delivery_uncertain),
+                text = stringResource(
+                    if (standardMode) {
+                        R.string.android_failure_delivery_uncertain_standard
+                    } else {
+                        R.string.android_failure_delivery_uncertain
+                    },
+                ),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -1370,23 +1438,62 @@ internal fun AndroidAuthorizationState.labelRes(): Int = when (this) {
     AndroidAuthorizationState.Unavailable -> R.string.android_authorization_unavailable
 }
 
-internal fun AndroidInitiationFailure.messageRes(): Int = when (this) {
+internal fun AndroidInitiationFailure.messageRes(standardMode: Boolean = false): Int = when (this) {
     AndroidInitiationFailure.ProfileUnavailable -> R.string.android_failure_profile_unavailable
-    AndroidInitiationFailure.AuthorizationRequired -> R.string.android_failure_authorization_required
+    AndroidInitiationFailure.AuthorizationRequired ->
+        if (standardMode) {
+            R.string.android_failure_authorization_required_standard
+        } else {
+            R.string.android_failure_authorization_required
+        }
     AndroidInitiationFailure.EmptyTypedPrompt -> R.string.android_failure_empty_prompt
-    AndroidInitiationFailure.SessionUnavailable -> R.string.android_failure_session_unavailable
+    AndroidInitiationFailure.SessionUnavailable ->
+        if (standardMode) {
+            R.string.android_failure_session_unavailable_standard
+        } else {
+            R.string.android_failure_session_unavailable
+        }
     AndroidInitiationFailure.HomeBindingUnavailable -> R.string.android_failure_home_binding_unavailable
-    AndroidInitiationFailure.RequestRejected -> R.string.android_failure_request_rejected
-    AndroidInitiationFailure.DeliveryUncertain -> R.string.android_failure_delivery_uncertain
+    AndroidInitiationFailure.RequestRejected ->
+        if (standardMode) {
+            R.string.android_failure_request_rejected_standard
+        } else {
+            R.string.android_failure_request_rejected
+        }
+    AndroidInitiationFailure.DeliveryUncertain ->
+        if (standardMode) {
+            R.string.android_failure_delivery_uncertain_standard
+        } else {
+            R.string.android_failure_delivery_uncertain
+        }
+    AndroidInitiationFailure.PreviousResponseFinishing ->
+        R.string.android_failure_previous_response_finishing
 }
 
-internal fun AndroidComposerBlock.messageRes(): Int = when (this) {
+internal fun AndroidComposerBlock.messageRes(standardMode: Boolean = false): Int = when (this) {
     AndroidComposerBlock.NoProfile -> R.string.android_composer_block_no_profile
     AndroidComposerBlock.Authorization -> R.string.android_composer_block_authorization
-    AndroidComposerBlock.Disconnected -> R.string.android_composer_block_disconnected
+    AndroidComposerBlock.Disconnected ->
+        if (standardMode) {
+            R.string.android_composer_block_disconnected_standard
+        } else {
+            R.string.android_composer_block_disconnected
+        }
     AndroidComposerBlock.ActiveTurn -> R.string.android_composer_block_active_turn
-    AndroidComposerBlock.UnconfirmedTurn -> R.string.android_composer_block_unconfirmed_turn
+    AndroidComposerBlock.FinishingPreviousResponse -> R.string.android_composer_block_finishing
+    AndroidComposerBlock.UnconfirmedTurn ->
+        if (standardMode) {
+            R.string.android_composer_block_unconfirmed_turn_standard
+        } else {
+            R.string.android_composer_block_unconfirmed_turn
+        }
     AndroidComposerBlock.EmptyPrompt -> R.string.android_composer_block_empty_prompt
+}
+
+internal fun RelayProfileMode.statusRes(): Int = when (this) {
+    RelayProfileMode.HomeBridge -> R.string.android_mode_home
+    RelayProfileMode.Standard -> R.string.android_mode_standard
+    RelayProfileMode.Legacy -> R.string.android_mode_legacy
 }
 
 @Composable
@@ -1448,4 +1555,72 @@ internal fun AndroidTurnPhase.labelRes(): Int = when (this) {
     AndroidTurnPhase.Unavailable -> R.string.android_turn_phase_unavailable
     AndroidTurnPhase.Disconnected -> R.string.android_turn_phase_disconnected
     AndroidTurnPhase.Interrupted -> R.string.android_turn_phase_interrupted
+}
+
+// ---------------------------------------------------------------------------
+// Standard-only zone — New conversation and the busy state
+// ---------------------------------------------------------------------------
+
+/**
+ * The deliberate Standard session controls (`ANDROID-STD-01`): the visible New
+ * conversation action, the "Hermes is finishing" notice, and a failed-create
+ * notice. Shown only for a Standard Profile.
+ */
+@Composable
+internal fun ColumnScope.StandardConversationZone(
+    finishing: Boolean,
+    uncertain: Boolean,
+    state: StandardNewConversationState,
+    canStart: Boolean,
+    onNewConversation: () -> Unit,
+) {
+    if (finishing) {
+        Text(
+            modifier = Modifier
+                .testTag("android_standard_finishing")
+                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+            text = stringResource(R.string.android_standard_finishing),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+    OutlinedButton(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("android_new_conversation")
+            .a11yOrder(A11yOrder.ACTION),
+        enabled = canStart && state != StandardNewConversationState.InFlight,
+        onClick = onNewConversation,
+    ) {
+        Text(stringResource(R.string.android_new_conversation))
+    }
+    if (finishing || uncertain) {
+        Text(
+            text = stringResource(R.string.android_new_conversation_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    if (state is StandardNewConversationState.Failed) {
+        Text(
+            modifier = Modifier
+                .testTag("android_new_conversation_failed")
+                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Assertive),
+            text = stringResource(R.string.android_new_conversation_failed),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+/** Standard mode has no voice yet; say so instead of showing a control that cannot work. */
+@Composable
+internal fun StandardVoiceNote() {
+    Text(
+        modifier = Modifier
+            .testTag("android_standard_voice_note")
+            .a11yOrder(A11yOrder.ACTION),
+        text = stringResource(R.string.android_standard_voice_note),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }

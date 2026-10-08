@@ -6,6 +6,9 @@ internal enum class AndroidComposerBlock {
     Authorization,
     Disconnected,
     ActiveTurn,
+
+    /** Standard only: Hermes may still be producing the previous response. */
+    FinishingPreviousResponse,
     UnconfirmedTurn,
     EmptyPrompt,
 }
@@ -24,11 +27,13 @@ internal fun resolveAndroidComposerBlock(
     hasAcceptedTurn: Boolean,
     prompt: String,
     hasUnconfirmedTurn: Boolean = false,
+    isFinishingPreviousResponse: Boolean = false,
 ): AndroidComposerBlock? = when {
     !hasProfile -> AndroidComposerBlock.NoProfile
     !isAuthorized -> AndroidComposerBlock.Authorization
     hasAcceptedTurn -> AndroidComposerBlock.ActiveTurn
     hasUnconfirmedTurn -> AndroidComposerBlock.UnconfirmedTurn
+    isFinishingPreviousResponse -> AndroidComposerBlock.FinishingPreviousResponse
     !isConnected -> AndroidComposerBlock.Disconnected
     prompt.isBlank() -> AndroidComposerBlock.EmptyPrompt
     else -> null

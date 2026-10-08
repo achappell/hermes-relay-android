@@ -526,6 +526,124 @@ class HermesEventNormalizerTest {
         )
     }
 
+    private fun standardNormalizer() =
+        HermesEventNormalizer("android", allowLegacyFrames = false, textOnlyTurns = true)
+            .apply { beginTurn() }
+
+    @Test
+    fun a_text_only_normalizer_completes_the_turn_as_text_only() {
+        val normalizer = standardNormalizer()
+
+        val events = normalizer.normalizeStandardEvent(
+            "message.complete",
+            org.json.JSONObject().put("status", "complete"),
+            binding,
+        )
+
+        assertEquals(
+            listOf(AndroidNormalizedEvent.TurnCompleted(binding, textOnly = true)),
+            events,
+        )
+    }
+
+    @Test
+    fun the_default_normalizer_still_completes_without_the_text_only_mark() {
+        val events = normalizer().normalizeStandardEvent(
+            "message.complete",
+            org.json.JSONObject(),
+            binding,
+        )
+
+        assertEquals(listOf(AndroidNormalizedEvent.TurnCompleted(binding)), events)
+    }
+
+    @Test
+    fun standard_events_map_deltas_cumulative_previews_and_final_text_without_duplicates() {
+        val normalizer = standardNormalizer()
+        val events = mutableListOf<AndroidNormalizedEvent>()
+        events += normalizer.normalizeStandardEvent(
+            "message.delta",
+            org.json.JSONObject().put("text", "Rain "),
+            binding,
+        )
+        events += normalizer.normalizeStandardEvent(
+            "message.delta",
+            org.json.JSONObject().put("rendered", "Rain later"),
+            binding,
+        )
+        events += normalizer.normalizeStandardEvent(
+            "message.complete",
+            org.json.JSONObject().put("text", "Rain later"),
+            binding,
+        )
+
+        assertEquals(
+            listOf(
+                AndroidNormalizedEvent.ResponseTextDelta(binding, "Rain "),
+                AndroidNormalizedEvent.ResponseTextDelta(binding, "later"),
+                AndroidNormalizedEvent.TurnCompleted(binding, textOnly = true),
+            ),
+            events,
+        )
+        val reduced = events.fold(
+            AndroidTurnState(binding = binding, phase = AndroidTurnPhase.Thinking),
+            AndroidTurnStateReducer::reduce,
+        )
+        assertEquals("Rain later", reduced.responseText)
+        assertEquals(AndroidTurnPhase.Complete, reduced.phase)
+    }
+
+    @Test
+    fun a_standard_interim_that_deltas_already_showed_is_not_shown_twice() {
+        val normalizer = standardNormalizer()
+        normalizer.normalizeStandardEvent(
+            "message.delta",
+            org.json.JSONObject().put("text", "Checking"),
+            binding,
+        )
+
+        val interim = normalizer.normalizeStandardEvent(
+            "message.interim",
+            org.json.JSONObject().put("text", "Checking").put("already_streamed", true),
+            binding,
+        )
+
+        assertTrue(interim.isEmpty())
+    }
+
+    @Test
+    fun a_standard_prompt_request_takes_its_correlation_id_from_the_payload() {
+        val events = standardNormalizer().normalizeStandardEvent(
+            "clarify.request",
+            org.json.JSONObject().put("request_id", "req-9").put("options", org.json.JSONArray().put("a")),
+            binding,
+        )
+
+        assertEquals(
+            listOf(
+                AndroidNormalizedEvent.StructuredPrompt(
+                    binding = binding,
+                    type = "clarify.request",
+                    correlationId = "req-9",
+                    sensitive = false,
+                    optionCount = 1,
+                ),
+            ),
+            events,
+        )
+    }
+
+    @Test
+    fun unknown_standard_events_are_typed_unknown_and_never_terminal() {
+        val events = standardNormalizer().normalizeStandardEvent(
+            "tool.start",
+            org.json.JSONObject().put("name", "search"),
+            binding,
+        )
+
+        assertEquals(listOf(AndroidNormalizedEvent.Unknown(binding, "tool.start")), events)
+    }
+
     private fun homeEvent(type: String, payload: org.json.JSONObject): org.json.JSONObject =
         org.json.JSONObject()
             .put("schema", 1)
