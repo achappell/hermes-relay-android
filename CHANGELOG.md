@@ -3,7 +3,6 @@
 ## Unreleased
 
 ### Features
-- Add deliberate Home Disconnect with user-only attribution and mid-reply confirmation.
 - Add 2-second interrupt acknowledgement and interrupt-and-listen behavior to Android voice controls.
 - Tell Home when Interrupt stops speech still buffered on the phone after the text turn ended, so Home releases the reply audio and accepts the next prompt.
 - Interrupt speech that starts after Home's text terminal, without treating in-flight PCM or the stopped sidecar's end as an audio failure.
@@ -12,8 +11,82 @@
 - Add durable Home claim-management capability detection and an "Open on Home" list/close flow for the conversations sheet.
 
 ### Fixes
-- Await Home's `conversation.close` acknowledgement before recording a claim released; report unacknowledged close truthfully.
 - Reflow the conversation header title and Profile block to preserve the accessible overflow action at large font scales.
+
+## 0.4.0 (2026-10-08)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Dependencies
+* chore(deps): bump androidx.compose:compose-bom from 2026.08.00 to 2026.09.00 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/49
+* chore(deps): bump com.android.application from 9.4.0 to 9.4.1 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/48
+* chore(deps): bump okhttp from 4.12.0 to 5.5.0 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/47
+* chore(deps): bump actions/setup-python from 6.3.0 to 7.0.0 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/45
+* chore(deps): bump org.json:json from 20240303 to 20260814 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/46
+* chore(deps): bump android-actions/setup-android from 4.0.1 to 4.0.4 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/62
+* chore(deps): bump gradle/actions/setup-gradle from 6.3.0 to 6.4.0 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/63
+* chore(deps): bump gradle-wrapper from 9.7.1 to 9.8.0 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/64
+* chore(deps): bump androidx.core:core-ktx from 1.19.0 to 1.19.1 by @dependabot[bot] in https://github.com/achappell/hermes-relay-android/pull/65
+### Other Changes
+* Fix/stereo drain frames by @achappell in https://github.com/achappell/hermes-relay-android/pull/26
+* 5-A-3: Night Console palette and doorway decomposition by @achappell in https://github.com/achappell/hermes-relay-android/pull/28
+* chore: make Android BMad delivery status local by @achappell in https://github.com/achappell/hermes-relay-android/pull/29
+* feat: migrate Android client to Home bridge by @achappell in https://github.com/achappell/hermes-relay-android/pull/36
+* feat: complete Android 5-A-3 doorway pass by @achappell in https://github.com/achappell/hermes-relay-android/pull/30
+* chore: standardize project-local worktrees by @achappell in https://github.com/achappell/hermes-relay-android/pull/37
+* chore: register Android next-wave aliases by @achappell in https://github.com/achappell/hermes-relay-android/pull/38
+* feat(android): align conversation navigation with iOS by @achappell in https://github.com/achappell/hermes-relay-android/pull/39
+* docs(android): defer manual TalkBack validation by @achappell in https://github.com/achappell/hermes-relay-android/pull/40
+* chore: configure BMAD issue tracking by @achappell in https://github.com/achappell/hermes-relay-android/pull/41
+* fix(android): resume Home turns after reconnect by @achappell in https://github.com/achappell/hermes-relay-android/pull/43
+* Harden Android BMAD issue tracking by @achappell in https://github.com/achappell/hermes-relay-android/pull/42
+* fix(android): complete signed live Home gate on Pixel by @achappell in https://github.com/achappell/hermes-relay-android/pull/44
+* feat(android): add Home device administration lifecycle by @achappell in https://github.com/achappell/hermes-relay-android/pull/50
+* chore(status): sync Android sprint status with merged PRs by @achappell in https://github.com/achappell/hermes-relay-android/pull/51
+* docs(planning): apply approved nine-epic course correction by @achappell in https://github.com/achappell/hermes-relay-android/pull/55
+* ANDROID-HOME-02 slice 1: pair with Home and claim per connect by @achappell in https://github.com/achappell/hermes-relay-android/pull/56
+* ANDROID-HOME-02: in-app pairing QR scanner and decision review by @achappell in https://github.com/achappell/hermes-relay-android/pull/57
+* ANDROID-HOME-02 slice 2: list, resume, rename, and continue Home conversations by @achappell in https://github.com/achappell/hermes-relay-android/pull/58
+* ANDROID-HOME-02 slice 3: owner approvals and Profile holders by @achappell in https://github.com/achappell/hermes-relay-android/pull/59
+* Mark ANDROID-HOME-02 done; Android Epic 1 stays open by @achappell in https://github.com/achappell/hermes-relay-android/pull/60
+* Reconnect a paired Profile after Android cuts it off by @achappell in https://github.com/achappell/hermes-relay-android/pull/61
+* docs: approve ANDROID-STD-01 readiness review by @achappell in https://github.com/achappell/hermes-relay-android/pull/66
+* docs(android): ticket the iOS 0.7.0 parity work (ANDROID-PARITY-01) by @achappell in https://github.com/achappell/hermes-relay-android/pull/82
+* docs(android): ticket functional and design/polish parity with iOS by @achappell in https://github.com/achappell/hermes-relay-android/pull/111
+* feat(planning): structure Android parity epics and streams by @achappell in https://github.com/achappell/hermes-relay-android/pull/114
+* docs(planning): decide HOME-08 background hands-free and HOME-10 idle control lease by @achappell in https://github.com/achappell/hermes-relay-android/pull/115
+* test(android): platform seam, injected time and repetition gate (ANDROID-TEST-01) by @achappell in https://github.com/achappell/hermes-relay-android/pull/116
+* refactor(android): one process-scoped Home runtime (ANDROID-HOME-07) by @achappell in https://github.com/achappell/hermes-relay-android/pull/117
+* feat(android): microphone permission rationale and Open settings (ANDROID-VOICE-02) by @achappell in https://github.com/achappell/hermes-relay-android/pull/118
+* fix(android): stale Device-administration state no longer blocks a paired Profile by @achappell in https://github.com/achappell/hermes-relay-android/pull/119
+* feat(android): content-free diagnostics journal and Share diagnostics (ANDROID-DIAG-01) by @achappell in https://github.com/achappell/hermes-relay-android/pull/120
+* feat(android): deliberate Disconnect from Home (ANDROID-HOME-12) by @achappell in https://github.com/achappell/hermes-relay-android/pull/121
+* feat(android): recognizer language-pack handling and explicit online retry (ANDROID-VOICE-01) by @achappell in https://github.com/achappell/hermes-relay-android/pull/123
+* feat(android): app version and build identity in settings and diagnostics (ANDROID-REL-01) by @achappell in https://github.com/achappell/hermes-relay-android/pull/124
+* fix(android): keep late Home reply audio playable (ANDROID-HOME-05) by @achappell in https://github.com/achappell/hermes-relay-android/pull/126
+* fix(android): restore main build after HOME-12/DIAG-01 merge by @achappell in https://github.com/achappell/hermes-relay-android/pull/131
+* feat(android): Paired Homes Refresh Profiles and Unpair this Home (ANDROID-HOME-13) by @achappell in https://github.com/achappell/hermes-relay-android/pull/122
+* feat(android): silence endpointing and auto-send for tap-to-talk (ANDROID-VOICE-03) by @achappell in https://github.com/achappell/hermes-relay-android/pull/125
+* docs(bmad): feedback parity tickets ANDROID-UX-13..15, ANDROID-VOICE-06 by @achappell in https://github.com/achappell/hermes-relay-android/pull/132
+* feat(android): implement UX-09 splash and back behavior by @achappell in https://github.com/achappell/hermes-relay-android/pull/128
+* feat(home): manage Home client claims (ANDROID-HOME-03) by @achappell in https://github.com/achappell/hermes-relay-android/pull/130
+* fix: quote apostrophes in Android story index by @achappell in https://github.com/achappell/hermes-relay-android/pull/133
+* ANDROID-UX-03: keep session header text and overflow menu reachable at large font scales by @achappell in https://github.com/achappell/hermes-relay-android/pull/134
+* ANDROID-UX-01: Night Console token foundation (in progress) by @achappell in https://github.com/achappell/hermes-relay-android/pull/127
+* feat(android): implement VOICE-04 interrupt behavior by @achappell in https://github.com/achappell/hermes-relay-android/pull/129
+* docs: close ANDROID-HOME-03 and ANDROID-UX-09 on owner acceptance by @achappell in https://github.com/achappell/hermes-relay-android/pull/135
+* docs: HOME-13 Pixel render proof and refresh feedback defect by @achappell in https://github.com/achappell/hermes-relay-android/pull/136
+* fix: keep Paired Homes refresh feedback visible by @achappell in https://github.com/achappell/hermes-relay-android/pull/138
+* docs: close HOME-07, REL-01 and TEST-01 with runtime evidence by @achappell in https://github.com/achappell/hermes-relay-android/pull/139
+* docs: close VOICE-04; retain UX-01 outdoor acceptance gate by @achappell in https://github.com/achappell/hermes-relay-android/pull/140
+* docs: batch Android owner-accepted status closeouts by @achappell in https://github.com/achappell/hermes-relay-android/pull/141
+* fix(home): await close acknowledgement on deliberate disconnect by @achappell in https://github.com/achappell/hermes-relay-android/pull/142
+
+## New Contributors
+* @dependabot[bot] made their first contribution in https://github.com/achappell/hermes-relay-android/pull/49
+
+**Full Changelog**: https://github.com/achappell/hermes-relay-android/compare/v0.3.1...v0.4.0
 
 ## 0.3.1 (2026-09-12)
 
