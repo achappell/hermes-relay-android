@@ -1,6 +1,14 @@
+---
+story: ANDROID-UX-09
+spec: spec-android-ux-09-splash-and-back.md
+status: done-with-environment-limitation
+story_status: done
+updated: 2026-10-07
+---
+
 # ANDROID-UX-09 validation record
 
-Status: `review`. Baseline: rebased onto `origin/main` at `85090f6` (after #118–#126, #131, #132 merged); code verified at `64f12cb`, and the only newer main commit is docs. Device pass on a Pixel 6a (Android 17, API 37), 2026-10-07.
+Status: `done-with-environment-limitation`. Baseline: rebased onto `origin/main` at `85090f6` (after #118–#126, #131, #132 merged); code verified at `64f12cb`, and the only newer main commit is docs. Device pass on a Pixel 6a (Android 17, API 37), 2026-10-07.
 
 ## Implemented
 
@@ -26,6 +34,10 @@ Installed with `adb install -r` only (never uninstall, clear-data, re-pair or `c
 - **Predictive-back edge gesture on configuration, conversations and history sheets** (`input motionevent` from x=4: gesture navigation enabled temporarily, three-button navigation and `enable_back_animation=0` restored afterwards): on each sheet a gesture dragged in and back out cancelled and kept the sheet open; a drag past the commit threshold dismissed only that sheet and left the home surface shown (app not exited). The mid-gesture screenshot shows the system preview (sheet scaled with the back chevron). The approvals sheet has no device run beyond `ModalSheetBackTest`.
 - Screen recordings and screenshots stay off-repo because they show conversation content.
 
-## Open
+## Open items
 
-- Nothing against the acceptance criteria. Physical TalkBack and the approvals sheet by gesture were not exercised.
+Nothing against the acceptance criteria. Physical TalkBack spoken output and the approvals sheet gesture back were not exercised.
+
+## Acceptance — 2026-10-07
+
+Amanda accepted ANDROID-UX-09 on 2026-10-07. Owner waivers: (1) TalkBack spoken output verification waived 2026-10-07 — spoken output remains unverified, not a pass criterion; (2) approvals sheet by gesture not exercised. All other acceptance criteria met (device cold/warm start no flash, gesture back on config/conversations/history sheets, splash theme and adaptive icon rendered correctly).

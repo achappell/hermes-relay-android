@@ -1,7 +1,8 @@
 ---
 story: ANDROID-HOME-03
 spec: spec-android-home-03-claim-lifecycle.md
-status: review
+status: done-with-environment-limitation
+story_status: done
 updated: 2026-10-07
 ---
 
@@ -34,3 +35,7 @@ Pixel 6a (Android 17), already paired to `caticornqueen.taila59979.ts.net` with 
 - **Live gate, Spark Profile, Conversations sheet:** the sheet showed `Open on Home (2 open · max 8)` (Home's `max_claims`, not a constant), the current row marked `Current conversation` with its `Close` control absent, and one non-current row (`Waiting to reconnect`, left by an earlier launch) with a `Close` button. `Close all others` was offered. Tapping that row's `Close` produced `1 conversation closed; open conversations refreshed.` and the header became `Open on Home (1 open · max 8)`. The closed Hermes session stayed in the conversation list (closing never deletes a session).
 - **Journal (content-free) for that run:** `home claim created`; `home connect conversation.open result=connected reason=none reused_claim=false`; `home connect conversation.reconnect result=connected reason=none reused_claim=true`; `home claims listed count=2 max=8`; `home claims closed requested=1 closed=1`; `home claims listed count=1 max=8`. No claim refs, handles, Session refs, prompts or replies appear.
 - **Owner decision (2026-10-07): live `claim_limit` pilot waived.** The spec's device pilot (fill the device to `max_claims`, observe `claim_limit`, Manage open conversations, Close all others, connect succeeds) was not run. Home reports `max_claims` 8 and a phone holds one live claim per connect (a switch or new conversation releases the old one), so reaching 8 would mean leaking seven claims, i.e. conversations, on the real Home. The owner accepted coverage from (1) the JVM `claim_limit` tests (`claim_management_survives_cold_start_when_first_claim_hits_claim_limit`, plus the `ClaimLimit` mapping in `HomeClientClaimProvider`) and (2) the live Open on Home list/close on the Spark Profile above. The "Manage open conversations" entry that `claim_limit` offers is therefore proven by JVM tests only, not on a device. Screenshots are kept off-repo because they show conversation titles.
+
+## Acceptance — 2026-10-07
+
+Amanda accepted ANDROID-HOME-03 on 2026-10-07. Owner decision: live `claim_limit` pilot waived (filled device test would leak conversations on the real Home). Coverage: (1) JVM `claim_limit` tests, (2) live Open on Home list/close on paired Spark Profile (recorded above). All other acceptance criteria met.
