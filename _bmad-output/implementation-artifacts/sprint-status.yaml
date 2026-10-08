@@ -72,8 +72,9 @@ development_status:
   android-ux-15: backlog
   android-parity-02: backlog
   android-parity-03: backlog
-  epic-2: backlog
-  android-std-01: ready-for-dev
+  epic-2: in-progress
+  android-std-01: in-progress
+  # Slice 1 (connection and typed chat) is delivered as a draft PR; slices 2 (voice) and 3 (guards, isolation) are not started.
   epic-3: in-progress
   3-a-1: backlog
   3-a-2: backlog

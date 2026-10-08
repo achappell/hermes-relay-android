@@ -62,6 +62,15 @@ internal fun RelayConfigurationScreen(
     }
 
     var pairedHomesRevision by remember { mutableStateOf(0) }
+    // First setup asks which door to open; an existing configuration keeps Home as the default.
+    var setupChoice by rememberSaveable {
+        mutableStateOf(if (controller.collection.profiles.isEmpty()) "" else SETUP_HOME)
+    }
+    var editingStandardId by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(pendingPairingLink) {
+        // A delivered pairing link is a Home setup; show the section that consumes it.
+        if (pendingPairingLink != null) setupChoice = SETUP_HOME
+    }
 
     fun refresh() {
         collection = controller.collection
@@ -79,6 +88,8 @@ internal fun RelayConfigurationScreen(
         )
 
         collection.profiles.forEach { profile ->
+            val switchBlocked = controller.switchBlockedFor(profile.id)
+            val deleteBlocked = profile.id == collection.selectedId && controller.switchBlocked
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = if (profile.id == collection.selectedId) {
@@ -92,15 +103,34 @@ internal fun RelayConfigurationScreen(
                     Text(profile.displayName, style = MaterialTheme.typography.titleSmall)
                     Text(profile.endpoint, style = MaterialTheme.typography.bodySmall)
                     Text(
-                        text = stringResource(
-                            R.string.android_relay_identity,
-                            profile.clientId,
-                            profile.deviceId,
-                        ),
+                        modifier = Modifier.testTag("android_relay_mode_${profile.id}"),
+                        text = stringResource(profile.mode.statusRes()),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    when (profile.mode) {
+                        RelayProfileMode.Standard -> Text(
+                            text = profile.hermesProfile
+                                ?: RelayProfileValidator.DEFAULT_HERMES_PROFILE,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+
+                        RelayProfileMode.Legacy -> Text(
+                            text = stringResource(R.string.android_relay_legacy_needs_setup),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+
+                        RelayProfileMode.HomeBridge -> Text(
+                            text = stringResource(
+                                R.string.android_relay_identity,
+                                profile.clientId,
+                                profile.deviceId,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(
+                            enabled = !switchBlocked,
                             onClick = {
                                 controller.select(profile.id)
                                 refresh()
@@ -108,7 +138,17 @@ internal fun RelayConfigurationScreen(
                         ) {
                             Text(stringResource(R.string.android_relay_select))
                         }
+                        if (profile.mode == RelayProfileMode.Standard) {
+                            TextButton(
+                                modifier = Modifier.testTag("android_standard_edit_${profile.id}"),
+                                enabled = !(profile.id == collection.selectedId && controller.switchBlocked),
+                                onClick = { editingStandardId = profile.id },
+                            ) {
+                                Text(stringResource(R.string.android_standard_edit))
+                            }
+                        }
                         TextButton(
+                            enabled = !deleteBlocked,
                             onClick = {
                                 controller.delete(profile.id)
                                 refresh()
@@ -117,17 +157,39 @@ internal fun RelayConfigurationScreen(
                             Text(stringResource(R.string.android_relay_delete))
                         }
                     }
+                    if (switchBlocked || deleteBlocked) {
+                        Text(
+                            modifier = Modifier.testTag("android_relay_switch_blocked"),
+                            text = stringResource(R.string.android_relay_switch_blocked),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         }
 
-        homePairing?.let { coordinator ->
-            HomePairingSection(
-                coordinator = coordinator,
-                pendingLink = pendingPairingLink,
-                onPendingLinkConsumed = onPendingPairingLinkConsumed,
-                onPaired = ::refresh,
+        collection.profiles.firstOrNull { it.id == editingStandardId }?.let { editing ->
+            StandardSetupSection(
+                controller = controller,
+                editing = editing,
+                onSaved = {
+                    editingStandardId = null
+                    refresh()
+                },
+                onCancel = { editingStandardId = null },
             )
+        }
+
+        homePairing?.let { coordinator ->
+            if (setupChoice == SETUP_HOME) {
+                HomePairingSection(
+                    coordinator = coordinator,
+                    pendingLink = pendingPairingLink,
+                    onPendingLinkConsumed = onPendingPairingLinkConsumed,
+                    onPaired = ::refresh,
+                )
+            }
             PairedHomesSection(
                 coordinator = coordinator,
                 pairingRevision = pairedHomesRevision,
@@ -143,66 +205,104 @@ internal fun RelayConfigurationScreen(
             )
         }
 
-        RelayField(
-            tag = "android_relay_endpoint",
-            value = endpoint,
-            onValueChange = { endpoint = it },
-            labelRes = R.string.android_relay_endpoint,
-            error = errors[RelayProfileField.Endpoint],
+        Text(
+            text = stringResource(R.string.android_setup_choice_title),
+            style = MaterialTheme.typography.titleSmall,
         )
-        RelayField(
-            tag = "android_relay_client_id",
-            value = clientId,
-            onValueChange = { clientId = it },
-            labelRes = R.string.android_relay_client_id,
-            error = errors[RelayProfileField.ClientId],
+        Text(
+            text = stringResource(R.string.android_setup_choice_prompt),
+            style = MaterialTheme.typography.bodySmall,
         )
-        RelayField(
-            tag = "android_relay_device_id",
-            value = deviceId,
-            onValueChange = { deviceId = it },
-            labelRes = R.string.android_relay_device_id,
-            error = errors[RelayProfileField.DeviceId],
-        )
-        RelayField(
-            tag = "android_relay_display_name",
-            value = displayName,
-            onValueChange = { displayName = it },
-            labelRes = R.string.android_relay_display_name,
-            error = errors[RelayProfileField.DisplayName],
-        )
-        RelayField(
-            tag = "android_relay_token",
-            value = token,
-            onValueChange = { token = it },
-            labelRes = R.string.android_relay_token,
-            error = errors[RelayProfileField.Token],
-            masked = true,
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(
+                modifier = Modifier.testTag("android_setup_choice_home"),
+                enabled = setupChoice != SETUP_HOME,
+                onClick = { setupChoice = SETUP_HOME },
+            ) {
+                Text(stringResource(R.string.android_setup_choice_home))
+            }
+            FilledTonalButton(
+                modifier = Modifier.testTag("android_setup_choice_standard"),
+                enabled = setupChoice != SETUP_STANDARD,
+                onClick = { setupChoice = SETUP_STANDARD },
+            ) {
+                Text(stringResource(R.string.android_setup_choice_standard))
+            }
+        }
 
-        FilledTonalButton(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("android_relay_save"),
-            onClick = {
-                val result = controller.save(endpoint, clientId, deviceId, displayName, token)
-                errors = result
-                if (result.isEmpty()) {
-                    endpoint = ""
-                    clientId = ""
-                    deviceId = ""
-                    displayName = ""
-                    token = ""
-                    refresh()
-                }
-            },
-        ) {
-            Text(stringResource(R.string.android_relay_save))
+        if (setupChoice == SETUP_STANDARD) {
+            StandardSetupSection(
+                controller = controller,
+                onSaved = ::refresh,
+            )
+        }
+
+        if (setupChoice == SETUP_HOME) {
+            RelayField(
+                tag = "android_relay_endpoint",
+                value = endpoint,
+                onValueChange = { endpoint = it },
+                labelRes = R.string.android_relay_endpoint,
+                error = errors[RelayProfileField.Endpoint],
+            )
+            RelayField(
+                tag = "android_relay_client_id",
+                value = clientId,
+                onValueChange = { clientId = it },
+                labelRes = R.string.android_relay_client_id,
+                error = errors[RelayProfileField.ClientId],
+            )
+            RelayField(
+                tag = "android_relay_device_id",
+                value = deviceId,
+                onValueChange = { deviceId = it },
+                labelRes = R.string.android_relay_device_id,
+                error = errors[RelayProfileField.DeviceId],
+            )
+            RelayField(
+                tag = "android_relay_display_name",
+                value = displayName,
+                onValueChange = { displayName = it },
+                labelRes = R.string.android_relay_display_name,
+                error = errors[RelayProfileField.DisplayName],
+            )
+            RelayField(
+                tag = "android_relay_token",
+                value = token,
+                onValueChange = { token = it },
+                labelRes = R.string.android_relay_token,
+                error = errors[RelayProfileField.Token],
+                masked = true,
+            )
+
+            FilledTonalButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("android_relay_save"),
+                onClick = {
+                    val result = controller.save(endpoint, clientId, deviceId, displayName, token)
+                    errors = result
+                    if (result.isEmpty()) {
+                        endpoint = ""
+                        clientId = ""
+                        deviceId = ""
+                        displayName = ""
+                        token = ""
+                        refresh()
+                    }
+                },
+            ) {
+                Text(stringResource(R.string.android_relay_save))
+            }
         }
 
         // Device administration belongs to operator-handle Profiles; a paired
         // Profile has no administration binding to act on.
-        homeAdministration?.takeIf { collection.selected?.homeClientGrant == null }?.let {
+        homeAdministration
+            ?.takeIf {
+                collection.selected?.homeClientGrant == null &&
+                    collection.selected?.mode != RelayProfileMode.Standard
+            }?.let {
             HomeDeviceAdministrationScreen(
                 controller = it,
                 selectedProfileId = collection.selectedId,
@@ -716,10 +816,16 @@ private fun RelayField(
     }
 }
 
-private fun RelayProfileError.messageRes(): Int = when (this) {
+internal fun RelayProfileError.messageRes(): Int = when (this) {
     RelayProfileError.Required -> R.string.android_relay_error_required
     RelayProfileError.EndpointMalformed -> R.string.android_relay_error_malformed
     RelayProfileError.EndpointNotSecure -> R.string.android_relay_error_not_secure
     RelayProfileError.EndpointBareAddress -> R.string.android_relay_error_bare_address
+    RelayProfileError.EndpointCarriesCredential -> R.string.android_relay_error_carries_credential
+    RelayProfileError.HermesProfileInvalid -> R.string.android_relay_error_hermes_profile
+    RelayProfileError.Duplicate -> R.string.android_relay_error_duplicate
     RelayProfileError.StorageUnavailable -> R.string.android_relay_error_storage
 }
+
+private const val SETUP_HOME = "home"
+private const val SETUP_STANDARD = "standard"

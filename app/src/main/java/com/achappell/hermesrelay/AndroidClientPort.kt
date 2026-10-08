@@ -11,6 +11,8 @@ internal data class AndroidClientSnapshot(
     val route: AndroidRoute? = null,
     val capabilities: AndroidHomeCapabilities = AndroidHomeCapabilities(),
     val unavailableReason: AndroidHomeUnavailableReason? = null,
+    /** The selected Profile's mode, so the UI can say which door is open. Null with no Profile. */
+    val mode: RelayProfileMode? = null,
 )
 
 internal data class AndroidProfile(
@@ -194,6 +196,9 @@ internal enum class AndroidInitiationFailure {
     HomeBindingUnavailable,
     RequestRejected,
     DeliveryUncertain,
+
+    /** Standard only: Hermes may still be producing the previous response. */
+    PreviousResponseFinishing,
 }
 
 internal sealed interface AndroidInitiationResult {
@@ -289,6 +294,59 @@ internal object BootstrapClientPort : AndroidClientPort {
 
     override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult =
         AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable)
+}
+
+/**
+ * Standard-only session surface (`ANDROID-STD-01`). Implemented by the direct
+ * `/api/ws` adapter; Home never implements it. Blocking calls belong on a
+ * worker thread.
+ */
+internal interface AndroidStandardSession {
+    /**
+     * The deliberate New conversation action: `session.create` on the Standard
+     * socket, opening the socket first when it is down. Only a [AndroidNewConversationResult.Created]
+     * clears the uncertain-turn and "Hermes is finishing" states; a failure
+     * leaves both exactly as they were.
+     */
+    fun newConversation(): AndroidNewConversationResult
+
+    /**
+     * True while Hermes may still be producing a response the user stopped
+     * locally. Cleared when Hermes signals that turn ended or by a successful
+     * [newConversation]; never cleared by reconnecting.
+     */
+    fun isFinishingPreviousResponse(): Boolean
+
+    /**
+     * True while a turn's delivery is uncertain (prompt sent or turn in flight
+     * when the transport was lost). Cleared only by a successful
+     * [newConversation]; never by reconnect, resend or discard.
+     */
+    fun hasUncertainTurn(): Boolean
+
+    /** Notified on the adapter's threads whenever [isFinishingPreviousResponse] changes. */
+    fun observeFinishing(onChange: (Boolean) -> Unit): AndroidTurnObservation
+}
+
+internal sealed interface AndroidNewConversationResult {
+    data object Created : AndroidNewConversationResult
+
+    data class Failed(val reason: AndroidHomeUnavailableReason) : AndroidNewConversationResult
+}
+
+/**
+ * Setup-time connection check for a Standard Profile: opens `/api/ws`, waits for
+ * `gateway.ready` and runs `session.create` (which creates a remote session),
+ * then closes. Blocking. The token is passed in and is never stored or logged.
+ */
+internal fun interface StandardConnectionChecker {
+    fun check(endpoint: String, hermesProfile: String, token: String): StandardCheckResult
+}
+
+internal sealed interface StandardCheckResult {
+    data object Verified : StandardCheckResult
+
+    data class Failed(val reason: AndroidHomeUnavailableReason) : StandardCheckResult
 }
 
 /**

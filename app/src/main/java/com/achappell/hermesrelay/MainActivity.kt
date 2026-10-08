@@ -194,10 +194,16 @@ internal fun AndroidClientScreen(
     val historyRevision = runtime.historyRevision
 
     // Local History follows the selected Profile: switching Profiles opens that
-    // Profile's conversation and never shows another's.
+    // Profile's conversation and never shows another's. A Standard Profile's
+    // history is keyed by mode + endpoint + Hermes Profile, not by the Profile id.
     val selectedProfileId = configuration?.collection?.selectedId
-    LaunchedEffect(recorder, selectedProfileId, configurationRevision) {
-        recorder?.open(selectedProfileId)
+    val selectedProfile = configuration?.collection?.selected
+    val selectedHistoryKey = selectedProfile?.historyKey
+    val standardMode = snapshot.mode == RelayProfileMode.Standard
+    LaunchedEffect(recorder, selectedProfileId, selectedHistoryKey, configurationRevision) {
+        runtime.profileSelectionChanged(selectedProfileId, selectedProfile?.mode, selectedHistoryKey)
+        runtime.openPromptHistory(selectedHistoryKey)
+        recorder?.open(selectedHistoryKey)
         recorder?.let { prompt = it.history.draft }
         runtime.historyRevision += 1
     }
@@ -205,7 +211,8 @@ internal fun AndroidClientScreen(
         snapshot.selectedProfile != null
     val isConnected = recoveryState.connection == AndroidConnectionState.Connected
     val hasUnresolvedTurn = recoveryState.hasUnconfirmedTurn ||
-        recoveryState.unresolvedHomeTurn
+        recoveryState.unresolvedHomeTurn ||
+        (standardMode && runtime.standardSession?.hasUncertainTurn() == true)
     val hasAcceptedTurn = runtime.hasAcceptedTurn
     val canAttemptConnection = snapshot.selectedProfile != null &&
         snapshot.unavailableReason !in setOf(
@@ -251,9 +258,11 @@ internal fun AndroidClientScreen(
         hasProfile = snapshot.selectedProfile != null,
         isAuthorized = isAuthorized,
         isConnected = isConnected,
-        hasAcceptedTurn = hasAcceptedTurn,
+        hasAcceptedTurn = hasAcceptedTurn ||
+            runtime.newConversationState == StandardNewConversationState.InFlight,
         prompt = prompt,
         hasUnconfirmedTurn = hasUnresolvedTurn,
+        isFinishingPreviousResponse = standardMode && runtime.standardFinishing,
     )
     // Editing a local draft does not require a live Home authorization. Sending
     // still does: composerBlock remains based on the verified authorization.
@@ -655,10 +664,14 @@ internal fun AndroidClientScreen(
                                 isConnected = isConnected,
                                 composerBlock = composerBlock,
                                 isInitiating = initiationInFlight,
+                                standardMode = standardMode,
                                 onSend = { runtime.initiate(AndroidTurnInput.Typed(prompt)) },
                             )
 
-                            if (captureController == null) {
+                            if (standardMode) {
+                                // Voice in Standard mode is slice 2 of ANDROID-STD-01.
+                                StandardVoiceNote()
+                            } else if (captureController == null) {
                                 TapToSpeakFallback(
                                     enabled = isAuthorized && isConnected &&
                                         !hasAcceptedTurn &&
@@ -723,6 +736,7 @@ internal fun AndroidClientScreen(
                                 canEditRelay = false,
                                 onConfigure = { configurationVisible = true },
                                 onEditRelay = { configurationVisible = true },
+                                standardMode = standardMode,
                             )
                         }
                     }
@@ -807,7 +821,20 @@ internal fun AndroidClientScreen(
                                 onEditRelay = { configurationVisible = true },
                                 onResend = { resendUnconfirmedTurn() },
                                 onDiscard = { discardUnconfirmedTurn() },
+                                standardMode = standardMode,
                             )
+                            if (standardMode) {
+                                StandardConversationZone(
+                                    finishing = runtime.standardFinishing,
+                                    uncertain = hasUnresolvedTurn,
+                                    state = runtime.newConversationState,
+                                    canStart = snapshot.selectedProfile != null &&
+                                        snapshot.unavailableReason !=
+                                        AndroidHomeUnavailableReason.InvalidCredential &&
+                                        !hasAcceptedTurn && !initiationInFlight,
+                                    onNewConversation = { runtime.startNewConversation() },
+                                )
+                            }
                         }
                     }
 
@@ -821,7 +848,14 @@ internal fun AndroidClientScreen(
                                 isConnected = isConnected,
                                 supportsInterrupt = clientPort.supportsInterrupt(),
                                 motionMode = motionMode,
-                                onInterrupt = { binding -> runtime.interruptAndListen(binding) },
+                                onInterrupt = { binding ->
+                                    if (standardMode) {
+                                        clientPort.interruptTurn(binding)
+                                    } else {
+                                        runtime.interruptAndListen(binding)
+                                    }
+                                },
+                                standardMode = standardMode,
                                 interruptStatus = runtime.interruptStatus,
                             )
                         }

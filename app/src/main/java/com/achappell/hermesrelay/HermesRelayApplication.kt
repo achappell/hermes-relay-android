@@ -22,6 +22,7 @@ internal class HermesRelayServices(context: Context) {
         credentials = credentials,
         history = historyStore,
         homeClientPairings = pairings,
+        standardChecker = OkHttpStandardConnectionChecker(),
     )
     val homePairing = HomeClientPairingCoordinator(
         store = pairings,
@@ -62,12 +63,15 @@ class HermesRelayApplication : Application() {
     }
 
     private fun createHomeRuntime(onTornDown: () -> Unit): HomeRuntime {
-        // One port serves both states: it reports NotConfigured until a profile
-        // with a stored credential exists, so the shell stays honest about an
-        // unconfigured relay without needing a separate bootstrap adapter.
+        // One router serves every mode: a Standard Profile talks to Hermes
+        // directly, every other Profile keeps the Home bridge. Each transport
+        // reports NotConfigured until a Profile with its own stored credential
+        // exists, so the shell stays honest about an unconfigured relay without
+        // needing a separate bootstrap adapter. The two never share a socket,
+        // a credential or a turn, and neither is a fallback for the other.
         // The API-level policy is read once, here at the runtime root, and injected.
         val platform = AndroidPlatform.current(this)
-        val clientPort = OkHttpRelaySessionClient(
+        val homeClient = OkHttpRelaySessionClient(
             collection = { services.configuration.collection },
             credentials = services.credentials,
             audioSink = AudioTrackAudioSink(driverFactory = platformAudioTrackDriverFactory(platform)),
@@ -78,8 +82,15 @@ class HermesRelayApplication : Application() {
             ),
             journal = journal,
         )
+        val standardClient = OkHttpStandardSessionClient(
+            collection = { services.configuration.collection },
+            credentials = services.credentials,
+            journal = journal,
+        )
+        val selectedMode = { services.configuration.collection.selected?.mode }
+        val clientPort = ProfileModeClientPort(selectedMode, homeClient, standardClient)
         val mainHandler = Handler(Looper.getMainLooper())
-        return HomeRuntime(
+        val runtime = HomeRuntime(
             clientPort = clientPort,
             speechInput = PlatformSpeechInput(this, platform),
             historyStore = services.historyStore,
@@ -87,8 +98,17 @@ class HermesRelayApplication : Application() {
             workExecutor = Executors.newSingleThreadExecutor { runnable ->
                 Thread(runnable, "hermes-android-work").apply { isDaemon = true }
             },
-            onTornDown = onTornDown,
+            onTornDown = {
+                services.configuration.switchGuard = { false }
+                onTornDown()
+            },
             journal = journal,
+            selectedMode = selectedMode,
+            newConversationLabel = getString(R.string.android_new_conversation),
         )
+        // Profile and mode switches consult the runtime: a Standard turn that is
+        // active, uncertain or still finishing blocks them.
+        services.configuration.switchGuard = { runtime.isConversationBusy }
+        return runtime
     }
 }

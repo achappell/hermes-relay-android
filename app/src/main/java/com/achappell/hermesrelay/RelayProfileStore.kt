@@ -72,6 +72,24 @@ internal sealed interface RelayHomeMigrationResult {
     data class Rejected(val reason: RelayHomeMigrationFailure) : RelayHomeMigrationResult
 }
 
+internal sealed interface StandardSetupResult {
+    data class Saved(val profile: RelayProfile) : StandardSetupResult
+
+    data class Invalid(
+        val errors: Map<RelayProfileField, RelayProfileError>,
+    ) : StandardSetupResult
+
+    data class CheckFailed(val reason: AndroidHomeUnavailableReason) : StandardSetupResult
+
+    data object StorageUnavailable : StandardSetupResult
+
+    /** The selected Standard conversation has an active, uncertain or finishing turn. */
+    data object Blocked : StandardSetupResult
+
+    /** The Profile does not exist or is not a Standard Profile. */
+    data object NotStandard : StandardSetupResult
+}
+
 /**
  * Owns the configured relay state for the UI.
  *
@@ -84,9 +102,33 @@ internal class RelayConfigurationController(
     private val history: AndroidHistoryStore? = null,
     private val homeClientPairings: HomeClientPairingStore? = null,
     private val idFactory: () -> String = { java.util.UUID.randomUUID().toString() },
+    private val standardChecker: StandardConnectionChecker? = null,
 ) {
     var collection: RelayProfileCollection = profiles.load()
         private set
+
+    /**
+     * True when the selected conversation has an active, uncertain or finishing
+     * turn. Consulted only for a change that involves a Standard Profile (the
+     * selected one or the one being selected); Home-to-Home switching keeps its
+     * existing behavior.
+     */
+    var switchGuard: () -> Boolean = { false }
+
+    /** True while switching away from, deleting or editing the selected Standard Profile is refused. */
+    val switchBlocked: Boolean
+        get() = collection.selected?.mode == RelayProfileMode.Standard && switchGuard()
+
+    /**
+     * True when selecting [targetId] is refused: the selection would change and
+     * either side is a Standard Profile while the selected conversation is busy.
+     */
+    fun switchBlockedFor(targetId: String): Boolean {
+        if (targetId == collection.selectedId) return false
+        val involvesStandard = collection.selected?.mode == RelayProfileMode.Standard ||
+            collection.profiles.firstOrNull { it.id == targetId }?.mode == RelayProfileMode.Standard
+        return involvesStandard && switchGuard()
+    }
 
     fun save(
         endpoint: String,
@@ -109,6 +151,7 @@ internal class RelayConfigurationController(
             clientId = clientId.trim(),
             deviceId = deviceId.trim(),
             displayName = displayName.trim(),
+            mode = RelayProfileMode.HomeBridge,
         )
         if (!credentials.put(profile.id, token.trim())) {
             return mapOf(RelayProfileField.Token to RelayProfileError.StorageUnavailable)
@@ -120,7 +163,152 @@ internal class RelayConfigurationController(
         return emptyMap()
     }
 
-    fun select(id: String) = update(collection.select(id))
+    /** Returns true when the selection was performed; false while a busy conversation blocks the switch. */
+    fun select(id: String): Boolean {
+        if (switchBlockedFor(id)) return false
+        return update(collection.select(id))
+    }
+
+    /**
+     * Adds a Standard Profile after a verified connection check. The token is
+     * stored only after the check passes and is rolled back if the Profile
+     * cannot be saved. No other Profile, credential or selection changes.
+     */
+    fun setupStandard(
+        endpoint: String,
+        hermesProfile: String,
+        token: String,
+    ): StandardSetupResult {
+        val validation = RelayProfileValidator.validateStandard(endpoint, hermesProfile)
+        val errors = validation.errors.toMutableMap()
+        val cleanToken = token.trim()
+        if (!isUsableStandardToken(cleanToken)) {
+            errors[RelayProfileField.Token] = RelayProfileError.Required
+        }
+        if (errors.isNotEmpty()) return StandardSetupResult.Invalid(errors)
+
+        val identity = RelayProfile.standardHistoryKey(validation.endpoint, validation.hermesProfile)
+        if (collection.profiles.any { it.mode == RelayProfileMode.Standard && it.historyKey == identity }) {
+            return StandardSetupResult.Invalid(
+                mapOf(RelayProfileField.Endpoint to RelayProfileError.Duplicate),
+            )
+        }
+
+        verifyStandard(validation, cleanToken)?.let { return it }
+
+        val profile = RelayProfile(
+            id = idFactory(),
+            endpoint = validation.endpoint,
+            clientId = STANDARD_CLIENT_ID,
+            deviceId = "",
+            displayName = standardDisplayName(validation.endpoint, validation.hermesProfile),
+            mode = RelayProfileMode.Standard,
+            hermesProfile = validation.hermesProfile,
+        )
+        if (!credentials.putStandardCredential(profile.id, cleanToken)) {
+            return StandardSetupResult.StorageUnavailable
+        }
+        if (!update(collection.add(profile))) {
+            credentials.deleteStandardCredential(profile.id)
+            return StandardSetupResult.StorageUnavailable
+        }
+        return StandardSetupResult.Saved(profile)
+    }
+
+    /**
+     * Edits one Standard Profile. A changed endpoint or Hermes Profile is a new
+     * identity: a freshly entered token is required and verified, the old token
+     * is never reused, and the old identity's Local History is deleted.
+     */
+    fun updateStandard(
+        profileId: String,
+        endpoint: String,
+        hermesProfile: String,
+        token: String?,
+    ): StandardSetupResult {
+        val current = collection.profiles.firstOrNull { it.id == profileId }
+            ?.takeIf { it.mode == RelayProfileMode.Standard }
+            ?: return StandardSetupResult.NotStandard
+        if (profileId == collection.selectedId && switchBlocked) return StandardSetupResult.Blocked
+
+        val validation = RelayProfileValidator.validateStandard(endpoint, hermesProfile)
+        val errors = validation.errors.toMutableMap()
+        val cleanToken = token?.trim().orEmpty()
+        val identityChanged = validation.endpoint != current.endpoint ||
+            validation.hermesProfile != (current.hermesProfile ?: RelayProfileValidator.DEFAULT_HERMES_PROFILE)
+        if (cleanToken.isEmpty()) {
+            // The identity is only meaningful once it validates.
+            if (identityChanged && errors.isEmpty()) errors[RelayProfileField.Token] = RelayProfileError.Required
+        } else if (!isUsableStandardToken(cleanToken)) {
+            errors[RelayProfileField.Token] = RelayProfileError.Required
+        }
+        if (errors.isNotEmpty()) return StandardSetupResult.Invalid(errors)
+
+        val identity = RelayProfile.standardHistoryKey(validation.endpoint, validation.hermesProfile)
+        if (
+            collection.profiles.any {
+                it.id != profileId && it.mode == RelayProfileMode.Standard && it.historyKey == identity
+            }
+        ) {
+            return StandardSetupResult.Invalid(
+                mapOf(RelayProfileField.Endpoint to RelayProfileError.Duplicate),
+            )
+        }
+        if (cleanToken.isEmpty()) return StandardSetupResult.Saved(current)
+
+        verifyStandard(validation, cleanToken)?.let { return it }
+
+        val previousCredential = credentials.readStandardCredential(profileId)
+        if (!credentials.putStandardCredential(profileId, cleanToken)) {
+            return StandardSetupResult.StorageUnavailable
+        }
+        if (!identityChanged) return StandardSetupResult.Saved(current)
+
+        val oldKey = current.historyKey
+        val updated = current.copy(
+            endpoint = validation.endpoint,
+            hermesProfile = validation.hermesProfile,
+            displayName = standardDisplayName(validation.endpoint, validation.hermesProfile),
+        )
+        if (!update(collection.upsert(updated))) {
+            if (previousCredential != null) {
+                credentials.putStandardCredential(profileId, previousCredential)
+            } else {
+                credentials.deleteStandardCredential(profileId)
+            }
+            return StandardSetupResult.StorageUnavailable
+        }
+        deleteHistoryIfUnused(oldKey)
+        return StandardSetupResult.Saved(updated)
+    }
+
+    private fun verifyStandard(
+        validation: StandardProfileValidation,
+        token: String,
+    ): StandardSetupResult? {
+        val checker = standardChecker
+            ?: return StandardSetupResult.CheckFailed(AndroidHomeUnavailableReason.TransportUnavailable)
+        return when (val result = checker.check(validation.endpoint, validation.hermesProfile, token)) {
+            StandardCheckResult.Verified -> null
+            is StandardCheckResult.Failed -> StandardSetupResult.CheckFailed(result.reason)
+        }
+    }
+
+    private fun isUsableStandardToken(token: String): Boolean =
+        token.isNotEmpty() && token.none { it.isWhitespace() }
+
+    private fun standardDisplayName(endpoint: String, hermesProfile: String): String {
+        val host = runCatching { java.net.URI(endpoint).host }.getOrNull() ?: endpoint
+        return if (hermesProfile == RelayProfileValidator.DEFAULT_HERMES_PROFILE) {
+            "Standard · $host"
+        } else {
+            "Standard · $host · $hermesProfile"
+        }
+    }
+
+    private fun deleteHistoryIfUnused(historyKey: String) {
+        if (collection.profiles.none { it.historyKey == historyKey }) history?.delete(historyKey)
+    }
 
     /**
      * Applies an approved Home pairing to an existing Profile in place.
@@ -134,6 +322,7 @@ internal class RelayConfigurationController(
         pairing: RelayHomePairing,
     ): RelayHomeMigrationResult {
         val current = collection.profiles.firstOrNull { it.id == profileId }
+            ?.takeIf { it.mode != RelayProfileMode.Standard }
             ?: return RelayHomeMigrationResult.Rejected(
                 RelayHomeMigrationFailure.ProfileUnavailable,
             )
@@ -174,6 +363,7 @@ internal class RelayConfigurationController(
                 approvedRoute = pairing.approvedRoute.trim().trimEnd('/'),
                 conversationHandle = pairing.conversationHandle,
             ),
+            mode = RelayProfileMode.HomeBridge,
         )
         val next = collection.upsert(migrated)
         if (!profiles.save(next)) {
@@ -201,7 +391,9 @@ internal class RelayConfigurationController(
         credentialScope: HomeCredentialScope? = null,
         credentialExpiresAt: Double? = null,
     ): Boolean {
-        val current = collection.profiles.firstOrNull { it.id == profileId } ?: return false
+        val current = collection.profiles.firstOrNull { it.id == profileId }
+            ?.takeIf { it.mode != RelayProfileMode.Standard }
+            ?: return false
         if (
             !HomeCredentialValidator.isValid(credential) ||
             deviceId.isBlank() ||
@@ -240,13 +432,17 @@ internal class RelayConfigurationController(
         profileId: String,
         administration: RelayHomeAdministration,
     ): Boolean {
-        val current = collection.profiles.firstOrNull { it.id == profileId } ?: return false
+        val current = collection.profiles.firstOrNull { it.id == profileId }
+            ?.takeIf { it.mode != RelayProfileMode.Standard }
+            ?: return false
         return update(collection.upsert(current.copy(homeAdministration = administration)))
     }
 
     /** Revocation removes the active Device secret before publishing state. */
     fun revokeHomeDevice(profileId: String, phase: RelayHomeAdministrationPhase): Boolean {
-        val current = collection.profiles.firstOrNull { it.id == profileId } ?: return false
+        val current = collection.profiles.firstOrNull { it.id == profileId }
+            ?.takeIf { it.mode != RelayProfileMode.Standard }
+            ?: return false
         if (!credentials.deleteHomeCredential(profileId)) return false
         val next = collection.upsert(
             current.copy(
@@ -290,6 +486,7 @@ internal class RelayConfigurationController(
                     deviceId = record.deviceId,
                     displayName = "${grant.label} · $host",
                     homeClientGrant = RelayHomeClientGrantRef(record.pairingId, grant.grantId),
+                    mode = RelayProfileMode.HomeBridge,
                 )
                 next = next.add(profile)
                 added += profile.id
@@ -298,14 +495,17 @@ internal class RelayConfigurationController(
         return if (update(next)) added else null
     }
 
-    fun delete(id: String) {
+    /** Returns true when the Profile was removed; false while a Standard turn blocks it. */
+    fun delete(id: String): Boolean {
+        if (id == collection.selectedId && switchBlocked) return false
         val deleted = collection.profiles.firstOrNull { it.id == id }
-        if (update(collection.remove(id))) {
-            credentials.delete(id)
-            // A Profile's conversation must not outlive the Profile that held it.
-            history?.delete(id)
-            deleted?.homeClientGrant?.let(::releasePairingIfUnused)
-        }
+        if (!update(collection.remove(id))) return false
+        credentials.delete(id)
+        // A Profile's conversation must not outlive the Profile that held it,
+        // unless another Profile still shares the same history key.
+        deleted?.let { deleteHistoryIfUnused(it.historyKey) } ?: history?.delete(id)
+        deleted?.homeClientGrant?.let(::releasePairingIfUnused)
+        return true
     }
 
     /** The pairing credential is removed with the Home's last Profile. */
@@ -317,6 +517,7 @@ internal class RelayConfigurationController(
 
     private companion object {
         const val HOME_CLIENT_ID = "android"
+        const val STANDARD_CLIENT_ID = "android"
     }
 
     private fun update(next: RelayProfileCollection): Boolean {

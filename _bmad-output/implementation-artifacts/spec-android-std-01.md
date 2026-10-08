@@ -1,8 +1,9 @@
 ---
 id: ANDROID-STD-01
-status: ready-for-dev
+status: in-progress
 product_epic: 2
 created: 2026-09-23
+baseline_commit: e38b83e61902734435509f60efd6ebac41e7bb9c
 ---
 
 # ANDROID-STD-01 — Offer explicit Standard-only Android setup
@@ -24,11 +25,11 @@ Offer HomeBridge/Standard setup and supported direct Standard authentication wit
 
 ## Readiness
 
-Approved backlog scope. Owning BMAD specification/readiness review must settle API details and a bounded execution plan before implementation. No implementation or runtime acceptance is claimed.
+Slice 1 is implemented for draft review with local JVM, adapter/runtime smoke, build and lint evidence recorded in [validation-android-std-01.md](validation-android-std-01.md). Actual-baseline and physical acceptance remain unrun; slices 2–3 are not delivered. The whole story remains in-progress, not blocked or done.
 
 ## Readiness review (approved by Amanda 2026-10-03)
 
-Modeled on the settled TUI-STD-01 spec (`hermes-relay-tui` `spec-tui-std-01.md`, merged in #219). Amanda approved this readiness review on 2026-10-03; it settles the API details and bounded execution plan required by the Readiness section above. No implementation or runtime acceptance is claimed.
+Modeled on the settled TUI-STD-01 spec (`hermes-relay-tui` `spec-tui-std-01.md`, merged in #219). Amanda approved this readiness review on 2026-10-03; it settled API details and the bounded execution plan before implementation. This historical approval did not itself establish implementation or runtime acceptance; current slice-1 evidence is recorded below.
 
 ### Key difference from TUI
 
@@ -60,7 +61,7 @@ The TUI reused an already-verified direct Standard adapter. Android has none: `O
 
 - `RelayProfile.kt`, `RelayProfileStore.kt` — add an explicit mode (HomeBridge, Standard, Legacy) to Profiles. Standard Profiles carry endpoint and Hermes Profile name only; a blank Hermes Profile normalizes to `default` (TUI EC-02). Old JSON keeps loading; Profiles with no Home link load as Legacy (Q4).
 - `RelayConfigurationScreen.kt` plus a **new `StandardSetupSection.kt`** — first setup asks HomeBridge or Standard. The Standard path takes endpoint and token, validates them (`https`/`wss`, host required, no credentials or token-like query keys, as with TUI EC-01) and runs a connection check (`session.create`) before saving. Setup never alters other Profiles or credentials.
-- **New `OkHttpStandardSessionClient.kt`** — implements the base `AndroidClientPort` only: `/api/ws` with bearer auth, `session.create`, typed streaming via `HermesEventNormalizer` standard events, the existing uncertain-delivery guard, and `supportsInterrupt()` set from the slice-1 check. Home-only surfaces stay unavailable and hidden in Standard mode: `AndroidHomeConversations`, `AndroidHomeApprovals`, Device administration, and the Home readiness assertions (`assertLiveHomeCapabilities`, `assertNewTurnReadiness`). Where shared code calls those assertions, generalize or branch on mode rather than faking Home results. Budget this port refactor inside slice 1.
+- **New `OkHttpStandardSessionClient.kt`** — implements the base `AndroidClientPort` only: `/api/ws` with the supported query-token authentication seam (see implementation reconciliation below), `session.create`, typed streaming via `HermesEventNormalizer` standard events, the existing uncertain-delivery guard, and remote interrupt enabled only after the baseline check verifies it. Home-only surfaces stay unavailable and hidden in Standard mode: `AndroidHomeConversations`, `AndroidHomeApprovals`, Device administration, and the Home readiness assertions (`assertLiveHomeCapabilities`, `assertNewTurnReadiness`). Where shared code calls those assertions, generalize or branch on mode rather than faking Home results. Budget this port refactor inside slice 1.
 - `AndroidLocalHistory.kt`, `AndroidPromptHistory.kt` — **from slice 1**, Standard history is keyed by mode + endpoint + Hermes Profile, not `profileId` alone, so no later re-keying strands history (TUI BH-06). Nothing is imported from other modes.
 - `AndroidRecovery.kt`, `AndroidInitiationController.kt`, `MainActivity.kt` — show the mode in status; add a Standard **New conversation** action; enforce switch guards (see slices).
 - Tests alongside each, plus `validation-android-std-01.md`, `story-index.yaml`, `sprint-status.yaml`.
@@ -116,3 +117,24 @@ If audio is unusable, stop at this step per Q1.
 
 - Unit tests for setup, Profile store and mode, credential-slot isolation, transport, history keying, New conversation success and failure, busy state, and switch guards; full `./gradlew test`.
 - Live gates recorded separately: baseline check; Standard typed streaming; unsupported prompt; connection failure; uncertain-turn recovery; New conversation; other Profiles intact after Standard setup; endpoint change forces token re-entry; tap-to-speak; response audio; hands-free barge-in; and remote interrupt (or, if unsupported, the busy-state message).
+
+## Slice 1 implementation reconciliation — 2026-10-08
+
+- Recovery preserves the approved implementation saved before a tooling-provider 429. This was not a product or dependency blocker. PR #66 approved/merged the readiness scope.
+- The earlier code-map phrase “bearer auth” did not establish HTTP `Authorization` header support. The actual local Home bridge URL builder (`src/hermes_home/bridge/standard.py`, `_authenticated_url`) and TUI `gateway_client.py` (`gateway_url_with_token`) send a `token` query parameter; Home also supplies `profile` in the URL and session parameters. Android follows that supported-client seam with URL-encoded, in-memory credentials and no Authorization-header assumption. The configured/stored endpoint itself cannot contain credentials or a query string.
+- These sources are protocol implementation evidence, not Android acceptance against target Hermes 0.21.5 (`f97608f178d1ffeca59860195ab7da295f7c8e5f`). No local pinned server authentication implementation was available; acceptance or rejection of Bearer headers on that server is **unverified**.
+- Amanda authorized local adapter/runtime smoke, JVM tests, lint, assembly and instrumentation compilation only for this recovery. No Pixel/ADB, device install or live household traffic is authorized. The baseline probe remains explicit opt-in; device and actual-baseline gates are recorded as **unrun**, not a blocker to publishing the slice-1 draft.
+- Voice, response audio, hands-free and remote interruption from the user's Stop control are not enabled by this typed-chat slice. Unsupported structured prompts are shown as unsupported and send only a best-effort `session.interrupt`; no remote cancellation is claimed without a terminal event. Q1 remains unchanged: unusable audio on the actual baseline requires an owner decision before voice implementation; a local fake endpoint neither establishes nor rejects that capability.
+- Slice 1 implementation/review evidence is recorded in [validation-android-std-01.md](validation-android-std-01.md). The whole story remains `in-progress` until slices 2–3 and their separate acceptance gates are addressed.
+
+## Review triage log — slice 1
+
+| Layer / finding | Verdict and evidence | Disposition |
+| --- | --- | --- |
+| Blind: changed Standard identity retains an old session | High: the saved adapter compared only Profile ID; editing endpoint or Hermes Profile under the same ID could send on the old socket or resume its durable reference. | Bind transport ownership to Profile ID plus history identity; reset the UI on identity changes; regression coverage for both identity components. |
+| Edge: New conversation in flight permits Send/switch | High: `InFlight` was absent from both the runtime busy guard and Send admission while `session.create` ran on the work executor. | Block runtime admission, composer submission and configuration switching until the result is applied; queued-executor regression. |
+| Verification: live probe can report STOP/REVIEW while its test passes | Medium: the live runner originally asserted redaction only. | Assert the redacted final verdict after writing the record; failed required checks cannot appear as a successful opted-in run. |
+| Verification: no Standard setup Compose path test | Medium: controller tests could pass if the new choice or save wiring was broken. | Add a tagged-choice/form/submission instrumentation test with a local fake checker and credential-isolation assertions. Compilation and physical execution are recorded separately. |
+| Integration test: terminal observer races session settlement | High: an actual aggregate run delivered `TurnFailed` while `hasActiveTurn()` was still true; the next prompt could be rejected after a visible terminal. | Commit active-turn settlement and the redacted terminal journal before publishing terminal events; deterministic observer-boundary regression for terminal outcomes. |
+
+The blind reviewer reported one evidenced defect rather than inventing findings to meet a numerical floor. All three independent review layers completed. No product-scope change, upstream modification or device acceptance was inferred from review.

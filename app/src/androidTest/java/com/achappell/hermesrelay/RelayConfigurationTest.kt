@@ -17,6 +17,7 @@ import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
+import java.util.concurrent.ConcurrentLinkedQueue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -201,6 +202,80 @@ class RelayConfigurationTest {
     }
 
     @Test
+    fun standard_setup_checks_and_saves_without_using_home_or_rollback_credentials() {
+        val profileId = "standard-profile"
+        val endpoint = "wss://hermes.example/api/ws"
+        val token = "standard-secret-token"
+        val homeCredential = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        assertTrue(credentials.put(profileId, "rollback-secret"))
+        assertTrue(credentials.putHomeCredential(profileId, homeCredential))
+        assertTrue(credentials.putHomeAdminCredential(profileId, "admin-secret"))
+        val checked = ConcurrentLinkedQueue<Triple<String, String, String>>()
+        val profiles = InMemoryRelayProfileStore()
+        val controller = RelayConfigurationController(
+            profiles = profiles,
+            credentials = credentials,
+            idFactory = { profileId },
+            standardChecker = StandardConnectionChecker { checkedEndpoint, hermesProfile, checkedToken ->
+                checked.add(Triple(checkedEndpoint, hermesProfile, checkedToken))
+                StandardCheckResult.Verified
+            },
+        )
+        val savedMessage = InstrumentationRegistry.getInstrumentation().targetContext
+            .getString(R.string.android_standard_saved)
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    RelayConfigurationScreen(controller = controller, onChanged = {})
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("android_setup_choice_standard")
+            .performScrollTo().performClick()
+        composeRule.onNodeWithTag("android_standard_setup").assertExists()
+        for (tag in listOf(
+            "android_relay_endpoint",
+            "android_relay_client_id",
+            "android_relay_device_id",
+            "android_relay_display_name",
+            "android_relay_token",
+            "android_relay_save",
+            "android_home_administration",
+        )) {
+            composeRule.onNodeWithTag(tag).assertDoesNotExist()
+        }
+        composeRule.onNodeWithTag("android_standard_endpoint")
+            .performScrollTo().assertIsDisplayed().performTextInput(endpoint)
+        composeRule.onNodeWithTag("android_standard_hermes_profile")
+            .performScrollTo().assertIsDisplayed().performTextInput("default")
+        composeRule.onNodeWithTag("android_standard_token")
+            .performScrollTo().assertIsDisplayed().performTextInput(token)
+        closeSoftKeyboard()
+        composeRule.onNodeWithTag("android_standard_save").performScrollTo().performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText(savedMessage).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        assertEquals(listOf(Triple(endpoint, "default", token)), checked.toList())
+        val saved = profiles.load()
+        val profile = saved.profiles.single()
+        assertEquals(profileId, profile.id)
+        assertEquals(profileId, saved.selectedId)
+        assertEquals(RelayProfileMode.Standard, profile.mode)
+        assertEquals(endpoint, profile.endpoint)
+        assertEquals("default", profile.hermesProfile)
+        assertNull(profile.homeBinding)
+        assertEquals(token, credentials.readStandardCredential(profileId))
+        assertEquals("rollback-secret", credentials.read(profileId))
+        assertEquals(homeCredential, credentials.readHomeCredential(profileId))
+        assertEquals("admin-secret", credentials.readHomeAdminCredential(profileId))
+        composeRule.onAllNodesWithText(token).assertCountEquals(0)
+        composeRule.onNodeWithText(savedMessage).performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
     fun saving_a_profile_never_renders_the_token_back() {
         val controller = RelayConfigurationController(
             profiles = InMemoryRelayProfileStore(),
@@ -216,6 +291,8 @@ class RelayConfigurationTest {
             }
         }
 
+        // First setup asks which door to open (ANDROID-STD-01); this test is the Home form.
+        composeRule.onNodeWithTag("android_setup_choice_home").performClick()
         composeRule.onNodeWithTag("android_relay_endpoint")
             .performTextInput("wss://relay.example/voice-session")
         composeRule.onNodeWithTag("android_relay_client_id").performTextInput("amanda-laptop")
@@ -249,6 +326,7 @@ class RelayConfigurationTest {
             }
         }
 
+        composeRule.onNodeWithTag("android_setup_choice_home").performClick()
         composeRule.onNodeWithTag("android_relay_endpoint")
             .performTextInput("ws://relay.example:8792/voice-session")
         composeRule.onNodeWithTag("android_relay_client_id").performTextInput("amanda-laptop")

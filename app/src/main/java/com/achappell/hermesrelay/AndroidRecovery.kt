@@ -33,6 +33,8 @@ internal data class AndroidRecoveryState(
     val unresolvedHomeTurn: Boolean = false,
     val resumedTurnBinding: AndroidTurnBinding? = null,
     val isRecovering: Boolean = false,
+    /** Standard only: the connection that produced this state created a new Hermes session. */
+    val startedFreshSession: Boolean = false,
 ) {
     /** Compatibility alias; the value is a local bridge connection identity. */
     @Deprecated("Use connectionId; this value is not a Hermes Session ID.")
@@ -54,6 +56,12 @@ internal sealed interface AndroidReconnectOutcome {
         val unresolvedTurnId: String? = null,
         val unresolvedTurnBinding: AndroidTurnBinding? = null,
         val unresolvedTurnWasBoolean: Boolean = false,
+        /**
+         * Standard only: this connect had to create a new Hermes session rather
+         * than resume the held one, so earlier local history is not Hermes's
+         * context any more.
+         */
+        val sessionStartedFresh: Boolean = false,
     ) : AndroidReconnectOutcome {
         /** Compatibility alias for pre-Home fakes; never a Hermes Session ID. */
         @Deprecated("Use connectionId; this value is local to the bridge connection.")
@@ -185,6 +193,7 @@ internal class AndroidRecoveryController(
                         connectionId = outcome.connectionId,
                         unresolvedHomeTurn = outcome.unresolvedTurn,
                         resumedTurnBinding = outcome.unresolvedTurnBinding,
+                        startedFreshSession = outcome.sessionStartedFresh,
                         unconfirmedTurn = if (outcome.unresolvedTurnBinding != null) {
                             null
                         } else {
