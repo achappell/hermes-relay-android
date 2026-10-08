@@ -56,3 +56,18 @@ JVM with the existing fake `HomeClientService` and temp stores (`HomeClientPairi
 ## Device verification
 
 Pixel against a Home: pair, have the owner approve a second grant, Refresh Profiles, then Unpair and re-pair.
+
+## Device acceptance review — 2026-10-07
+
+Story remains `review`. The non-destructive Pixel run in
+`validation-android-home-13.md` rendered the existing Home and three saved
+Profiles, but one Refresh Profiles tap immediately dismissed configuration,
+preventing the result from remaining visible. Runtime evidence is from restored
+APK SHA-256 `5692a179b2347214b7e31cc1010f650ec8a224fe00439b8533ecbb5437ddeb0b`,
+not a latest-main build. Source at current main `d30182e` still routes the refresh
+notification into the selected-Profile sheet-dismissal callback. The narrow
+recommended repair is to retain the sheet/result during a data refresh while
+preserving deliberate setup-completion dismissal; production changes await
+authorization. All three grants, Profiles, credentials and stored session
+references were preserved. Only destructive Unpair + re-pair is owner-waived;
+newly-active-grant device acceptance and HOME-13 TalkBack remain unverified.
