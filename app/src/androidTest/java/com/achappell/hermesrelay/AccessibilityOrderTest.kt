@@ -58,6 +58,7 @@ class AccessibilityOrderTest {
     private val railTags = setOf(
         "android_connection_state",
         "android_turn_phase",
+        "android_interrupt",
         "android_response_text",
         "android_audio_unavailable",
     )
@@ -108,6 +109,37 @@ class AccessibilityOrderTest {
         assertTrue(
             "response ($responseIndex) must precede action ($promptIndex)",
             responseIndex < promptIndex,
+        )
+    }
+
+    @Test
+    fun the_interrupt_control_follows_turn_state_in_accessibility_order() {
+        val port = ConnectedFakePort(interruptSupported = true)
+        val speech = FakeSpeechInput()
+
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(clientPort = port, speechInput = speech)
+            }
+        }
+
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Tell me a story")
+        composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
+        closeSoftKeyboard()
+        composeRule.waitForIdle()
+
+        val binding = port.lastBinding!!
+        composeRule.runOnIdle { port.emit(AndroidNormalizedEvent.Thinking(binding)) }
+        composeRule.waitForIdle()
+
+        val stateIndex = traversalIndexOf("android_turn_phase")
+        val interruptIndex = traversalIndexOf("android_interrupt")
+        assertTrue(
+            "turn state ($stateIndex) must be read before Interrupt ($interruptIndex)",
+            stateIndex < interruptIndex,
         )
     }
 
@@ -270,13 +302,17 @@ class AccessibilityOrderTest {
         composeRule.onNodeWithText("Connect").assertIsDisplayed()
     }
 
-    private class ConnectedFakePort : AndroidClientPort {
+    private class ConnectedFakePort(
+        private val interruptSupported: Boolean = false,
+    ) : AndroidClientPort {
         var endSessions = 0
             private set
 
         override fun endSession() {
             endSessions += 1
         }
+
+        override fun supportsInterrupt() = interruptSupported
 
         private val profile = AndroidProfile("amanda-laptop", "Amanda")
         val requests = mutableListOf<AndroidTurnRequest>()

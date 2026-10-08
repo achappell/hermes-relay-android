@@ -32,6 +32,7 @@ internal class HomeRuntime(
     private val onTornDown: () -> Unit = {},
     /** Content-free connection journal (`ANDROID-DIAG-01`); never receives prompts or replies. */
     val journal: DiagnosticsJournal = DiagnosticsJournal.None,
+    private val voiceTimers: VoiceTimers = MainLooperVoiceTimers,
 ) {
     val homeConversations: AndroidHomeConversations? = clientPort as? AndroidHomeConversations
     val initiationController = AndroidInitiationController(clientPort)
@@ -50,6 +51,8 @@ internal class HomeRuntime(
     var captureState by mutableStateOf<AndroidCaptureState>(AndroidCaptureState.Idle)
         private set
     var handsFree by mutableStateOf(false)
+        private set
+    var interruptStatus by mutableStateOf(InterruptStatus.None)
         private set
     var initiationInFlight by mutableStateOf(false)
         private set
@@ -97,7 +100,7 @@ internal class HomeRuntime(
     val captureController: AndroidCaptureController? = speechInput?.let { input ->
         AndroidCaptureController(
             speech = input,
-            timers = MainLooperVoiceTimers,
+            timers = voiceTimers,
             initiation = initiationController,
             isConnected = { recoveryState.connection == AndroidConnectionState.Connected },
             isAuthorized = {
@@ -109,6 +112,9 @@ internal class HomeRuntime(
             onStateChange = { changed ->
                 postToMain {
                     captureState = changed
+                    if (changed == AndroidCaptureState.Starting) {
+                        journal.record("voice capture started")
+                    }
                     if (changed is AndroidCaptureState.Submitted) {
                         clientPort.snapshot().selectedProfile?.let { profile ->
                             lastRequest = AndroidTurnRequest(
@@ -138,6 +144,21 @@ internal class HomeRuntime(
                 }
             },
         )
+    }
+
+    private val interruptCoordinator = TurnInterruptCoordinator(
+        timers = voiceTimers,
+        send = { binding -> clientPort.interruptTurn(binding) },
+        beginCapture = { captureController?.beginCapture() },
+        onStatusChange = { interruptStatus = it },
+    )
+
+    /**
+     * Interrupts and listens when hands-free is off. With hands-free armed,
+     * the capture controller retains its existing post-turn policy.
+     */
+    fun interruptAndListen(binding: AndroidTurnBinding) {
+        interruptCoordinator.interrupt(binding, thenListen = !handsFree)
     }
 
     private val acceptedBinding: AndroidTurnBinding?
@@ -230,6 +251,7 @@ internal class HomeRuntime(
         if (turnState.phase != AndroidTurnPhase.Disconnected) {
             lastRequest = null
         }
+        interruptCoordinator.onTurnSettled()
         // FR5: a completed turn reopens the window; anything else ends it.
         captureController?.onTurnSettled(turnState.phase)
         settleRevision += 1
@@ -244,6 +266,7 @@ internal class HomeRuntime(
         when (state) {
             is AndroidInitiationState.Accepted -> {
                 resendResult = null
+                interruptCoordinator.reset()
                 updateTurn(AndroidTurnState.awaitingEvents(state.binding))
                 if (recordAcceptedInput) {
                     (lastRequest?.input as? AndroidTurnInput.Typed)?.let { typed ->
@@ -275,6 +298,16 @@ internal class HomeRuntime(
 
     fun initiate(input: AndroidTurnInput) {
         if (initiationInFlight) return
+        if (input is AndroidTurnInput.Typed) {
+            // Explicit Send owns the next turn before any submission work starts.
+            interruptCoordinator.reset()
+            captureController?.let { capture ->
+                if (capture.isCapturing) {
+                    journal.record("voice capture cancelled reason=typed_prompt")
+                }
+                capture.cancelCapture()
+            }
+        }
         initiationInFlight = true
         clientPort.snapshot().selectedProfile?.let { lastRequest = AndroidTurnRequest(it, input) }
         runOnWork {
@@ -329,6 +362,8 @@ internal class HomeRuntime(
             capture.disarmHandsFree()
             capture.cancelCapture()
         }
+        // A pending interrupt-and-listen must not open the microphone afterwards.
+        interruptCoordinator.reset()
         runOnWork {
             interrupting?.let { clientPort.interruptTurn(it) }
             clientPort.endSession()

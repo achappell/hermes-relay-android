@@ -1152,11 +1152,19 @@ internal class OkHttpRelaySessionClient(
     }
 
     override fun interruptTurn(binding: AndroidTurnBinding): Boolean {
+        // Home may already have ended the text while the reply is still being
+        // spoken. That is the usual state for a long reply, and Interrupt must
+        // still stop the speech at once. Two shapes reach here: speech that
+        // began before the text terminal (a terminal is observed), and speech
+        // that follows a text terminal (awaitingAudio: Home completed the text
+        // and no further terminal will arrive, so none can settle the turn).
+        if (activeTurn.get() == binding && homeEndedText()) {
+            return stopBufferedSpeech(binding)
+        }
         val socket = activeSocket.get() ?: return false
         if (
             !supportsInterrupt() ||
-            activeTurn.get() != binding ||
-            terminalObserved.get()
+            activeTurn.get() != binding
         ) return false
         if (!interruptRequested.compareAndSet(false, true)) return false
 
@@ -1167,6 +1175,28 @@ internal class OkHttpRelaySessionClient(
             audioRemainder = ByteArray(0)
         }
         audioSink.cancel()
+        return sendInterruptFrame(socket, binding, retryOnFailure = true)
+    }
+
+    /**
+     * Home's control terminal (`message.complete`) was observed for the active turn, so
+     * no further terminal will arrive and the speech tail is all that holds the turn.
+     * `awaitingAudio` is set only by that terminal (see the `TurnCompleted` handler), never
+     * by a generic audio wait; `terminalObserved` covers the shape where speech began
+     * before the terminal.
+     */
+    private fun homeEndedText(): Boolean = terminalObserved.get() || awaitingAudio.get()
+
+    /**
+     * Sends the single `session.interrupt` for [binding] and awaits its
+     * acknowledgement off the caller's thread. [retryOnFailure] re-arms a
+     * later interrupt when the active turn is still waiting on Home.
+     */
+    private fun sendInterruptFrame(
+        socket: WebSocket,
+        binding: AndroidTurnBinding,
+        retryOnFailure: Boolean,
+    ): Boolean {
         val requestId = rpcId("interrupt")
         val response = PendingRpc()
         pending[requestId] = response
@@ -1181,11 +1211,12 @@ internal class OkHttpRelaySessionClient(
         )
         if (!sent) {
             pending.remove(requestId)
-            interruptRequested.set(false)
+            if (retryOnFailure) interruptRequested.set(false)
             reportDisconnect(socket, "The Home bridge refused the interrupt request.")
         } else {
             requestTelemetry.recordInterruptRequest()
             interruptTelemetry.recordSent()
+            journal.record("home interrupt sent")
             Thread {
                 val frame = response.await(requestTimeoutMillis)
                 pending.remove(requestId)
@@ -1198,7 +1229,10 @@ internal class OkHttpRelaySessionClient(
                         } == true
                 } == true
                 if (acknowledged) interruptTelemetry.recordAcknowledgement()
-                if (!acknowledged) {
+                journal.record(
+                    if (acknowledged) "home interrupt acknowledged" else "home interrupt unacknowledged",
+                )
+                if (!acknowledged && retryOnFailure) {
                     interruptRequested.set(false)
                 }
             }.apply {
@@ -1207,6 +1241,41 @@ internal class OkHttpRelaySessionClient(
             }.start()
         }
         return sent
+    }
+
+    /**
+     * Home ended the text of this turn but still holds prompt admission until
+     * its response-audio sidecar ends. Stop the speech still buffered on this
+     * phone, then tell Home with one explicit `session.interrupt` for the same
+     * turn so it stops the sidecar and admits the next prompt. The frame goes
+     * out before the turn is released, so it precedes any following prompt on
+     * the same socket; without a usable socket the local stop still stands.
+     */
+    private fun stopBufferedSpeech(binding: AndroidTurnBinding): Boolean {
+        if (!audioActive.get() && !audioDrainPending.get() && !awaitingAudio.get()) return false
+        if (!interruptRequested.compareAndSet(false, true)) return false
+        val currentObserver = observer.get()
+        audioActive.set(false)
+        audioDrainPending.set(false)
+        awaitingAudio.set(false)
+        synchronized(inboundLock) {
+            audioBytesRemainder = 0
+            audioRemainder = ByteArray(0)
+        }
+        audioSink.cancel()
+        journal.record("home speech stopped locally")
+        val socket = activeSocket.get()
+        if (socket != null && supportsInterrupt()) {
+            sendInterruptFrame(socket, binding, retryOnFailure = false)
+        }
+        if (currentObserver != null) {
+            deliver(
+                currentObserver,
+                AndroidNormalizedEvent.TurnInterrupted(binding, "Speech was stopped on this phone."),
+            )
+        }
+        clearTurn(binding)
+        return true
     }
 
     /** Compatibility entry point used by the pre-Home live tests. */
@@ -1522,6 +1591,10 @@ internal class OkHttpRelaySessionClient(
             }
             if (currentObserver.binding != binding) return
             if (!audioActive.get()) {
+                // Home keeps streaming until it has processed our stop, so frames of the
+                // stream the user already stopped can still arrive. They are the tail of a
+                // stream we ended on purpose, not a stream that was never started.
+                if (interruptRequested.get()) return
                 deliver(
                     currentObserver,
                     AndroidNormalizedEvent.AudioFailed(
@@ -1611,7 +1684,12 @@ internal class OkHttpRelaySessionClient(
                 }
             }
             is AndroidNormalizedEvent.AudioEnded -> {
-                if (!audioActive.getAndSet(false)) {
+                if (interruptRequested.get() && !audioActive.get() && !audioDrainPending.get()) {
+                    // The user already stopped this speech. Home ending its sidecar is the
+                    // expected echo of that stop, not a stream that ended before it began.
+                    settleAwaitedAudio()
+                    clearTurnIfTerminal(event.binding)
+                } else if (!audioActive.getAndSet(false)) {
                     deliver(
                         currentObserver,
                         AndroidNormalizedEvent.AudioFailed(
@@ -1705,6 +1783,13 @@ internal class OkHttpRelaySessionClient(
             is AndroidNormalizedEvent.TurnInterrupted,
             -> {
                 interruptTelemetry.recordTerminal()
+                journal.record(
+                    if (event is AndroidNormalizedEvent.TurnInterrupted) {
+                        "home turn terminal interrupted"
+                    } else {
+                        "home turn terminal failed"
+                    },
+                )
                 audioActive.set(false)
                 audioDrainPending.set(false)
                 audioBytesRemainder = 0
