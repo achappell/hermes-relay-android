@@ -46,7 +46,7 @@ development_status:
   android-voice-05: backlog
   android-voice-06: backlog
   android-home-12: review
-  android-home-13: review
+  android-home-13: done # Owner explicitly waived newly-active-grant device acceptance and physical TalkBack 2026-10-08; both remain unverified, not passed. Prior Unpair/re-pair waiver retained.
   android-home-14: backlog
   android-qa-01: backlog
   android-entry-01: backlog

@@ -2,13 +2,13 @@
 story: ANDROID-HOME-13
 spec: spec-android-home-13-paired-homes-refresh-unpair.md
 status: done-with-environment-limitation
-story_status: review
-updated: 2026-10-07
+story_status: done
+updated: 2026-10-08
 ---
 
 # ANDROID-HOME-13 validation record
 
-Gates are kept separate. The initial non-destructive Pixel run found that Refresh Profiles dismissed its own result. The authorized root fix below now passes the real parent-sheet regression and a single real Refresh on a current-main-based fixed APK. Story remains `review`: newly-active-grant device acceptance and HOME-13 TalkBack are still unverified. Owner waiver 2026-10-07 covers only destructive Unpair + re-pair.
+Gates are kept separate. The initial non-destructive Pixel run found that Refresh Profiles dismissed its own result. The authorized root fix below now passes the real parent-sheet regression and a single real Refresh on a current-main-based fixed APK. The owner accepted closeout with the newly-active-grant device check and physical TalkBack explicitly waived; both remain unverified, not passed. The 2026-10-07 destructive Unpair + re-pair waiver is retained.
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
@@ -17,9 +17,9 @@ Gates are kept separate. The initial non-destructive Pixel run found that Refres
 | Build, lint, `compileDebugAndroidTestKotlin` | Passed | Rebased onto `main` `3fd3d76`: `./gradlew testDebugUnitTest assembleDebug lintDebug compileDebugAndroidTestKotlin --no-daemon`; `check-apk-metadata.sh`, 18 issue-tracking tests and `git diff --check` pass. The one rebase conflict was `sprint-status.yaml` (HOME-12 `review` from main plus HOME-13 `review`) |
 | Device smoke (Pixel 6a) | Passed, limited | Installed with `adb install -r`; `AccessibilityOrderTest` 4/4. It does not open the Paired Homes section |
 | Device: Paired Homes render and one Refresh Profiles | **Passed after root fix** | Current-main-based fixed APK `b8c91c3b…40cdc`, source `98ee229`: one Home, three saved active grants, truthful `No new profiles.` retained in the sheet after exactly one real Refresh. Initial failure and exact later provenance below. |
-| Device: new grant approval, Unpair, re-pair | **Not run** | Only destructive Unpair + re-pair is waived by the owner on 2026-10-07. No grant approval or permission change was authorized or performed; newly-active-grant device behavior remains unverified. |
+| Device: newly-active grant after approval | **Unverified — waived, not passed** | Explicit owner waiver 2026-10-08; no grant approval or permission change was authorized or performed. |
 | Instrumented parent-sheet regression | **Passed, Pixel API 37** | `PairedHomesFeedbackTest` 7/7: no-new, added-grant and failure messages persist; select/delete/save/pair setup-completion dismissal preserved. Before the fix, all three refresh assertions failed because the parent sheet disappeared. |
-| TalkBack | **Not run** | The section uses text, buttons with labels and a polite live region; no TalkBack session was exercised |
+| Physical TalkBack | **Unverified — waived, not passed** | Explicit owner waiver 2026-10-08; no physical TalkBack session was exercised. |
 | CI | Pending the pull request | `ci.yml` |
 
 ## What changed
@@ -102,4 +102,14 @@ The owner subsequently authorized the narrow repair proposed above. Base is merg
 - Exact original app APK `5692a179b2347214b7e31cc1010f650ec8a224fe00439b8533ecbb5437ddeb0b` **and original test APK** restored with `install -r` and hash-verified; both packages safely stopped. Font/accessibility/animation/night settings and temporarily stabilized rotation settings restored exactly.
 - No real grant approval, permission change, Unpair/re-pair, clear-data, uninstall, prompt, capture or deployment occurred in this HOME-13 run. Fake grant/pairing operations above are isolated regression fixtures, not live acceptance.
 
-Minimum remaining acceptance: newly-active-grant real-device proof requires an explicitly authorized grant change (or an owner acceptance decision); HOME-13 TalkBack requires manual spoken-output/gesture evidence or its own explicit waiver. Neither is inferred from other stories. Destructive Unpair/re-pair remains waived, not passed. The refresh-feedback defect itself is fixed and device-verified.
+The refreshed-profile and physical TalkBack checks below were explicitly waived by owner decision on 2026-10-08; they remain unverified, not passed. The prior destructive Unpair/re-pair waiver is also retained, unverified and not passed. The refresh-feedback defect is fixed and device-verified. These are the only three waived acceptance checks; all remaining criteria retain the evidence recorded above.
+
+## Owner closeout — 2026-10-08
+
+Amanda explicitly selected option 2 to waive the two remaining HOME-13
+acceptance checks: a newly approved grant appearing after **Refresh Profiles**,
+and physical TalkBack. Existing deterministic grant-refresh coverage,
+parent-sheet regression and retained non-destructive fixed-APK Refresh evidence
+are accepted for closeout. Neither waived scenario was exercised or passed.
+The previous destructive Unpair + re-pair waiver remains in effect, also
+unverified and not passed. No other acceptance criterion is waived.
