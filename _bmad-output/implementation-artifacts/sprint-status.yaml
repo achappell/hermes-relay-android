@@ -45,7 +45,7 @@ development_status:
   android-voice-04: done # Owner closeout 2026-10-08; functional acceptance plus 2026-10-07 TalkBack waiver, not manual verification.
   android-voice-05: backlog
   android-voice-06: backlog
-  android-home-12: review
+  android-home-12: review # All nonwaived HOME12 acceptance gates passed; PR #142 is ready for review. Keep review status until code review closes; physical TalkBack speech/focus/gesture checks remain explicitly waived for HOME12 only.
   android-home-13: review
   android-home-14: backlog
   android-qa-01: backlog
