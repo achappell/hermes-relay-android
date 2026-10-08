@@ -8,7 +8,7 @@ updated: 2026-10-07
 
 # ANDROID-HOME-13 validation record
 
-Gates are kept separate. The original implementation checks below remain valid at their recorded scope. A non-destructive Pixel run on 2026-10-07 local time (2026-10-08 UTC) rendered Paired Homes and tapped Refresh Profiles once, but found that the configuration sheet immediately closes and does not retain the result for the user. This is **not accepted**; the story remains `review`. Owner waiver 2026-10-07 covers only the destructive Unpair + re-pair device leg, not Refresh Profiles or TalkBack.
+Gates are kept separate. The initial non-destructive Pixel run found that Refresh Profiles dismissed its own result. The authorized root fix below now passes the real parent-sheet regression and a single real Refresh on a current-main-based fixed APK. Story remains `review`: newly-active-grant device acceptance and HOME-13 TalkBack are still unverified. Owner waiver 2026-10-07 covers only destructive Unpair + re-pair.
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
@@ -16,9 +16,9 @@ Gates are kept separate. The original implementation checks below remain valid a
 | Repetition gate | Passed | Rebased onto `main` `3fd3d76`: `scripts/run-flake-gate.sh HomePairedHomesTest,HomeClientPairingTest 30`: 30 consecutive runs of 55 tests, 0 failures |
 | Build, lint, `compileDebugAndroidTestKotlin` | Passed | Rebased onto `main` `3fd3d76`: `./gradlew testDebugUnitTest assembleDebug lintDebug compileDebugAndroidTestKotlin --no-daemon`; `check-apk-metadata.sh`, 18 issue-tracking tests and `git diff --check` pass. The one rebase conflict was `sprint-status.yaml` (HOME-12 `review` from main plus HOME-13 `review`) |
 | Device smoke (Pixel 6a) | Passed, limited | Installed with `adb install -r`; `AccessibilityOrderTest` 4/4. It does not open the Paired Homes section |
-| Device: Paired Homes render and one Refresh Profiles | **Render passed; refresh feedback failed** | Original installed APK `5692a179…deb0b`, not a current-main build; one Home and three saved grants rendered correctly. One Refresh tap dismissed the sheet to Ready, hiding the outcome. See the dated run below. |
+| Device: Paired Homes render and one Refresh Profiles | **Passed after root fix** | Current-main-based fixed APK `b8c91c3b…40cdc`, source `98ee229`: one Home, three saved active grants, truthful `No new profiles.` retained in the sheet after exactly one real Refresh. Initial failure and exact later provenance below. |
 | Device: new grant approval, Unpair, re-pair | **Not run** | Only destructive Unpair + re-pair is waived by the owner on 2026-10-07. No grant approval or permission change was authorized or performed; newly-active-grant device behavior remains unverified. |
-| Instrumented test of the Paired Homes screen | **Not written / not run** | The spec asks for JVM tests; the Compose section has no instrumented test |
+| Instrumented parent-sheet regression | **Passed, Pixel API 37** | `PairedHomesFeedbackTest` 7/7: no-new, added-grant and failure messages persist; select/delete/save/pair setup-completion dismissal preserved. Before the fix, all three refresh assertions failed because the parent sheet disappeared. |
 | TalkBack | **Not run** | The section uses text, buttons with labels and a polite live region; no TalkBack session was exercised |
 | CI | Pending the pull request | `ci.yml` |
 
@@ -80,3 +80,26 @@ This is source evidence at `d30182e`, **not a latest-main device run**. Recommen
 - Final original APK hash unchanged. `relay-profiles.json`, `home-client-pairings.json`, encrypted credential preferences and runtime-permission-request preferences all byte-identical to this run's baseline. Pairing, credentials and stored session references retained; no valid app state was rolled back.
 - Font scale, enabled accessibility services/accessibility switch, all three animation scales and night mode unchanged. No settings restoration or APK reinstall was necessary. The app was safely force-stopped at the end, matching the prior stopped baseline.
 - Refresh feedback is a confirmed installed-build acceptance defect; a current-main runtime rerun and individual refresh receipt remain unverified. Newly-active-grant creation on a real Home was not exercised. Destructive Unpair + re-pair remains explicitly waived, not passed. TalkBack remains unverified and **not waived for HOME-13**. The original deterministic/unit/repetition evidence was reused rather than rerun; no story-completion transition is made.
+
+## Authorized refresh-feedback root fix — 2026-10-08 UTC
+
+The owner subsequently authorized the narrow repair proposed above. Base is merged PR #136/current main `f11f62d4c8a7465cd5ec0ccb6f327ef3d3e6f9d7`; production fix commit `98ee22932036aff9871dcfebd9f62995bf82417b`. `RelayConfigurationScreen.onChanged` now notifies data refresh only; `onSetupCompleted` invokes the existing parent dismissal policy. Select, delete, save and completed pairing still take the completion path. Paired Homes refresh keeps its own truthful outcome. No coordinator, grant authority or selected-ID workaround changed.
+
+### Red/green and review
+
+- Built base production with the new parent-screen test and used direct `adb install -r` / `am instrument`: 4 tests, **3 behavioral failures** (`android_relay_configuration_sheet` not displayed after no-new/added/failure refresh), intentional selection passed. This is runtime red, not compile-red.
+- Fixed tests exercise the real `AndroidClientScreen` parent sheet with in-memory stores and guarded fake service. Expanded after review to cover save, delete and pair completion as well as select: **7/7 passed**.
+- Combined safe direct-instrumentation run: **16/16 passed**, including `HomeRuntimeRecreationTest` 1, `AndroidPlatformSmokeTest` 1, `AppVersionRowTest` 2, `DiagnosticsShareTest` 2 and `ModalSheetBackTest` 3, on Pixel 6a API 37. No full credential-mutating configuration test class or `connectedAndroidTest` was used.
+- `testDebugUnitTest assembleDebug lintDebug assembleDebugAndroidTest --no-daemon --max-workers=1`: passed; **428 JVM tests, zero failures/errors/skips**. APK metadata passed: min SDK 26, version 0.3.1/code 301 unchanged. Initial metadata invocation lacked `apkanalyzer`; official checksum-verified tools resolved that prerequisite. Existing coordinator repetition proof is reused; no timing/concurrency logic changed.
+- Independent blind review found no supported code defect. Acceptance review found missing save/delete/pair completion regression coverage; that finding was accepted and all three tests added and passed.
+
+### Actual fixed-APK acceptance and preservation
+
+- Fixed app APK SHA-256 **`b8c91c3be1a95a3b5d2c931a1472051aaf01066d2e3e69cecf4ceba6b6440cdc`**, visible identity `Version 0.3.1 (301) · debug · 98ee229`. Installed with `-r` only after capturing the original app/test APKs and private data/settings baselines.
+- Home independently reverified immediately before the run: `d803994d1d47c63bb1b3c92cff42695de19a4434`, all 34 installed sources match, task Running. Authenticated configuration returned 200 before/after with identical snapshots.
+- At **2026-10-08T01:28:24.730602Z**, exactly one real UI Refresh tap. Paired Homes stayed open with `Paired`, all three `Profile saved` rows and **`No new profiles.`** still visible. Three active grants already had Profiles; no grant creation was expected or claimed. No second real Refresh was used.
+- All Profile objects/selection, grant labels/status/availability, pairing identity, credential and stored session references were retained. Profiles and both captured credential/permission preference files remained byte-identical. The pairing record gained only `claim_management_supported: true`, learned by the newer app from Home; excluding this additive capability metadata it is identical. This valid metadata was retained rather than rolled back.
+- Exact original app APK `5692a179b2347214b7e31cc1010f650ec8a224fe00439b8533ecbb5437ddeb0b` **and original test APK** restored with `install -r` and hash-verified; both packages safely stopped. Font/accessibility/animation/night settings and temporarily stabilized rotation settings restored exactly.
+- No real grant approval, permission change, Unpair/re-pair, clear-data, uninstall, prompt, capture or deployment occurred in this HOME-13 run. Fake grant/pairing operations above are isolated regression fixtures, not live acceptance.
+
+Minimum remaining acceptance: newly-active-grant real-device proof requires an explicitly authorized grant change (or an owner acceptance decision); HOME-13 TalkBack requires manual spoken-output/gesture evidence or its own explicit waiver. Neither is inferred from other stories. Destructive Unpair/re-pair remains waived, not passed. The refresh-feedback defect itself is fixed and device-verified.

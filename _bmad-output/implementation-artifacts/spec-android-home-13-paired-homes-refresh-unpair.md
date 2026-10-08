@@ -71,3 +71,15 @@ preserving deliberate setup-completion dismissal; production changes await
 authorization. All three grants, Profiles, credentials and stored session
 references were preserved. Only destructive Unpair + re-pair is owner-waived;
 newly-active-grant device acceptance and HOME-13 TalkBack remain unverified.
+
+### Authorized fix follow-up — 2026-10-08 UTC
+
+The preceding defect is now fixed in `98ee22932036aff9871dcfebd9f62995bf82417b`
+on main base `f11f62d4c8a7465cd5ec0ccb6f327ef3d3e6f9d7`. Data refresh and
+setup completion are separate callbacks; parent-sheet tests are behavior-red
+before and 7/7 green after. Exactly one fixed-APK real Refresh kept the section,
+three saved active grants and truthful `No new profiles.` result visible.
+Original app/test APKs and settings were restored. See the validation record
+for exact hashes and the retained additive Home capability metadata.
+The narrow defect is complete; story status remains `review` because the
+newly-active-grant real-device and unwaived TalkBack gates are not yet accepted.

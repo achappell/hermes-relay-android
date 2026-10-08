@@ -2,7 +2,7 @@
 title: 'ANDROID-HOME-13: retain Refresh Profiles feedback'
 type: 'bugfix'
 created: '2026-10-07'
-status: 'in-progress'
+status: 'done'
 route: 'oneshot'
 review_loop_iteration: 0
 context: []
@@ -26,3 +26,11 @@ context: []
 - All device actions are exclusive and safe; no `connectedAndroidTest`, uninstall, clear-data or production credential-store test class. Gradle window released by ANDROID-STD-01 owner.
 - Behavioral baseline-red on Pixel API 37: built current-main production with the new `PairedHomesFeedbackTest`; direct `am instrument` ran four tests. No-new, added-grant and failed-refresh tests each failed because the real parent configuration sheet disappeared; intentional Profile selection passed. The test uses in-memory stores only and never touches the real grants.
 - `onChanged` now only reloads/notifies data; `onSetupCompleted` owns the existing selected-Profile dismissal. Existing select, delete, save and pair-completion paths call both, while Paired Homes data changes call refresh only. No selected-ID workaround or coordinator behavior change.
+- Fixed parent-sheet regressions: 7/7 passed; safe combined Pixel API 37 instrumentation: 16/16. Local aggregate: 428 JVM tests, build/lint/test APK and manifest metadata passed.
+- One actual fixed-APK Refresh against source-verified Home `d803994d1d47c63bb1b3c92cff42695de19a4434` kept Paired Homes and `No new profiles.` visible. Exact original app/test APKs and settings restored; three grants, Profiles, credentials and session references retained. Only additive Home capability metadata was learned and retained. Full evidence is in `validation-android-home-13.md`.
+- This narrow defect is complete; parent story HOME-13 stays `review` for unverified newly-active-grant device and unwaived TalkBack acceptance.
+
+## Review Triage Log
+
+- Blind review: no supported patch-introduced defect after tracing callback consumers.
+- Acceptance review, medium, patched: selection-only completion coverage did not prove unchanged save/delete/pair dismissal. Added all three real-parent-screen regression paths, using exclusively in-memory pairing/credential stores; all pass.
