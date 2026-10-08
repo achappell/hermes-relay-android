@@ -4,9 +4,8 @@ import android.os.Handler
 import android.os.Looper
 
 /**
- * The numbers that decide when a spoken turn ends, in one place so tap-to-talk
- * and hands-free cannot drift apart (`ANDROID-VOICE-03`). iOS: 1.5 s silence
- * endpoint, 2 s wait for the final result.
+ * Timing values for speech capture and interrupt acknowledgement (`ANDROID-VOICE-03`,
+ * `ANDROID-VOICE-04`) so tap-to-talk, hands-free and interruption cannot drift apart.
  */
 internal data class VoiceTimings(
     /**
@@ -20,6 +19,8 @@ internal data class VoiceTimings(
     val finalResultWaitMillis: Long = 2_000,
     /** Passed as `EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS`. */
     val minimumUtteranceMillis: Long = 500,
+    /** How long an Interrupt waits for the turn to end before it is shown as unconfirmed. */
+    val interruptAcknowledgementMillis: Long = 2_000,
 ) {
     companion object {
         val Default = VoiceTimings()

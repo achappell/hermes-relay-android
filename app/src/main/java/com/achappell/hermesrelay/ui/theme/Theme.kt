@@ -75,6 +75,8 @@ internal fun HermesRelayTheme(
     ) {
         MaterialTheme(
             colorScheme = if (dark) DarkColors else LightColors,
+            typography = HermesTypography.material,
+            shapes = HermesShapes.material,
             content = content,
         )
     }

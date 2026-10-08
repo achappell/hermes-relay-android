@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Features
+- Add 2-second interrupt acknowledgement and interrupt-and-listen behavior to Android voice controls.
+- Tell Home when Interrupt stops speech still buffered on the phone after the text turn ended, so Home releases the reply audio and accepts the next prompt.
+- Interrupt speech that starts after Home's text terminal, without treating in-flight PCM or the stopped sidecar's end as an audio failure.
+- Let typed Send take ownership from interrupt-and-listen capture, preventing a late transcript from replacing the accepted next turn.
 - Add day/night-aware Android splash styling and enable platform predictive-back support for modal sheets.
 - Add durable Home claim-management capability detection and an "Open on Home" list/close flow for the conversations sheet.
 - Add an explicit Standard-only mode (ANDROID-STD-01 slice 1): first setup asks Home or Standard, Standard connects straight to unmodified Hermes at `/api/ws` with its own credential slot, typed streaming chat, per-endpoint private history, a deliberate New conversation action, a "Hermes is finishing" busy state, no-replay recovery and a switch guard. Voice, response audio and remote interrupt are not in this slice.

@@ -72,6 +72,7 @@ internal class AndroidCaptureController(
 ) {
     /** True from the moment capture starts until it submits, fails or is cancelled. */
     private var captureOpen = false
+    private var captureGeneration = 0L
     private var lastPartial: String? = null
     private var silenceTimer: VoiceTimer? = null
     private var finalWaitTimer: VoiceTimer? = null
@@ -199,11 +200,12 @@ internal class AndroidCaptureController(
         }
 
         captureSessionId = currentSessionId()
+        val generation = ++captureGeneration
         captureOpen = true
         lastPartial = null
         endingCapture = false
         state = AndroidCaptureState.Starting
-        speech.start { event -> handle(event) }
+        speech.start { event -> handle(generation, event) }
     }
 
     /** Ends capture and waits for the recognizer's final transcript. */
@@ -263,10 +265,9 @@ internal class AndroidCaptureController(
         state = AndroidCaptureState.Idle
     }
 
-    private fun handle(event: AndroidSpeechEvent) {
-        // A late event from a capture that already ended (submitted, failed or
-        // cancelled) must not act on the next one.
-        if (!captureOpen) return
+    private fun handle(generation: Long, event: AndroidSpeechEvent) {
+        // A displaced recognizer must stay retired even after a new capture opens.
+        if (!captureOpen || generation != captureGeneration) return
         when (event) {
             AndroidSpeechEvent.Started -> state = AndroidCaptureState.Listening
 
