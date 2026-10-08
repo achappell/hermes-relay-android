@@ -342,6 +342,7 @@ class HomeRuntimeTest {
         runtime.disconnect()
 
         assertEquals("one endSession however often it is tapped", listOf("endSession"), fixture.port.calls)
+        assertEquals("one user attribution for the accepted disconnect", 1, fixture.journal.count("home disconnect initiator=user"))
         assertEquals(AndroidConnectionState.Disconnected, runtime.recoveryState.connection)
         assertTrue(runtime.userDisconnected)
         assertFalse(runtime.canDisconnect)
@@ -375,6 +376,7 @@ class HomeRuntimeTest {
         assertEquals(false, enabledDuringSubmit)
         assertTrue("a disconnect mid-submit must be ignored", fixture.port.calls.none { it == "endSession" })
         assertFalse(runtime.userDisconnected)
+        assertEquals(0, fixture.journal.count("home disconnect initiator=user"))
     }
 
     @Test
@@ -387,10 +389,12 @@ class HomeRuntimeTest {
         assertTrue(runtime.disconnectEnabled)
         assertTrue("a reply in flight must ask first", runtime.disconnectNeedsConfirmation)
         assertTrue("asking must not close anything", fixture.port.calls.isEmpty())
+        assertEquals("asking or dismissing confirmation is not a disconnect", 0, fixture.journal.count("home disconnect initiator=user"))
 
         runtime.disconnect()
 
         assertEquals(listOf("interrupt", "endSession"), fixture.port.calls)
+        assertEquals(1, fixture.journal.count("home disconnect initiator=user"))
         assertEquals(AndroidInitiationState.Idle, runtime.initiationState)
         assertFalse(runtime.hasAcceptedTurn)
         assertEquals(AndroidConnectionState.Disconnected, runtime.recoveryState.connection)
@@ -405,6 +409,18 @@ class HomeRuntimeTest {
         runtime.disconnect()
 
         assertEquals(listOf("endSession"), fixture.port.calls)
+    }
+
+    @Test
+    fun programmatic_runtime_teardown_does_not_claim_a_user_disconnect() {
+        val fixture = Fixture(accepted())
+        val runtime = connectedRuntime(fixture)
+
+        runtime.activityDestroyed(isFinishing = true, isChangingConfigurations = false)
+
+        assertEquals(1, fixture.port.closeCount)
+        assertTrue(fixture.port.calls.isEmpty())
+        assertEquals(0, fixture.journal.count("home disconnect initiator=user"))
     }
 
     @Test

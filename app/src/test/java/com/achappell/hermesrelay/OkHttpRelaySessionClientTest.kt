@@ -2170,6 +2170,206 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun end_session_waits_for_home_to_confirm_close_before_closing_the_socket() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val interruptSeen = CountDownLatch(1)
+        val closeReceived = CountDownLatch(1)
+        val allowHomeCloseToFinish = CountDownLatch(1)
+        val closeAcknowledged = CountDownLatch(1)
+        val homeClaimClosed = AtomicBoolean(false)
+        val socketClosedBeforeHomeClose = AtomicBoolean(false)
+        val socketClosed = CountDownLatch(1)
+        val endSessionFinished = CountDownLatch(1)
+        val journal = RecordingJournal()
+        val bridge = object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val request = JSONObject(text)
+                val id = request.getString("id")
+                when (val method = request.optString("method")) {
+                    "conversation.open", "conversation.reconnect" -> {
+                        methods += method
+                        webSocket.send(readyResponse(id))
+                    }
+                    "prompt.submit" -> webSocket.send(
+                        rpcResult(
+                            id,
+                            JSONObject()
+                                .put("schema", 1)
+                                .put("conversation_handle", CONVERSATION_HANDLE)
+                                .put("turn_id", "home-turn-close-ack")
+                                .put("status", "submitted"),
+                        ),
+                    )
+                    "session.interrupt" -> {
+                        methods += method
+                        interruptSeen.countDown()
+                        webSocket.send(rpcResult(id, JSONObject().put("schema", 1).put("status", "accepted")))
+                    }
+                    "conversation.close" -> {
+                        methods += method
+                        closeReceived.countDown()
+                        // Home persists the logical close before returning status=closed.
+                        check(allowHomeCloseToFinish.await(5, TimeUnit.SECONDS))
+                        homeClaimClosed.set(true)
+                        webSocket.send(
+                            rpcResult(
+                                id,
+                                JSONObject()
+                                    .put("schema", 1)
+                                    .put("conversation_handle", CONVERSATION_HANDLE)
+                                    .put("status", "closed"),
+                            ),
+                        )
+                        closeAcknowledged.countDown()
+                    }
+                }
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                socketClosedBeforeHomeClose.set(!homeClaimClosed.get())
+                socketClosed.countDown()
+                webSocket.close(code, null)
+            }
+        }
+        server.enqueue(MockResponse().withWebSocketUpgrade(bridge))
+        val paired = pairedClient(journal = journal)
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        val binding = (
+            paired.client.beginTurn(
+                AndroidTurnRequest(
+                    AndroidProfile(PROFILE_ID, "Amanda"),
+                    AndroidTurnInput.Typed("interrupt then close"),
+                ),
+            ) as AndroidInitiationResult.Accepted
+            ).binding
+
+        assertTrue(paired.client.interruptTurn(binding))
+        assertTrue(interruptSeen.await(5, TimeUnit.SECONDS))
+        Thread {
+            try {
+                paired.client.endSession()
+            } finally {
+                endSessionFinished.countDown()
+            }
+        }.apply { isDaemon = true }.start()
+
+        try {
+            assertTrue(closeReceived.await(5, TimeUnit.SECONDS))
+            assertFalse(
+                "endSession must not return until Home confirms the persisted close",
+                endSessionFinished.await(100, TimeUnit.MILLISECONDS),
+            )
+            assertFalse(homeClaimClosed.get())
+            allowHomeCloseToFinish.countDown()
+            assertTrue(closeAcknowledged.await(5, TimeUnit.SECONDS))
+            assertTrue(endSessionFinished.await(5, TimeUnit.SECONDS))
+            assertTrue(socketClosed.await(5, TimeUnit.SECONDS))
+            assertTrue(homeClaimClosed.get())
+            assertFalse(socketClosedBeforeHomeClose.get())
+            assertEquals(listOf("conversation.open", "session.interrupt", "conversation.close"), methods.toList())
+            assertNull(paired.client.currentConversationRef())
+            assertTrue(journal.lines.contains("home claim released reason=disconnect"))
+        } finally {
+            allowHomeCloseToFinish.countDown()
+            paired.client.close()
+        }
+    }
+
+    @Test
+    fun end_session_does_not_claim_release_when_home_rejects_close_acknowledgement() {
+        val closeReceived = CountDownLatch(1)
+        val socketClosed = CountDownLatch(1)
+        val journal = RecordingJournal()
+        val bridge = object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val request = JSONObject(text)
+                val id = request.getString("id")
+                when (request.optString("method")) {
+                    "conversation.open", "conversation.reconnect" -> webSocket.send(readyResponse(id))
+                    "conversation.close" -> {
+                        closeReceived.countDown()
+                        webSocket.send(
+                            JSONObject()
+                                .put("schema", 1)
+                                .put("jsonrpc", "2.0")
+                                .put("id", id)
+                                .put(
+                                    "result",
+                                    JSONObject()
+                                        .put("schema", 1)
+                                        .put("conversation_handle", CONVERSATION_HANDLE)
+                                        .put("status", "closed"),
+                                )
+                                .put("error", JSONObject().put("code", -32000).put("message", "close rejected"))
+                                .toString(),
+                        )
+                    }
+                }
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                socketClosed.countDown()
+                webSocket.close(code, null)
+            }
+        }
+        server.enqueue(MockResponse().withWebSocketUpgrade(bridge))
+        val paired = pairedClient(journal = journal)
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertEquals("sref-learned", paired.client.learnCurrentConversation())
+
+        paired.client.endSession()
+
+        assertTrue(closeReceived.await(5, TimeUnit.SECONDS))
+        assertTrue(socketClosed.await(5, TimeUnit.SECONDS))
+        assertNull(paired.client.currentConversationRef())
+        assertTrue(paired.closedClaims.isEmpty())
+        assertTrue(journal.lines.contains("home claim release unacknowledged reason=disconnect"))
+        assertFalse(journal.lines.contains("home claim released reason=disconnect"))
+        assertEquals(1, server.requestCount)
+        paired.client.close()
+    }
+
+    @Test
+    fun end_session_times_out_close_without_fallback_or_false_release() {
+        val closeReceived = CountDownLatch(1)
+        val socketClosed = CountDownLatch(1)
+        val journal = RecordingJournal()
+        val bridge = object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val request = JSONObject(text)
+                when (request.optString("method")) {
+                    "conversation.open", "conversation.reconnect" ->
+                        webSocket.send(readyResponse(request.getString("id")))
+                    "conversation.close" -> closeReceived.countDown()
+                }
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                socketClosed.countDown()
+                webSocket.close(code, null)
+            }
+        }
+        server.enqueue(MockResponse().withWebSocketUpgrade(bridge))
+        val paired = pairedClient(journal = journal, requestTimeoutMillis = 250)
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertEquals("sref-learned", paired.client.learnCurrentConversation())
+        val startedAt = System.nanoTime()
+
+        paired.client.endSession()
+
+        val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+        assertTrue(closeReceived.await(5, TimeUnit.SECONDS))
+        assertTrue(socketClosed.await(5, TimeUnit.SECONDS))
+        assertTrue("close wait is bounded by the configured RPC timeout", elapsedMillis in 200..2_000)
+        assertNull(paired.client.currentConversationRef())
+        assertTrue(paired.closedClaims.isEmpty())
+        assertTrue(journal.lines.contains("home claim release unacknowledged reason=disconnect"))
+        assertFalse(journal.lines.contains("home claim released reason=disconnect"))
+        assertEquals(1, server.requestCount)
+        paired.client.close()
+    }
+
+    @Test
     fun a_deliberate_disconnect_sends_one_close_ends_the_claim_and_never_reconnects_by_itself() {
         val methods = Collections.synchronizedList(mutableListOf<String>())
         val handles = Collections.synchronizedList(mutableListOf<String>())
@@ -2187,6 +2387,15 @@ class OkHttpRelaySessionClientTest {
                     "conversation.close" -> {
                         closes.incrementAndGet()
                         closed.countDown()
+                        webSocket.send(
+                            rpcResult(
+                                frame.getString("id"),
+                                JSONObject()
+                                    .put("schema", 1)
+                                    .put("conversation_handle", CONVERSATION_HANDLE)
+                                    .put("status", "closed"),
+                            ),
+                        )
                     }
                 }
             }
@@ -2223,11 +2432,13 @@ class OkHttpRelaySessionClientTest {
             "a deliberate disconnect must journal its release reason",
             journal.lines.contains("home claim released reason=disconnect"),
         )
+        assertEquals("generic endSession does not identify its caller as a user", 0, journal.count("home disconnect initiator=user"))
         // A deliberate Connect afterwards opens a fresh claim.
         assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
         assertEquals(2, paired.claims.get())
         assertEquals(listOf("conversation.open", "conversation.open"), methods.toList())
         paired.client.close()
+        assertEquals("programmatic close also has no user attribution", 0, journal.count("home disconnect initiator=user"))
     }
 
     @Test
@@ -2387,6 +2598,7 @@ class OkHttpRelaySessionClientTest {
         claimBlock: (() -> Unit)? = null,
         claimFailure: HomeAdministrationError? = null,
         journal: DiagnosticsJournal = DiagnosticsJournal.None,
+        requestTimeoutMillis: Long = 5_000,
     ): PairedClient {
         val homeUrl = server.url("/").toString().trimEnd('/')
         val store = InMemoryHomeClientPairingStore(
@@ -2514,7 +2726,7 @@ class OkHttpRelaySessionClientTest {
                 .sslSocketFactory(clientCertificates.sslSocketFactory(), clientCertificates.trustManager)
                 .build(),
             helloTimeoutMillis = 5_000,
-            requestTimeoutMillis = 5_000,
+            requestTimeoutMillis = requestTimeoutMillis,
             clientClaims = claimProvider,
             journal = journal,
         )

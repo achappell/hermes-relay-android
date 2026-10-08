@@ -143,6 +143,11 @@ internal class OkHttpRelaySessionClient(
         val claimRef: String?,
         @Volatile var opened: Boolean = false,
     )
+    private enum class ConversationCloseResult {
+        NotSent,
+        Closed,
+        Unacknowledged,
+    }
 
     private class ReconnectFlight(val profileId: String?) {
         val completed = CountDownLatch(1)
@@ -1125,20 +1130,9 @@ internal class OkHttpRelaySessionClient(
         if (liveHomeGateTrace == null || !ready.get()) return false
         val socket = activeSocket.get() ?: return false
         val handle = collection().selected?.homeBinding?.conversationHandle ?: return false
-        val requestId = rpcId("close")
-        val response = PendingRpc()
-        pending[requestId] = response
-        try {
-            if (!socket.send(rpcRequest(requestId, "conversation.close",
-                    JSONObject().put("conversation_handle", handle)).toString())) return false
-            val frame = response.await(requestTimeoutMillis) ?: return false
-            val result = frame.optJSONObject("result") ?: return false
-            return isHomeEnvelope(frame) && exactString(frame, "id") == requestId &&
-                hasExactInt(result, "schema", SCHEMA_VERSION) &&
-                exactString(result, "conversation_handle") == handle &&
-                exactString(result, "status") == "closed"
+        return try {
+            sendConversationCloseAndAwait(socket, handle) == ConversationCloseResult.Closed
         } finally {
-            pending.remove(requestId)
             ready.set(false)
         }
     }
@@ -1282,7 +1276,7 @@ internal class OkHttpRelaySessionClient(
     fun disconnect() = close()
 
     override fun endSession() {
-        releaseHeldClaim("disconnect")
+        releaseHeldClaim("disconnect", awaitCloseAcknowledgement = true)
         closeTransport()
         activeTurn.set(null)
     }
@@ -1475,7 +1469,11 @@ internal class OkHttpRelaySessionClient(
      * conversation through its bridge. Home still expires a legacy claim whose
      * create response did not include a ref.
      */
-    private fun releaseHeldClaim(reason: String, asynchronous: Boolean = false) {
+    private fun releaseHeldClaim(
+        reason: String,
+        asynchronous: Boolean = false,
+        awaitCloseAcknowledgement: Boolean = false,
+    ) {
         val held = heldClaim.getAndSet(null) ?: return
         val socket = activeSocket.get()
         if (
@@ -1486,41 +1484,117 @@ internal class OkHttpRelaySessionClient(
             lastHandshakeProfileId.get() == held.profileId &&
             lastHandshakeConversationHandle.get() == held.binding.conversationHandle
         ) {
-            val sent = socket.send(
-                rpcRequest(
-                    rpcId("close"),
-                    "conversation.close",
-                    JSONObject().put("conversation_handle", held.binding.conversationHandle),
-                ).toString(),
-            )
-            // cancel() discards queued frames, so keep this socket long enough
-            // for Home to read the close request.
-            if (sent && activeSocket.compareAndSet(socket, null)) {
-                journal.record("home claim released reason=$reason")
-                socket.close(NORMAL_CLOSURE, null)
-                Thread {
-                    runCatching { Thread.sleep(requestTimeoutMillis) }
-                    socket.cancel()
-                }.apply {
-                    name = "hermes-claim-close"
-                    isDaemon = true
-                }.start()
-                return
+            if (awaitCloseAcknowledgement) {
+                when (sendConversationCloseAndAwait(socket, held.binding.conversationHandle)) {
+                    ConversationCloseResult.NotSent -> Unit
+                    ConversationCloseResult.Closed -> {
+                        activeSocket.compareAndSet(socket, null)
+                        journal.record("home claim released reason=$reason")
+                        closeSocketAfterClaimRelease(socket)
+                        return
+                    }
+                    ConversationCloseResult.Unacknowledged -> {
+                        activeSocket.compareAndSet(socket, null)
+                        journal.record("home claim release unacknowledged reason=$reason")
+                        closeSocketAfterClaimRelease(socket)
+                        return
+                    }
+                }
+            } else {
+                val sent = socket.send(
+                    rpcRequest(
+                        rpcId("close"),
+                        "conversation.close",
+                        JSONObject().put("conversation_handle", held.binding.conversationHandle),
+                    ).toString(),
+                )
+                // A queued frame is only a request; programmatic teardown does not wait for Home.
+                if (sent && activeSocket.compareAndSet(socket, null)) {
+                    journal.record("home claim release requested reason=$reason")
+                    closeSocketAfterClaimRelease(socket)
+                    return
+                }
             }
         }
-        val claimRef = held.claimRef ?: return
-        val claims = clientClaims ?: return
-        journal.record("home claim released reason=$reason")
+        val claimRef = held.claimRef
+        val claims = clientClaims
+        if (claimRef == null || claims == null) {
+            journal.record("home claim release unacknowledged reason=$reason")
+            return
+        }
         if (asynchronous) {
             Thread {
-                runCatching { claims.releaseClaimRef(held.grant, claimRef) }
+                val released = runCatching { claims.releaseClaimRef(held.grant, claimRef) }.getOrDefault(false)
+                journal.record(
+                    if (released) {
+                        "home claim released reason=$reason"
+                    } else {
+                        "home claim release unacknowledged reason=$reason"
+                    },
+                )
             }.apply {
                 name = "hermes-claim-ref-close"
                 isDaemon = true
             }.start()
         } else {
-            runCatching { claims.releaseClaimRef(held.grant, claimRef) }
+            val released = runCatching { claims.releaseClaimRef(held.grant, claimRef) }.getOrDefault(false)
+            journal.record(
+                if (released) {
+                    "home claim released reason=$reason"
+                } else {
+                    "home claim release unacknowledged reason=$reason"
+                },
+            )
         }
+    }
+
+    /**
+     * The Home close response means its logical claim-close work has completed.
+     * Keep this socket alive through the bounded response wait; closing after
+     * send alone can leave Home with only a disconnected, still-active claim.
+     */
+    private fun sendConversationCloseAndAwait(
+        socket: WebSocket,
+        handle: String,
+    ): ConversationCloseResult {
+        val requestId = rpcId("close")
+        val response = PendingRpc()
+        pending[requestId] = response
+        try {
+            if (!socket.send(
+                    rpcRequest(
+                        requestId,
+                        "conversation.close",
+                        JSONObject().put("conversation_handle", handle),
+                    ).toString(),
+                )
+            ) {
+                return ConversationCloseResult.NotSent
+            }
+            val frame = response.await(requestTimeoutMillis)
+                ?: return ConversationCloseResult.Unacknowledged
+            val result = frame.optJSONObject("result") ?: return ConversationCloseResult.Unacknowledged
+            val closed = frame.optJSONObject("error") == null &&
+                isHomeEnvelope(frame) &&
+                exactString(frame, "id") == requestId &&
+                hasExactInt(result, "schema", SCHEMA_VERSION) &&
+                exactString(result, "conversation_handle") == handle &&
+                exactString(result, "status") == "closed"
+            return if (closed) ConversationCloseResult.Closed else ConversationCloseResult.Unacknowledged
+        } finally {
+            pending.remove(requestId)
+        }
+    }
+
+    private fun closeSocketAfterClaimRelease(socket: WebSocket) {
+        socket.close(NORMAL_CLOSURE, null)
+        Thread {
+            runCatching { Thread.sleep(requestTimeoutMillis) }
+            socket.cancel()
+        }.apply {
+            name = "hermes-claim-close"
+            isDaemon = true
+        }.start()
     }
 
     private fun closeTransport() {
