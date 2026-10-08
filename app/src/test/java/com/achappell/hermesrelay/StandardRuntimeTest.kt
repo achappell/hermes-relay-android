@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.AbstractExecutorService
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 
 /**
@@ -23,6 +24,7 @@ class StandardRuntimeTest {
         initiation: AndroidInitiationResult,
         var mode: RelayProfileMode? = RelayProfileMode.Standard,
         newConversation: AndroidNewConversationResult = AndroidNewConversationResult.Created,
+        executor: ExecutorService = InlineExecutorService(),
     ) {
         val port = FakeStandardPort(initiation, newConversation)
         val store = InMemoryAndroidHistoryStore()
@@ -32,10 +34,11 @@ class StandardRuntimeTest {
             speechInput = null,
             historyStore = store,
             postToMain = { it.run() },
-            workExecutor = InlineExecutorService(),
+            workExecutor = executor,
             journal = journal,
             selectedMode = { mode },
             newConversationLabel = "New conversation",
+            voiceTimers = ManualVoiceTimers(),
         ).also {
             it.activityCreated()
             it.recorder?.open("std-key")
@@ -253,13 +256,13 @@ class StandardRuntimeTest {
     fun a_selection_change_into_standard_ends_the_previous_transport_and_resets_the_turn() {
         val fixture = Fixture(accepted(), mode = RelayProfileMode.HomeBridge)
         val runtime = fixture.runtime
-        runtime.profileSelectionChanged("home-1", RelayProfileMode.HomeBridge)
+        runtime.profileSelectionChanged("home-1", RelayProfileMode.HomeBridge, "home-1")
         runtime.recover()
         runtime.initiate(AndroidTurnInput.Typed("hello"))
         fixture.port.emit(AndroidNormalizedEvent.TurnCompleted(binding, "Done"))
 
         fixture.mode = RelayProfileMode.Standard
-        runtime.profileSelectionChanged("std-1", RelayProfileMode.Standard)
+        runtime.profileSelectionChanged("std-1", RelayProfileMode.Standard, "std-key")
 
         assertEquals(listOf("endSession"), fixture.port.calls)
         assertEquals(AndroidConnectionState.Disconnected, runtime.recoveryState.connection)
@@ -271,10 +274,10 @@ class StandardRuntimeTest {
     fun a_home_to_home_selection_change_keeps_its_existing_behavior() {
         val fixture = Fixture(accepted(), mode = RelayProfileMode.HomeBridge)
         val runtime = fixture.runtime
-        runtime.profileSelectionChanged("home-1", RelayProfileMode.HomeBridge)
+        runtime.profileSelectionChanged("home-1", RelayProfileMode.HomeBridge, "home-1")
         runtime.recover()
 
-        runtime.profileSelectionChanged("home-2", RelayProfileMode.HomeBridge)
+        runtime.profileSelectionChanged("home-2", RelayProfileMode.HomeBridge, "home-2")
 
         assertTrue(fixture.port.calls.isEmpty())
         assertEquals(AndroidConnectionState.Connected, runtime.recoveryState.connection)
@@ -286,10 +289,48 @@ class StandardRuntimeTest {
         val fixture = Fixture(accepted())
         fixture.runtime.recover()
 
-        fixture.runtime.profileSelectionChanged("std-1", RelayProfileMode.Standard)
+        fixture.runtime.profileSelectionChanged("std-1", RelayProfileMode.Standard, "std-key")
 
         assertTrue(fixture.port.calls.isEmpty())
         assertEquals(AndroidConnectionState.Connected, fixture.runtime.recoveryState.connection)
+    }
+
+    @Test
+    fun a_changed_standard_identity_with_the_same_profile_id_resets_the_visible_session() {
+        val fixture = Fixture(accepted())
+        val runtime = fixture.runtime
+        runtime.profileSelectionChanged("std-1", RelayProfileMode.Standard, "identity-a")
+        runtime.recover()
+
+        runtime.profileSelectionChanged("std-1", RelayProfileMode.Standard, "identity-b")
+
+        assertEquals(listOf("endSession"), fixture.port.calls)
+        assertEquals(AndroidConnectionState.Disconnected, runtime.recoveryState.connection)
+        assertEquals(AndroidInitiationState.Idle, runtime.initiationState)
+    }
+
+    @Test
+    fun new_conversation_blocks_send_and_switch_until_its_result_is_applied() {
+        val executor = QueuedExecutorService()
+        val fixture = Fixture(accepted(), executor = executor)
+        val runtime = fixture.runtime
+        runtime.recover()
+        executor.runNext()
+        runtime.startNewConversation()
+
+        assertEquals(StandardNewConversationState.InFlight, runtime.newConversationState)
+        assertTrue(runtime.isConversationBusy)
+        runtime.initiate(AndroidTurnInput.Typed("must not be queued"))
+        runtime.startNewConversation()
+        assertEquals(1, executor.pendingCount)
+        assertEquals(0, fixture.port.beginTurns)
+
+        executor.runNext()
+
+        assertEquals(1, fixture.port.newConversations)
+        assertEquals(0, fixture.port.beginTurns)
+        assertFalse(runtime.isConversationBusy)
+        assertEquals(StandardNewConversationState.Idle, runtime.newConversationState)
     }
 
     @Test
@@ -355,6 +396,7 @@ class StandardRuntimeTest {
             postToMain = { it.run() },
             workExecutor = InlineExecutorService(),
             selectedMode = { mode },
+            voiceTimers = ManualVoiceTimers(),
         )
         runtime.activityCreated()
         runtime.recover()
@@ -439,7 +481,7 @@ class StandardRuntimeTest {
         }
     }
 
-    private class InlineExecutorService : AbstractExecutorService() {
+    private open class InlineExecutorService : AbstractExecutorService() {
         private var shutdown = false
 
         override fun execute(command: Runnable) = command.run()
@@ -458,5 +500,16 @@ class StandardRuntimeTest {
         override fun isTerminated() = shutdown
 
         override fun awaitTermination(timeout: Long, unit: TimeUnit) = shutdown
+    }
+
+    private class QueuedExecutorService : InlineExecutorService() {
+        private val pending = ArrayDeque<Runnable>()
+        val pendingCount: Int get() = pending.size
+
+        override fun execute(command: Runnable) {
+            pending.addLast(command)
+        }
+
+        fun runNext() = pending.removeFirst().run()
     }
 }

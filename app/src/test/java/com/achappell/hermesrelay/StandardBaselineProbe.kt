@@ -1,8 +1,6 @@
 package com.achappell.hermesrelay
 
 import okhttp3.Call
-import okhttp3.Connection
-import okhttp3.EventListener
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
@@ -30,7 +28,6 @@ import java.io.File
 import java.io.PrintStream
 import java.time.Instant
 import java.net.InetAddress
-import java.net.Socket
 import java.net.URI
 import java.util.logging.Level
 import java.util.logging.Logger
@@ -186,15 +183,16 @@ internal class StandardBaselineProbe(
 
     private val secrets = listOf(token, userPrompt, endpoint).filter { it.isNotBlank() }
     private val sightings = CopyOnWriteArrayList<PromptSighting>()
-    private val transportSocket = AtomicReference<Socket>()
+    private val transportCall = AtomicReference<Call>()
     private val probeHttpClient = httpClient.newBuilder()
-        .eventListener(object : EventListener() {
-            override fun connectionAcquired(call: Call, connection: Connection) {
-                if (call.request().url.encodedPath.endsWith("/api/ws")) {
-                    transportSocket.set(connection.socket())
-                }
+        .addInterceptor { chain ->
+            // WebSockets disable EventListener and skip network interceptors.
+            // Keep their real HTTP upgrade call: cancel() drops the transport.
+            if (chain.request().url.encodedPath.endsWith("/api/ws")) {
+                transportCall.set(chain.call())
             }
-        })
+            chain.proceed(chain.request())
+        }
         .build()
 
     private fun clean(value: String): String =
@@ -596,9 +594,10 @@ internal class StandardBaselineProbe(
         val disconnected = CountDownLatch(1)
         val observation = client.observeConnection { disconnected.countDown() }
         val dropped = try {
-            val socket = transportSocket.getAndSet(null)
-            if (socket == null) false else {
-                socket.close()
+            val call = transportCall.getAndSet(null)
+            if (call == null) false else {
+                call.cancel()
+                journal.record("standard probe transport_call_cancelled")
                 disconnected.await(requestTimeoutMillis, TimeUnit.MILLISECONDS)
             }
         } finally {
@@ -632,6 +631,7 @@ internal class StandardBaselineProbe(
             if (resumed && promptsDuringRecovery == 0) BaselineStatus.Pass else BaselineStatus.Fail,
             f("reconnected", true),
             f("transport_loss_observed", true),
+            f("transport_call_cancelled", true),
             f("session_resumed", resumed),
             f("started_fresh", outcome.sessionStartedFresh),
             f("prompts_sent_during_recovery", promptsDuringRecovery),
@@ -675,6 +675,7 @@ internal class StandardBaselineProbe(
         private val SAFE_EVENT_NAMES = setOf("approval.request", "input.request", "prompt.request")
         private val SAFE_JOURNAL_LINES = setOf(
             "standard transport lost",
+            "standard probe transport_call_cancelled",
             "standard client close",
             "standard interrupt acknowledged",
             "standard finishing terminal outcome=interrupted",
@@ -735,6 +736,7 @@ class StandardBaselineProbeLiveTest {
         out.writeText(markdown)
         println(markdown)
         assertFalse("the record leaked the token", markdown.contains(token))
+        assertTrue("the baseline has failed required checks; inspect the redacted record", record.verdict.startsWith("PROCEED:"))
     }
 }
 
@@ -802,7 +804,7 @@ class StandardBaselineProbeTest {
         assertEquals("60", record.check(4).fact("total_bytes"))
         assertEquals(BaselineStatus.Pass, record.check(5).status)
         assertEquals("supported", record.check(5).fact("interrupt"))
-        assertEquals(BaselineStatus.Pass, record.check(6).status)
+        assertEquals(record.toMarkdown(), BaselineStatus.Pass, record.check(6).status)
         assertEquals("true", record.check(6).fact("session_resumed"))
         assertEquals("true", record.check(6).fact("transport_loss_observed"))
         assertEquals("0", record.check(6).fact("prompts_sent_during_recovery"))
@@ -832,6 +834,10 @@ class StandardBaselineProbeTest {
             "audio request shape mismatch",
             fake.audioTextFrames.toList() == listOf("""{"text":"Ready."}""", """{"done":true}"""),
         )
+        File("build/standard-local-probe.md").apply {
+            parentFile?.mkdirs()
+            writeText(record.toMarkdown())
+        }
     }
 
     @Test
@@ -884,7 +890,7 @@ class StandardBaselineProbeTest {
         assertEquals("unsupported", record.check(5).fact("interrupt"))
         assertEquals("false", record.check(5).fact("turn_ended_early"))
         // An unsupported interrupt does not block the reconnect check.
-        assertEquals(BaselineStatus.Pass, record.check(6).status)
+        assertEquals(record.toMarkdown(), BaselineStatus.Pass, record.check(6).status)
         assertTrue(record.verdict, record.verdict.startsWith("REVIEW"))
         assertTrue(record.verdict.contains("interrupt"))
     }
@@ -919,7 +925,7 @@ class StandardBaselineProbeTest {
         val record = probe().run()
 
         assertEquals(BaselineStatus.Fail, record.check(6).status)
-        assertEquals("false", record.check(6).fact("session_resumed"))
+        assertEquals(record.toMarkdown(), "false", record.check(6).fact("session_resumed"))
         assertEquals("true", record.check(6).fact("started_fresh"))
         assertEquals("0", record.check(6).fact("prompts_sent_during_recovery"))
         assertEquals(2, fake.count("prompt.submit"))
@@ -933,7 +939,7 @@ class StandardBaselineProbeTest {
 
         assertEquals(BaselineStatus.NotReproducible, record.check(3).status)
         assertFalse(record.verdict.startsWith("STOP"))
-        assertFalse(record.verdict.startsWith("REVIEW"))
+        assertFalse(record.toMarkdown(), record.verdict.startsWith("REVIEW"))
     }
 
     @Test
@@ -1153,7 +1159,8 @@ class StandardBaselineProbeTest {
                         .put("byte_order", audio.byteOrder)
                         .toString(),
                 )
-                val chunk = "AUDIOBYTES-SENTINEL--".toByteArray().toByteString()
+                // 20 bytes = ten complete 16-bit mono samples.
+                val chunk = "AUDIOBYTES-SENTINEL-".toByteArray().toByteString()
                 repeat(audio.frames) { webSocket.send(chunk) }
                 webSocket.send(JSONObject().put("type", audio.terminal).toString())
             }

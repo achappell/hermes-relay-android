@@ -627,6 +627,47 @@ class OkHttpStandardSessionClientTest {
     }
 
     @Test
+    fun terminal_observers_see_the_turn_released_and_its_outcome_already_journaled() {
+        for ((type, outcome) in listOf(
+            "message.complete" to "completed",
+            "error" to "failed",
+            "session.interrupted" to "interrupted",
+        )) {
+            val journal = RecordingJournal()
+            val gateway = gateway()
+            val client = connected(client(journal = journal))
+            val binding = accepted(client.beginTurn(typed("hi")))
+            val observed = CountDownLatch(1)
+            val callbackFailure = AtomicReference<AssertionError>()
+            client.observeTurn(binding) { event ->
+                if (event is AndroidNormalizedEvent.TurnCompleted ||
+                    event is AndroidNormalizedEvent.TurnFailed ||
+                    event is AndroidNormalizedEvent.TurnInterrupted
+                ) {
+                    try {
+                        assertFalse("$type published before releasing the turn", client.hasActiveTurn())
+                        assertTrue(journal.lines.contains("standard turn terminal outcome=$outcome"))
+                        when (outcome) {
+                            "completed" -> assertTrue(event is AndroidNormalizedEvent.TurnCompleted)
+                            "failed" -> assertTrue(event is AndroidNormalizedEvent.TurnFailed)
+                            "interrupted" -> assertTrue(event is AndroidNormalizedEvent.TurnInterrupted)
+                        }
+                    } catch (failure: AssertionError) {
+                        callbackFailure.set(failure)
+                    } finally {
+                        observed.countDown()
+                    }
+                }
+            }
+            gateway.emit(type)
+            assertTrue("no terminal callback for $type", observed.await(5, TimeUnit.SECONDS))
+            callbackFailure.get()?.let { throw it }
+            assertTrue(client.beginTurn(typed("again")) is AndroidInitiationResult.Accepted)
+            client.close()
+        }
+    }
+
+    @Test
     fun an_unsupported_prompt_is_delivered_cancelled_with_session_interrupt_and_never_text() {
         val gateway = gateway()
         val client = connected(client(remoteInterruptVerified = false))
@@ -1020,17 +1061,17 @@ class OkHttpStandardSessionClientTest {
     }
 
     @Test
-    fun a_new_conversation_that_cannot_reach_the_server_changes_nothing() {
+    fun a_new_conversation_with_a_refused_upgrade_preserves_the_same_identity_session() {
         val first = gateway()
+        server.enqueue(MockResponse().setResponseCode(503))
         val second = gateway(runtimeId = "runtime-2")
         val client = connected(client())
         val binding = accepted(client.beginTurn(typed("hi")))
         client.observeTurn(binding) {}
         val dropped = connectionEvents(client)
         first.close()
-        dropped.poll(5, TimeUnit.SECONDS)
+        assertNotNull(dropped.poll(5, TimeUnit.SECONDS))
         assertTrue(client.hasUncertainTurn())
-        collection.set(collectionFor(profile(endpoint = "wss://localhost:1/api/ws")))
 
         assertEquals(
             AndroidNewConversationResult.Failed(AndroidHomeUnavailableReason.TransportUnavailable),
@@ -1038,7 +1079,6 @@ class OkHttpStandardSessionClientTest {
         )
 
         assertTrue(client.hasUncertainTurn())
-        collection.set(collectionFor(profile()))
         val resumed = client.reconnect() as AndroidReconnectOutcome.Connected
         assertFalse("the held durable session survived the failed attempt", resumed.sessionStartedFresh)
         assertEquals(listOf("session.resume"), second.methods())
@@ -1444,6 +1484,123 @@ class OkHttpStandardSessionClientTest {
     private fun accepted(result: AndroidInitiationResult): AndroidTurnBinding {
         assertTrue(result.toString(), result is AndroidInitiationResult.Accepted)
         return (result as AndroidInitiationResult.Accepted).binding
+    }
+
+    @Test
+    fun same_id_endpoint_edit_rejects_old_prompts_and_reconnects_without_resuming() {
+        assertIdentityChangeStartsFresh(profile(endpoint = endpoint() + "/other"))
+    }
+
+    @Test
+    fun same_id_hermes_profile_edit_rejects_old_prompts_and_reconnects_without_resuming() {
+        assertIdentityChangeStartsFresh(profile().copy(hermesProfile = "other"))
+    }
+
+    private fun assertIdentityChangeStartsFresh(selected: RelayProfile) {
+        for (state in listOf("idle", "finishing", "uncertain")) {
+            collection.set(collectionFor(profile()))
+            val first = gateway()
+            val second = gateway(runtimeId = "runtime-2", durableId = "durable-2")
+            val client = connected(client())
+            val firstUpgrade = server.takeRequest(5, TimeUnit.SECONDS)!!
+            assertEquals("/api/ws", firstUpgrade.requestUrl!!.encodedPath)
+            var oldHandle: String? = null
+            if (state != "idle") {
+                val accepted = client.beginTurn(typed("old")) as AndroidInitiationResult.Accepted
+                oldHandle = accepted.binding.conversationHandle
+                if (state == "finishing") {
+                    assertTrue(client.interruptTurn(accepted.binding))
+                    assertTrue(client.isFinishingPreviousResponse())
+                } else {
+                    val dropped = connectionEvents(client)
+                    first.close()
+                    assertNotNull(dropped.poll(5, TimeUnit.SECONDS))
+                    assertTrue(client.hasUncertainTurn())
+                }
+            }
+            collection.set(collectionFor(selected))
+            assertNotEquals(AndroidAuthorizationState.Verified, client.snapshot().authorizationState)
+            assertEquals(
+                AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable),
+                client.beginTurn(typed("must not reach the old socket")),
+            )
+
+            val outcome = client.reconnect() as AndroidReconnectOutcome.Connected
+            assertTrue(outcome.sessionStartedFresh)
+            assertFalse(client.hasUncertainTurn())
+            assertFalse(client.isFinishingPreviousResponse())
+            assertEquals(AndroidAuthorizationState.Verified, client.snapshot().authorizationState)
+            assertEquals(listOf("session.create"), second.methods())
+            assertFalse(second.requests.single().getJSONObject("params").has("session_id"))
+            val upgrade = server.takeRequest(5, TimeUnit.SECONDS)!!
+            assertEquals(if (selected.endpoint == endpoint()) "/api/ws" else "/api/ws/other",
+                upgrade.requestUrl!!.encodedPath)
+            assertEquals(selected.hermesProfile, upgrade.requestUrl!!.queryParameter("profile"))
+            val accepted = client.beginTurn(typed("new")) as AndroidInitiationResult.Accepted
+            assertNotEquals(oldHandle, accepted.binding.conversationHandle)
+            assertEquals("runtime-2", second.requests.last().getJSONObject("params").getString("session_id"))
+            assertEquals(if (state == "idle") 0 else 1, first.count("prompt.submit"))
+            client.close()
+        }
+    }
+
+    @Test
+    fun identity_edit_while_waiting_for_ready_prevents_session_request() {
+        for (changed in listOf(profile(endpoint = endpoint() + "/other"), profile().copy(hermesProfile = "other"))) {
+            collection.set(collectionFor(profile()))
+            val first = gateway(sendReadyOnOpen = false)
+            val client = client()
+            val outcome = AtomicReference<AndroidReconnectOutcome>()
+            val done = CountDownLatch(1)
+            Thread {
+                outcome.set(client.reconnect())
+                done.countDown()
+            }.start()
+            assertTrue(first.opened.await(5, TimeUnit.SECONDS))
+            collection.set(collectionFor(changed))
+            first.sendReady()
+            assertTrue(done.await(5, TimeUnit.SECONDS))
+            assertTrue(outcome.get() is AndroidReconnectOutcome.Retryable)
+            assertTrue(first.requests.isEmpty())
+            assertNotEquals(AndroidAuthorizationState.Verified, client.snapshot().authorizationState)
+            val second = gateway(runtimeId = "runtime-2", durableId = "durable-2")
+            assertTrue((client.reconnect() as AndroidReconnectOutcome.Connected).sessionStartedFresh)
+            assertEquals(listOf("session.create"), second.methods())
+            client.close()
+        }
+    }
+
+    @Test
+    fun identity_edit_while_session_reply_is_pending_prevents_stale_commit() {
+        for (changed in listOf(profile(endpoint = endpoint() + "/other"), profile().copy(hermesProfile = "other"))) {
+            collection.set(collectionFor(profile()))
+            val first = gateway()
+            val pending = LinkedBlockingQueue<JSONObject>()
+            first.script = { _, request -> pending.add(request); true }
+            val client = client()
+            val outcome = AtomicReference<AndroidReconnectOutcome>()
+            val done = CountDownLatch(1)
+            Thread {
+                outcome.set(client.reconnect())
+                done.countDown()
+            }.start()
+            val request = pending.poll(5, TimeUnit.SECONDS)!!
+            collection.set(collectionFor(changed))
+            first.send(resultText(request.getString("id"),
+                JSONObject().put("session_id", "old-runtime").put("stored_session_id", "old-durable")))
+            assertTrue(done.await(5, TimeUnit.SECONDS))
+            assertTrue(outcome.get() is AndroidReconnectOutcome.Retryable)
+            assertNotEquals(AndroidAuthorizationState.Verified, client.snapshot().authorizationState)
+            assertEquals(
+                AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable),
+                client.beginTurn(typed("must not use the pending session")),
+            )
+            val second = gateway(runtimeId = "runtime-2", durableId = "durable-2")
+            assertTrue((client.reconnect() as AndroidReconnectOutcome.Connected).sessionStartedFresh)
+            assertEquals(listOf("session.create"), second.methods())
+            assertFalse(second.requests.single().getJSONObject("params").has("session_id"))
+            client.close()
+        }
     }
 
     private fun typed(text: String) =

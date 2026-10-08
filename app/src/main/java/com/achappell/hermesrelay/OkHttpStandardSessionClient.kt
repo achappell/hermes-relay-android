@@ -533,7 +533,7 @@ internal class OkHttpStandardConnectionChecker(
  *
  * The Hermes session ids never leave this class: the observable conversation
  * handle and connection id are local UUIDs. Recovery never replays a prompt;
- * only a successful [newConversation] clears an uncertain turn.
+ * within one Profile identity, only a successful [newConversation] clears uncertainty.
  *
  * Lock order: [inboundLock] before [stateLock]; observer callbacks never run
  * under [stateLock].
@@ -574,6 +574,7 @@ internal class OkHttpStandardSessionClient(
     // Guarded by stateLock.
     private var channel: StandardChannel? = null
     private var sessionProfileId: String? = null
+    private var sessionHistoryKey: String? = null
     private var runtimeId: String? = null
     private var durableId: String? = null
     private var localHandle: String = newHandle()
@@ -583,6 +584,7 @@ internal class OkHttpStandardSessionClient(
     private var finishing = false
     private var lastUnavailableReason: AndroidHomeUnavailableReason? = null
     private var lastUnavailableProfileId: String? = null
+    private var lastUnavailableHistoryKey: String? = null
 
     // Guarded by inboundLock.
     private var turnObserver: TurnObserver? = null
@@ -617,8 +619,10 @@ internal class OkHttpStandardSessionClient(
         }
         val hasCredential = credentials.hasReadableStandardCredential(profile.id)
         val (recordedReason, established) = synchronized(stateLock) {
-            val reason = if (lastUnavailableProfileId == profile.id) lastUnavailableReason else null
-            reason to (channel != null && runtimeId != null && sessionProfileId == profile.id)
+            val reason = if (
+                lastUnavailableProfileId == profile.id && lastUnavailableHistoryKey == profile.historyKey
+            ) lastUnavailableReason else null
+            reason to (channel != null && runtimeId != null && matchesSession(profile))
         }
         val authorization = when {
             !hasCredential -> AndroidAuthorizationState.Unavailable
@@ -684,7 +688,7 @@ internal class OkHttpStandardSessionClient(
             val currentRuntime = runtimeId
             if (
                 current == null || currentRuntime == null || current.isEnded ||
-                sessionProfileId != profile.id
+                !matchesSession(profile) || !matchesSelection(profile)
             ) {
                 return AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable)
             }
@@ -717,8 +721,10 @@ internal class OkHttpStandardSessionClient(
 
         fun uncertainResult(reason: AndroidHomeUnavailableReason): AndroidInitiationResult {
             synchronized(stateLock) {
-                uncertain = true
-                if (activeTurn === turn) activeTurn = null
+                if (activeTurn === turn) {
+                    uncertain = true
+                    activeTurn = null
+                }
             }
             return AndroidInitiationResult.Uncertain(normalizedRequest, reason)
         }
@@ -809,7 +815,7 @@ internal class OkHttpStandardSessionClient(
 
     override fun hasActiveTurn(): Boolean = synchronized(stateLock) { activeTurn != null }
 
-    /** Standard never replays; only a successful [newConversation] clears uncertainty. */
+    /** Standard never replays; reconnecting the same identity preserves uncertainty. */
     override fun prepareForExplicitResend() = Unit
 
     // ---- events ------------------------------------------------------------
@@ -864,21 +870,24 @@ internal class OkHttpStandardSessionClient(
             }
             if (remote == null) turn.remoteTurnId = eventTurn
         }
-        var outcome: String? = null
+        var ended = false
         for (normalized in normalizer.normalizeStandardEvent(event.type, event.payload, binding)) {
-            deliverToTurnObserver(binding, normalized)
-            when (normalized) {
-                is AndroidNormalizedEvent.StructuredPrompt -> cancelUnsupportedPrompt(turn)
-                is AndroidNormalizedEvent.TurnCompleted -> outcome = "completed"
-                is AndroidNormalizedEvent.TurnFailed -> outcome = "failed"
-                is AndroidNormalizedEvent.TurnInterrupted -> outcome = "interrupted"
-                else -> Unit
+            val outcome = when (normalized) {
+                is AndroidNormalizedEvent.TurnCompleted -> "completed"
+                is AndroidNormalizedEvent.TurnFailed -> "failed"
+                is AndroidNormalizedEvent.TurnInterrupted -> "interrupted"
+                else -> null
             }
+            if (outcome != null) {
+                // Observers may immediately admit the next turn after a terminal event.
+                synchronized(stateLock) { if (activeTurn === turn) activeTurn = null }
+                journal.record("standard turn terminal outcome=$outcome")
+                ended = true
+            }
+            deliverToTurnObserver(binding, normalized)
+            if (normalized is AndroidNormalizedEvent.StructuredPrompt) cancelUnsupportedPrompt(turn)
         }
-        if (outcome == null) return true
-        synchronized(stateLock) { if (activeTurn === turn) activeTurn = null }
-        journal.record("standard turn terminal outcome=$outcome")
-        return false
+        return !ended
     }
 
     /**
@@ -935,6 +944,7 @@ internal class OkHttpStandardSessionClient(
                 activeTurn = null
                 lastUnavailableReason = AndroidHomeUnavailableReason.TransportUnavailable
                 lastUnavailableProfileId = sessionProfileId
+                lastUnavailableHistoryKey = sessionHistoryKey
             }
             connectionId = source.connectionId
             journal.record("standard transport lost")
@@ -972,26 +982,28 @@ internal class OkHttpStandardSessionClient(
                 "No Standard Profile is selected.",
                 AndroidHomeUnavailableReason.MissingBinding,
             )
+        discardChannelForOtherProfile(profile)
         val token = credentials.readStandardCredential(profile.id)
             ?: return failedConnect(profile, AndroidHomeUnavailableReason.InvalidCredential)
 
         synchronized(stateLock) {
             val current = channel
-            if (current != null && !current.isEnded && runtimeId != null && sessionProfileId == profile.id) {
+            if (current != null && !current.isEnded && runtimeId != null && matchesSession(profile) &&
+                matchesSelection(profile)
+            ) {
                 return AndroidReconnectOutcome.Connected(current.connectionId)
             }
         }
-        discardChannelForOtherProfile(profile.id)
 
         val resumeId = synchronized(stateLock) {
-            durableId.takeIf { sessionProfileId == profile.id }
+            durableId.takeIf { matchesSession(profile) }
         }
         val attemptGeneration = generation.get()
         var opened: StandardChannel? = null
         try {
             val link = openChannel(profile, token)
             opened = link
-            if (generation.get() != attemptGeneration) {
+            if (generation.get() != attemptGeneration || !matchesSelection(profile)) {
                 throw StandardFailure(AndroidHomeUnavailableReason.TransportUnavailable)
             }
             val reply = link.request(
@@ -1011,7 +1023,10 @@ internal class OkHttpStandardSessionClient(
             if (generation.get() != attemptGeneration) {
                 throw StandardFailure(AndroidHomeUnavailableReason.TransportUnavailable)
             }
-            commitSession(link, profile, ids, fresh = resumeId == null, clearFlags = false)
+            commitSession(
+                link, profile, ids, fresh = resumeId == null, clearFlags = false,
+                attemptGeneration = attemptGeneration,
+            )
             return AndroidReconnectOutcome.Connected(
                 connectionId = link.connectionId,
                 sessionStartedFresh = resumeId == null,
@@ -1029,6 +1044,7 @@ internal class OkHttpStandardSessionClient(
         synchronized(stateLock) {
             lastUnavailableReason = reason
             lastUnavailableProfileId = profile.id
+            lastUnavailableHistoryKey = profile.historyKey
         }
         return when (reason) {
             AndroidHomeUnavailableReason.TransportUnavailable,
@@ -1070,24 +1086,39 @@ internal class OkHttpStandardSessionClient(
         return link
     }
 
-    private fun discardChannelForOtherProfile(profileId: String) {
-        val stale = synchronized(stateLock) {
-            val current = channel
-            if (current != null && sessionProfileId != profileId) {
+    private fun discardChannelForOtherProfile(profile: RelayProfile) {
+        var finishingCleared = false
+        val stale = synchronized(inboundLock) {
+            val previous = synchronized(stateLock) {
+                if (sessionProfileId == null || matchesSession(profile)) return
+                val current = channel
                 channel = null
                 runtimeId = null
+                durableId = null
+                sessionProfileId = null
+                sessionHistoryKey = null
+                localHandle = newHandle()
+                lastSeq = 0L
                 activeTurn = null
+                uncertain = false
+                finishingCleared = finishing
+                finishing = false
+                lastUnavailableReason = null
+                lastUnavailableProfileId = null
+                lastUnavailableHistoryKey = null
                 current
-            } else {
-                null
             }
+            turnObserver = null
+            undelivered.clear()
+            previous
         }
         stale?.cancel()
+        if (finishingCleared) announceFinishing(false)
     }
 
     /**
      * Makes [link] the held socket with a new session. Fails if the socket
-     * ended while the reply was in flight.
+     * ended or the selected Profile identity changed while the reply was in flight.
      */
     private fun commitSession(
         link: StandardChannel,
@@ -1095,22 +1126,25 @@ internal class OkHttpStandardSessionClient(
         ids: StandardSessionIds,
         fresh: Boolean,
         clearFlags: Boolean,
+        attemptGeneration: Long,
     ) {
         var finishingCleared = false
         synchronized(stateLock) {
-            if (link.isEnded) {
+            if (link.isEnded || generation.get() != attemptGeneration || !matchesSelection(profile)) {
                 throw StandardFailure(AndroidHomeUnavailableReason.TransportUnavailable)
             }
             val previous = channel
             channel = link
-            if (fresh || sessionProfileId != profile.id) localHandle = newHandle()
+            if (fresh || !matchesSession(profile)) localHandle = newHandle()
             sessionProfileId = profile.id
+            sessionHistoryKey = profile.historyKey
             runtimeId = ids.runtimeId
             durableId = ids.durableId
             lastSeq = 0L
             activeTurn = null
             lastUnavailableReason = null
             lastUnavailableProfileId = null
+            lastUnavailableHistoryKey = null
             if (clearFlags) {
                 uncertain = false
                 if (finishing) {
@@ -1141,17 +1175,20 @@ internal class OkHttpStandardSessionClient(
     private fun createConversation(): AndroidNewConversationResult {
         val profile = standardProfile()
             ?: return AndroidNewConversationResult.Failed(AndroidHomeUnavailableReason.MissingBinding)
+        discardChannelForOtherProfile(profile)
         val token = credentials.readStandardCredential(profile.id)
             ?: return AndroidNewConversationResult.Failed(AndroidHomeUnavailableReason.InvalidCredential)
-        discardChannelForOtherProfile(profile.id)
 
         val existing = synchronized(stateLock) {
-            channel?.takeIf { !it.isEnded && runtimeId != null && sessionProfileId == profile.id }
+            channel?.takeIf { !it.isEnded && runtimeId != null && matchesSession(profile) }
         }
         val attemptGeneration = generation.get()
         var openedHere: StandardChannel? = null
         try {
             val link = existing ?: openChannel(profile, token).also { openedHere = it }
+            if (generation.get() != attemptGeneration || !matchesSelection(profile)) {
+                throw StandardFailure(AndroidHomeUnavailableReason.TransportUnavailable)
+            }
             val reply = link.request(
                 "session.create",
                 StandardWire.sessionParams(profile.hermesProfile, resumeId = null),
@@ -1161,7 +1198,10 @@ internal class OkHttpStandardSessionClient(
             if (generation.get() != attemptGeneration) {
                 throw StandardFailure(AndroidHomeUnavailableReason.TransportUnavailable)
             }
-            commitSession(link, profile, ids, fresh = true, clearFlags = true)
+            commitSession(
+                link, profile, ids, fresh = true, clearFlags = true,
+                attemptGeneration = attemptGeneration,
+            )
             synchronized(inboundLock) { undelivered.clear() }
             return AndroidNewConversationResult.Created
         } catch (failure: StandardFailure) {
@@ -1250,11 +1290,13 @@ internal class OkHttpStandardSessionClient(
             runtimeId = null
             durableId = null
             sessionProfileId = null
+            sessionHistoryKey = null
             activeTurn = null
             uncertain = false
             finishing = false
             lastUnavailableReason = null
             lastUnavailableProfileId = null
+            lastUnavailableHistoryKey = null
             current
         }
         closing?.cancel()
@@ -1270,6 +1312,14 @@ internal class OkHttpStandardSessionClient(
 
     private fun standardProfile(): RelayProfile? =
         collection().selected?.takeIf { it.mode == RelayProfileMode.Standard }
+
+    private fun matchesSession(profile: RelayProfile): Boolean =
+        sessionProfileId == profile.id && sessionHistoryKey == profile.historyKey
+
+    private fun matchesSelection(profile: RelayProfile): Boolean {
+        val selected = collection().selected ?: return false
+        return selected.id == profile.id && selected.historyKey == profile.historyKey
+    }
 
     private fun elapsedMillis(startNanos: Long): Long =
         TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startNanos)

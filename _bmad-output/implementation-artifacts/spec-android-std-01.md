@@ -25,11 +25,11 @@ Offer HomeBridge/Standard setup and supported direct Standard authentication wit
 
 ## Readiness
 
-Approved backlog scope. Owning BMAD specification/readiness review must settle API details and a bounded execution plan before implementation. No implementation or runtime acceptance is claimed.
+Slice 1 is implemented for draft review with local JVM, adapter/runtime smoke, build and lint evidence recorded in [validation-android-std-01.md](validation-android-std-01.md). Actual-baseline and physical acceptance remain unrun; slices 2–3 are not delivered. The whole story remains in-progress, not blocked or done.
 
 ## Readiness review (approved by Amanda 2026-10-03)
 
-Modeled on the settled TUI-STD-01 spec (`hermes-relay-tui` `spec-tui-std-01.md`, merged in #219). Amanda approved this readiness review on 2026-10-03; it settles the API details and bounded execution plan required by the Readiness section above. No implementation or runtime acceptance is claimed.
+Modeled on the settled TUI-STD-01 spec (`hermes-relay-tui` `spec-tui-std-01.md`, merged in #219). Amanda approved this readiness review on 2026-10-03; it settled API details and the bounded execution plan before implementation. This historical approval did not itself establish implementation or runtime acceptance; current slice-1 evidence is recorded below.
 
 ### Key difference from TUI
 
@@ -121,8 +121,20 @@ If audio is unusable, stop at this step per Q1.
 ## Slice 1 implementation reconciliation — 2026-10-08
 
 - Recovery preserves the approved implementation saved before a tooling-provider 429. This was not a product or dependency blocker. PR #66 approved/merged the readiness scope.
-- The earlier code-map phrase “bearer auth” did not establish HTTP `Authorization` header support. The actual local Home bridge URL builder (`src/hermes_home/bridge/standard.py`, `build_gateway_url`) and TUI `gateway_client.py` (`gateway_url_with_token`) send a `token` query parameter; Home also supplies `profile` in the URL and session parameters. Android follows that supported-client seam with URL-encoded, in-memory credentials and no Authorization-header assumption. The configured/stored endpoint itself cannot contain credentials or a query string.
+- The earlier code-map phrase “bearer auth” did not establish HTTP `Authorization` header support. The actual local Home bridge URL builder (`src/hermes_home/bridge/standard.py`, `_authenticated_url`) and TUI `gateway_client.py` (`gateway_url_with_token`) send a `token` query parameter; Home also supplies `profile` in the URL and session parameters. Android follows that supported-client seam with URL-encoded, in-memory credentials and no Authorization-header assumption. The configured/stored endpoint itself cannot contain credentials or a query string.
 - These sources are protocol implementation evidence, not Android acceptance against target Hermes 0.21.5 (`f97608f178d1ffeca59860195ab7da295f7c8e5f`). No local pinned server authentication implementation was available; acceptance or rejection of Bearer headers on that server is **unverified**.
 - Amanda authorized local adapter/runtime smoke, JVM tests, lint, assembly and instrumentation compilation only for this recovery. No Pixel/ADB, device install or live household traffic is authorized. The baseline probe remains explicit opt-in; device and actual-baseline gates are recorded as **unrun**, not a blocker to publishing the slice-1 draft.
-- Voice, response audio, hands-free and production remote interrupt are not enabled by this typed-chat slice. Q1 remains unchanged: unusable audio on the actual baseline requires an owner decision before voice implementation; a local fake endpoint neither establishes nor rejects that capability.
+- Voice, response audio, hands-free and remote interruption from the user's Stop control are not enabled by this typed-chat slice. Unsupported structured prompts are shown as unsupported and send only a best-effort `session.interrupt`; no remote cancellation is claimed without a terminal event. Q1 remains unchanged: unusable audio on the actual baseline requires an owner decision before voice implementation; a local fake endpoint neither establishes nor rejects that capability.
 - Slice 1 implementation/review evidence is recorded in [validation-android-std-01.md](validation-android-std-01.md). The whole story remains `in-progress` until slices 2–3 and their separate acceptance gates are addressed.
+
+## Review triage log — slice 1
+
+| Layer / finding | Verdict and evidence | Disposition |
+| --- | --- | --- |
+| Blind: changed Standard identity retains an old session | High: the saved adapter compared only Profile ID; editing endpoint or Hermes Profile under the same ID could send on the old socket or resume its durable reference. | Bind transport ownership to Profile ID plus history identity; reset the UI on identity changes; regression coverage for both identity components. |
+| Edge: New conversation in flight permits Send/switch | High: `InFlight` was absent from both the runtime busy guard and Send admission while `session.create` ran on the work executor. | Block runtime admission, composer submission and configuration switching until the result is applied; queued-executor regression. |
+| Verification: live probe can report STOP/REVIEW while its test passes | Medium: the live runner originally asserted redaction only. | Assert the redacted final verdict after writing the record; failed required checks cannot appear as a successful opted-in run. |
+| Verification: no Standard setup Compose path test | Medium: controller tests could pass if the new choice or save wiring was broken. | Add a tagged-choice/form/submission instrumentation test with a local fake checker and credential-isolation assertions. Compilation and physical execution are recorded separately. |
+| Integration test: terminal observer races session settlement | High: an actual aggregate run delivered `TurnFailed` while `hasActiveTurn()` was still true; the next prompt could be rejected after a visible terminal. | Commit active-turn settlement and the redacted terminal journal before publishing terminal events; deterministic observer-boundary regression for terminal outcomes. |
+
+The blind reviewer reported one evidenced defect rather than inventing findings to meet a numerical floor. All three independent review layers completed. No product-scope change, upstream modification or device acceptance was inferred from review.

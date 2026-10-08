@@ -38,12 +38,11 @@ internal data class RelayProfile(
      * by mode, endpoint and Hermes Profile, never by [id], so two Hermes
      * Profiles, two endpoints, or Standard and Home never share a transcript.
      */
-    val historyKey: String
-        get() = if (mode == RelayProfileMode.Standard) {
-            standardHistoryKey(endpoint, hermesProfile ?: RelayProfileValidator.DEFAULT_HERMES_PROFILE)
-        } else {
-            id
-        }
+    val historyKey: String = if (mode == RelayProfileMode.Standard) {
+        standardHistoryKey(endpoint, hermesProfile ?: RelayProfileValidator.DEFAULT_HERMES_PROFILE)
+    } else {
+        id
+    }
 
     companion object {
         fun standardHistoryKey(endpoint: String, hermesProfile: String): String {

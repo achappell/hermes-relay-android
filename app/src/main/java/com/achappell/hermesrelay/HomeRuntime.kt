@@ -124,7 +124,7 @@ internal class HomeRuntime(
     private val finishingObservation: AndroidTurnObservation? =
         standardSession?.observeFinishing { finishing -> postToMain { standardFinishing = finishing } }
     private var dividedConnectionId: String? = null
-    private var observedSelection: Pair<String?, RelayProfileMode?>? = null
+    private var observedSelection: Triple<String?, RelayProfileMode?, String?>? = null
 
     /**
      * Set by the visible screen: reconnects a paired Profile whose socket
@@ -348,7 +348,7 @@ internal class HomeRuntime(
     }
 
     fun initiate(input: AndroidTurnInput) {
-        if (initiationInFlight) return
+        if (initiationInFlight || newConversationState == StandardNewConversationState.InFlight) return
         if (input is AndroidTurnInput.Typed) {
             // Explicit Send owns the next turn before any submission work starts.
             interruptCoordinator.reset()
@@ -483,6 +483,7 @@ internal class HomeRuntime(
     val isConversationBusy: Boolean
         get() = hasAcceptedTurn ||
             initiationInFlight ||
+            newConversationState == StandardNewConversationState.InFlight ||
             recoveryState.hasUnconfirmedTurn ||
             (standardMode && (standardFinishing || standardSession?.hasUncertainTurn() == true))
 
@@ -545,10 +546,11 @@ internal class HomeRuntime(
      * previous conversation's turn or connection: modes never share a session.
      * Other changes keep their existing behavior.
      */
-    fun profileSelectionChanged(profileId: String?, mode: RelayProfileMode?) {
+    fun profileSelectionChanged(profileId: String?, mode: RelayProfileMode?, historyKey: String?) {
         val previous = observedSelection
-        observedSelection = profileId to mode
-        if (previous == null || previous == (profileId to mode)) return
+        val selection = Triple(profileId, mode, historyKey)
+        observedSelection = selection
+        if (previous == null || previous == selection) return
         if (
             previous.second != RelayProfileMode.Standard &&
             mode != RelayProfileMode.Standard
@@ -563,6 +565,8 @@ internal class HomeRuntime(
         lastRequest = null
         resendResult = null
         userDisconnected = false
+        standardFinishing = false
+        interruptCoordinator.reset()
         newConversationState = StandardNewConversationState.Idle
         updateInitiation(AndroidInitiationState.Idle)
         updateTurn(AndroidTurnState())

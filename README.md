@@ -7,11 +7,11 @@ deliberate per-profile Local History.
 
 ## Current state
 
-This repository is the Android bootstrap. The launchable Compose shell is
-honest about the missing Hermes connection. It does not invent protocol frames,
-responses, credentials, audio, Device operations, or Local History. Delivered
-and planned Android surface stories are recorded in the local story index and
-tracker below; the sibling TUI planning snapshot is historical context only.
+The Compose client supports HomeBridge setup and an explicit Standard-only
+typed-chat setup. Standard slice 1 uses its own credential slot and talks to
+Hermes at `/api/ws`; Home pairing, household administration and voice are not
+offered in Standard mode by this slice. Implementation, live-baseline and device
+acceptance are separate: see the local story index and validation records below.
 
 ## Toolchain
 
@@ -61,6 +61,39 @@ To install the debug shell on a connected device or emulator:
 ```
 
 There is no live Hermes endpoint requirement for the bootstrap tests or build.
+
+### Standard-only setup (slice 1)
+
+Choose **Standard** in Configure Relay, enter an `https://` or `wss://` endpoint
+ending in `/api/ws`, a Standard token, and optionally a Hermes Profile (blank
+means `default`). A successful session-creation check is required before saving.
+The configured endpoint cannot contain a token, userinfo, query or fragment.
+The token uses a separate encrypted credential slot; the request adds it as an
+in-memory URL-encoded query parameter, matching the existing Home/TUI adapter
+boundary rather than assuming an Authorization header is accepted.
+
+Local history stays scoped to the mode, endpoint and Hermes Profile. Changing
+the endpoint requires re-entering credentials and never reuses a prior session
+or sends old history. Pre-Home profiles remain **Legacy — needs setup**; they
+are not silently converted to Standard.
+
+Typed responses stream without response audio in this slice. Stop is local:
+until Hermes ends the previous response, sending stays blocked with
+“Hermes is finishing the previous response.” After uncertain delivery, reconnect
+does not replay or clear the uncertain turn. **New conversation** deliberately
+creates a fresh session; only success clears uncertainty. Active, uncertain,
+finishing and session-creation transitions block profile switching.
+
+The always-running `StandardBaselineProbeTest` exercises the real adapter
+against a local TLS/WebSocket fixture. `StandardBaselineProbeLiveTest` is inert
+unless explicitly enabled with `HERMES_STANDARD_PROBE_LIVE=1` and endpoint/token
+environment variables. Its redacted report is written to
+`app/build/standard-baseline-probe.md`; never share raw request URLs or tokens.
+Neither local fixture success nor instrumentation compilation establishes
+household Hermes 0.21.5 or device acceptance. See
+[`validation-android-std-01.md`](_bmad-output/implementation-artifacts/validation-android-std-01.md)
+for the exact exercised and unrun gates.
+
 
 ### Which build is installed
 

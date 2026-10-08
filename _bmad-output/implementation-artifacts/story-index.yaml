@@ -231,6 +231,7 @@ stories:
     tracker_key: android-std-01
     release_scope: migration
     spec: _bmad-output/implementation-artifacts/spec-android-std-01.md
+    scope_note: "Slice 1 implements explicit Standard setup and typed chat; draft implementation review is separate from unrun household 0.21.5 and device acceptance. Query-token auth follows the actual Home/TUI seam, not assumed Bearer-header support. Slices 2 (voice) and 3 (remaining guards/isolation) remain; the whole story is in-progress, not blocked or done."
     depends_on:
       - android:ANDROID-HOME-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/53

@@ -288,7 +288,7 @@ class ProfileModeClientPortTest {
 
         override fun currentConversationRef(): String? = null
 
-        override fun requestConversation(intent: HomeConversationIntent) = unused()
+        override fun requestConversation(intent: HomeConversationIntent): Unit = unused()
 
         override fun takeConversationNotice(): HomeClaimedConversation? = null
 

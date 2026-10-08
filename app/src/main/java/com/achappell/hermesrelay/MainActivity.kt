@@ -201,7 +201,7 @@ internal fun AndroidClientScreen(
     val selectedHistoryKey = selectedProfile?.historyKey
     val standardMode = snapshot.mode == RelayProfileMode.Standard
     LaunchedEffect(recorder, selectedProfileId, selectedHistoryKey, configurationRevision) {
-        runtime.profileSelectionChanged(selectedProfileId, selectedProfile?.mode)
+        runtime.profileSelectionChanged(selectedProfileId, selectedProfile?.mode, selectedHistoryKey)
         runtime.openPromptHistory(selectedHistoryKey)
         recorder?.open(selectedHistoryKey)
         recorder?.let { prompt = it.history.draft }
@@ -258,7 +258,8 @@ internal fun AndroidClientScreen(
         hasProfile = snapshot.selectedProfile != null,
         isAuthorized = isAuthorized,
         isConnected = isConnected,
-        hasAcceptedTurn = hasAcceptedTurn,
+        hasAcceptedTurn = hasAcceptedTurn ||
+            runtime.newConversationState == StandardNewConversationState.InFlight,
         prompt = prompt,
         hasUnconfirmedTurn = hasUnresolvedTurn,
         isFinishingPreviousResponse = standardMode && runtime.standardFinishing,
