@@ -667,7 +667,7 @@ stories:
     depends_on:
       - android:ANDROID-UX-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/88
-    scope_note: 'Ready for review; Amanda waived manual physical TalkBack spoken-output/focus-gesture acceptance on 2026-10-07. Automated accessibility and functional Pixel evidence stand; spoken output, focus order and gesture activation remain unverified risks, not a manual pass. No merge authorized.'
+    scope_note: 'Done by owner closeout 2026-10-08: merged #129, exact-head CI and 2/2 functional Pixel scenarios satisfy the approved existing-button delivery; deterministic deadline/capture/typed-ownership and accessibility assertions passed. Amanda waived manual physical TalkBack spoken-output/focus-gesture acceptance on 2026-10-07; spoken output, focus order and gesture activation remain unverified risks, not a manual pass. UX-02 final orb and other voice stories remain separate.'
     parity_source: 'PX-16 (matrix V5)'
   - id: ANDROID-VOICE-05
     title: 'Echo-safe route classifier, capture audio focus and a barge-in spike'
@@ -808,7 +808,7 @@ stories:
       - android:5-A-3
     github_issue: https://github.com/achappell/hermes-relay-android/issues/97
     parity_source: 'PX-17 (design section 3.1: color, state roles, typography, spacing/shape, iconography)'
-    scope_note: 'Review, not done: Amanda waived manual physical TalkBack spoken-output/focus-gesture acceptance for #127 on 2026-10-07; output remains unverified with residual spoken-label/focus-order/gesture risk. Independent pre-existing header-clipping exemption remains intact; #134 owns correction. Evidence and final exact-head CI: validation-android-ux-01.md and PR #127.'
+    scope_note: 'Review: the explicit outdoor-contrast device leg is unrun and unwaived; AA calculations and screenshots do not establish outdoor readability. Amanda must accept recorded outdoor evidence or explicitly waive that criterion before done. The 2026-10-07 manual TalkBack waiver and independent pre-existing header-clipping exemption remain limited to their named gates; spoken labels/focus order/gestures remain unverified. Merged #127 and its green CI alone do not close this story.'
   - id: ANDROID-UX-02
     title: 'Voice orb and nine-mode ambient HUD'
     kind: local

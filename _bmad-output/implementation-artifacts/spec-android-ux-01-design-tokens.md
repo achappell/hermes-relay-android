@@ -50,7 +50,7 @@ Owner approval (2026-10-07): “Exempt pre-existing header clipping from #127 ac
 
 Amanda (2026-10-07) waived manual physical TalkBack spoken-output/focus-gesture acceptance for PR #127. Spoken output and focus gestures remain unverified, with known residual spoken-label, focus-order and gesture risk; automated semantics/focus-order checks are not a manual TalkBack pass. This supersedes the historical required/open TalkBack gate, not the independent header-clipping exemption or any other acceptance criterion.
 
-Delivery status is `review` (ready for review after final exact-head CI succeeds), not `done` or fully TalkBack verified. Existing automated and font-scale/light/dark device evidence retains its recorded scope; no new device scenarios or implementation changes are required by this waiver.
+Delivery status remains `review`: PR #127 is merged and exact-head CI passed, but the explicit Device verification requirement below — contrast readable outdoors — has no recorded outdoor run and is not waived. Amanda's 2026-10-08 closeout instruction preserves that gate. AA calculations and indoor/display screenshots do not prove outdoor readability. Completion requires recorded outdoor acceptance or Amanda's explicit decision to waive that specific criterion; neither existing waiver covers it.
 
 
 ## Android design notes

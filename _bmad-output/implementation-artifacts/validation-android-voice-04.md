@@ -1,6 +1,22 @@
 # ANDROID-VOICE-04 validation record
 
-Status: `review` (ready for review, not done). Amanda waived manual physical TalkBack spoken-output/focus-gesture acceptance on 2026-10-07; spoken output and focus gestures remain unverified, not passed. Existing automated accessibility and the 2/2 controlled functional Pixel scenarios stand. Residual risk: spoken labels, focus order and gesture activation. Home `d803994d1d47c63bb1b3c92cff42695de19a4434` is deployed/source-verified. All earlier draft/deployment/manual-check requirements below are historical and superseded by the current closeout and this limited owner decision; no other gate is waived and no merge is authorized.
+Status: **`done` by Amanda's 2026-10-08 owner closeout**, based on the recorded functional acceptance and her limited 2026-10-07 TalkBack waiver. Physical spoken output and focus gestures remain **unverified, not passed**; residual risks are spoken labels, focus order and gesture activation. This documentation change neither performs new device verification nor authorizes a PR merge.
+
+## Current acceptance basis
+
+PR #129 was merged at `df78efdd02c5f8541f2cf4f51102048c3f83c13f` on 2026-10-08. Its final feature head `028bac752d41cacfb070d3b8ca7920c5039641b3` passed [exact-head CI run 37704823261](https://github.com/achappell/hermes-relay-android/actions/runs/37704823261). Merge alone is not acceptance: the criteria are supported by the evidence below.
+
+| Criterion | Retained acceptance evidence |
+| --- | --- |
+| Stop local audio before one frame; 2-second acknowledgement/unconfirmed state; no duplicate tap | Deterministic transport/coordinator assertions, historical device deadline observation, and final controlled Pixel matrix. |
+| Interrupt-and-listen exactly once | Both final functional runs recorded exactly one capture opening; deterministic terminal/deadline handoff tests passed. |
+| Typed next-turn ownership in Starting/Listening/Transcribing, including late callbacks/deadline | Failing-before regressions were fixed; 401-test full suite and 40 consecutive 63-test repetition runs passed; actual typed Send during listening completed in both controlled scenarios. |
+| Accessible mode/action | Instrumented semantics/order checks passed; physical TalkBack spoken-output/focus-gesture acceptance was explicitly waived, not verified. |
+| Actual speech interruption and next turn | **2/2 passed** against deployed/source-verified Home `d803994d1d47c63bb1b3c92cff42695de19a4434`: local stop within 122/141 ms, one interrupt each, next text and audio complete, no replay/false Unavailable during the flow. |
+
+The approved existing-button delivery satisfies VOICE-04 before UX-02 supplies the final orb. Other voice stories and the whole UX-03 story are not closed here. Earlier draft/deployment/manual-check requirements below remain historical evidence, superseded where explicitly noted.
+
+Docs-only closeout checks: 18 issue-tracking tests, override shell syntax and `--check` passed. An actual canonical story-index/sprint/spec join rendered VOICE-04 `done`, UX-01 `review`, UX-03 `in-progress`, and VOICE-01/03 `review`, with matching spec/sprint values. The generic BMAD status renderer ran but treated Android keys as unrecognized (`stories={}`); it is not claimed as a valid Android board count. No renderer implementation was changed, no vault board was written, and no new local build or device test ran. Exact-head documentation CI is recorded in the closeout PR.
 
 ## Historical implementation progression (superseded by current closeout)
 
@@ -101,7 +117,7 @@ The additional bounded accessibility attempt enabled the installed TalkBack norm
 
 At the owner's restoration request, the original APK was reinstalled using only `adb install -r`. Its actual pulled SHA-256 is `5692a179b2347214b7e31cc1010f650ec8a224fe00439b8533ecbb5437ddeb0b`. All six current app-data hashes were identical before/after that install, including pairing, profiles, credential/permission prefs and histories. Original settings match the preserved baseline: font `0.85`, night `auto`, TalkBack services `null`/enabled `0`, animation scales `1.0`/`1.0`/`null`; music volume `0`, accessibility volume `1`. Hermes is force-stopped with no process, capture or test driver; temporary drivers/screenshots were removed. PR #127/#134 were not installed.
 
-The spec and sprint status are `review`, not `done`. Exact final-head CI and PR readiness are recorded in PR #129; previous exact-head CI `427dde9ef779829a91d8336ae5fd5089d34ac67e` passed [run 37691221753](https://github.com/achappell/hermes-relay-android/actions/runs/37691221753). The waiver changes acceptance metadata only, not the tested implementation.
+At the 2026-10-07 waiver decision, spec/sprint status was `review`, not `done`; Amanda's 2026-10-08 closeout above now supersedes that delivery status without upgrading TalkBack evidence. Previous exact-head CI `427dde9ef779829a91d8336ae5fd5089d34ac67e` passed [run 37691221753](https://github.com/achappell/hermes-relay-android/actions/runs/37691221753); final feature-head CI is linked in the current acceptance basis above.
 
 ## Integration with user-merged main — 2026-10-07
 
