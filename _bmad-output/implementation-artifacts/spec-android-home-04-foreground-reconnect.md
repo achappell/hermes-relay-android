@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-04
 title: Reconnect to Home after a long background
-status: backlog
+status: review
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01

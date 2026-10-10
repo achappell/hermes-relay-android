@@ -2481,6 +2481,159 @@ class OkHttpRelaySessionClientTest {
         paired.client.close()
     }
 
+    /** A bridge that refuses whatever it is asked with the given Home error [code]. */
+    private fun refusing(code: String, methods: MutableList<String>) = object : WebSocketListener() {
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            val frame = JSONObject(text)
+            methods += frame.getString("method")
+            webSocket.send(
+                JSONObject()
+                    .put("schema", 1)
+                    .put("jsonrpc", "2.0")
+                    .put("id", frame.getString("id"))
+                    .put(
+                        "error",
+                        JSONObject().put("code", -32000).put("message", code)
+                            .put("data", JSONObject().put("schema", 1).put("code", code)),
+                    )
+                    .toString(),
+            )
+        }
+    }
+
+    /** `ANDROID-HOME-04`: a stale reconnect with a turn left unconfirmed does not orphan it. */
+    @Test
+    fun a_stale_reconnect_with_an_unconfirmed_turn_does_not_open_a_fresh_claim() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        // The first bridge never answers prompt.submit, so the turn becomes unconfirmed.
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        server.enqueue(MockResponse().withWebSocketUpgrade(refusing("stale_conversation", methods)))
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        val paired = pairedClient(requestTimeoutMillis = 250)
+
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        val uncertain = paired.client.beginTurn(
+            AndroidTurnRequest(AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("may have arrived")),
+        )
+        assertTrue(uncertain is AndroidInitiationResult.Uncertain)
+        val outcome = paired.client.reconnect()
+
+        assertEquals(
+            AndroidHomeUnavailableReason.StaleConversation,
+            (outcome as AndroidReconnectOutcome.Unrecoverable).reasonCode,
+        )
+        assertEquals("no second claim", 1, paired.claims.get())
+        assertEquals(listOf("conversation.open", "conversation.reconnect"), methods.toList())
+        assertEquals("the third bridge was never needed", 2, server.requestCount)
+        paired.client.close()
+    }
+
+    /** `ANDROID-HOME-04`: the paced ladder reuses the held claim across transport failures. */
+    @Test
+    fun a_transport_refusal_keeps_the_held_claim_for_the_next_attempt() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        server.enqueue(MockResponse().withWebSocketUpgrade(refusing("transport_unavailable", methods)))
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        val paired = pairedClient()
+
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        val refused = paired.client.reconnect()
+        val retried = paired.client.reconnect()
+
+        assertEquals(
+            AndroidHomeUnavailableReason.TransportUnavailable,
+            (refused as AndroidReconnectOutcome.Unrecoverable).reasonCode,
+        )
+        assertTrue(retried.toString(), retried is AndroidReconnectOutcome.Connected)
+        assertEquals(
+            listOf("conversation.open", "conversation.reconnect", "conversation.reconnect"),
+            methods.toList(),
+        )
+        assertEquals("the claim was reused, never replaced", 1, paired.claims.get())
+        paired.client.close()
+    }
+
+    /** `ANDROID-HOME-04`: a stale reconnect with nothing unconfirmed opens exactly one fresh claim. */
+    @Test
+    fun a_stale_reconnect_without_an_unconfirmed_turn_opens_one_fresh_claim() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        server.enqueue(MockResponse().withWebSocketUpgrade(refusing("stale_conversation", methods)))
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        val paired = pairedClient()
+
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        val outcome = paired.client.reconnect()
+
+        assertTrue(outcome.toString(), outcome is AndroidReconnectOutcome.Connected)
+        assertEquals(listOf("conversation.open", "conversation.reconnect", "conversation.open"), methods.toList())
+        assertEquals("exactly one replacement claim", 2, paired.claims.get())
+        paired.client.close()
+    }
+
+    /** `ANDROID-HOME-04`: once Resend or Discard clears the uncertainty, a stale claim is replaced. */
+    @Test
+    fun a_stale_reconnect_after_the_unconfirmed_turn_is_resolved_opens_a_fresh_claim() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        server.enqueue(MockResponse().withWebSocketUpgrade(refusing("stale_conversation", methods)))
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        val paired = pairedClient(requestTimeoutMillis = 250)
+
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        val uncertain = paired.client.beginTurn(
+            AndroidTurnRequest(AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("may have arrived")),
+        )
+        assertTrue(uncertain is AndroidInitiationResult.Uncertain)
+        paired.client.prepareForExplicitResend()
+        val outcome = paired.client.reconnect()
+
+        assertTrue(outcome.toString(), outcome is AndroidReconnectOutcome.Connected)
+        assertEquals("one replacement claim", 2, paired.claims.get())
+        paired.client.close()
+    }
+
+    /** `ANDROID-HOME-04`: a terminal refusal other than stale or transport still replaces the claim, as before. */
+    @Test
+    fun a_non_stale_terminal_refusal_of_a_reused_claim_still_opens_a_fresh_claim() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        server.enqueue(MockResponse().withWebSocketUpgrade(refusing("conversation_mismatch", methods)))
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        val paired = pairedClient()
+
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        val outcome = paired.client.reconnect()
+
+        assertTrue(outcome.toString(), outcome is AndroidReconnectOutcome.Connected)
+        assertEquals("one replacement claim", 2, paired.claims.get())
+        paired.client.close()
+    }
+
+    /** `ANDROID-HOME-04`: the per-attempt bound cuts the ready wait where the network wait happens. */
+    @Test
+    fun a_reconnect_attempt_is_bounded_by_its_attempt_timeout() {
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {}))
+        val client = client()
+
+        val start = System.nanoTime()
+        val outcome = client.reconnect(300)
+        val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
+
+        assertEquals(
+            AndroidHomeUnavailableReason.TransportTimeout,
+            (outcome as AndroidReconnectOutcome.Retryable).reasonCode,
+        )
+        assertTrue("returned after $elapsedMillis ms, not the 10 s default", elapsedMillis < 5_000)
+        client.close()
+    }
+
     /**
      * Found on a Pixel 6a (2026-10-06): an operator Device-administration step run
      * against a paired Profile left `phase=Unavailable, last_error=InvalidEndpoint`

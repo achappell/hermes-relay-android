@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The one Home runtime of a process (`ANDROID-HOME-07`).
@@ -33,6 +34,11 @@ internal class HomeRuntime(
     /** Content-free connection journal (`ANDROID-DIAG-01`); never receives prompts or replies. */
     val journal: DiagnosticsJournal = DiagnosticsJournal.None,
     private val voiceTimers: VoiceTimers = MainLooperVoiceTimers,
+    reconnectPolicy: ReconnectPolicy = ReconnectPolicy.default,
+    recoveryPacer: RecoveryPacer = LockRecoveryPacer(),
+    clock: MonotonicClock = MonotonicClock.Real,
+    /** Default-network events: a returning network skips the rest of a backoff wait. */
+    networkEvents: NetworkEvents = NetworkEvents.None,
 ) {
     val homeConversations: AndroidHomeConversations? = clientPort as? AndroidHomeConversations
     val initiationController = AndroidInitiationController(clientPort)
@@ -87,7 +93,16 @@ internal class HomeRuntime(
     @Volatile
     var reconnectIfForeground: () -> Unit = {}
 
-    val recoveryController = AndroidRecoveryController(clientPort) { changed ->
+    /** Orders foreground and background inputs; only the newest one wins (`ANDROID-HOME-04`). */
+    val lifecycle = HomeLifecycleCoordinator()
+
+    val recoveryController = AndroidRecoveryController(
+        clientPort = clientPort,
+        policy = reconnectPolicy,
+        clock = clock,
+        pacer = recoveryPacer,
+        journal = journal,
+    ) { changed ->
         postToMain {
             recoveryState = changed
             changed.resumedTurnBinding?.let { binding ->
@@ -187,6 +202,67 @@ internal class HomeRuntime(
                 reconnectIfForeground()
             }
         }
+
+    private val networkObservation: AndroidTurnObservation =
+        networkEvents.observe(
+            object : NetworkListener {
+                override fun onAvailable() {
+                    postToMain { networkAvailable() }
+                }
+            },
+        )
+
+    /**
+     * The default network (re)appeared. A ladder that is waiting out a backoff
+     * step attempts at once; otherwise a disconnected, foreground Profile
+     * reconnects. Both are idempotent, so the replay Android delivers at
+     * registration and repeated flaps start no second recovery.
+     */
+    private fun networkAvailable() {
+        if (tornDown || userDisconnected) return
+        if (recoveryController.isLadderLive) {
+            recoveryController.retryNow()
+        } else if (recoveryState.connection != AndroidConnectionState.Connected) {
+            reconnectIfForeground()
+        }
+    }
+
+    /**
+     * The app is in the foreground (Activity resumed). Any reconnect it queues
+     * is dropped if a newer input arrives before it runs.
+     */
+    fun appStarted() {
+        lifecycle.enterStarted()
+    }
+
+    fun appForegrounded() {
+        lifecycle.enterForeground()
+    }
+
+    /**
+     * The app stopped. A recreation (rotation, font scale) is not a background
+     * and changes nothing. Otherwise a running reconnect ladder is cancelled
+     * and returns the state to Disconnected, and reconnects queued by an older
+     * input are dropped.
+     */
+    fun appBackgrounded(isChangingConfigurations: Boolean) {
+        if (isChangingConfigurations) return
+        lifecycle.enterBackground()
+        recoveryController.cancelRecovery()
+    }
+
+    private var lastSelectedProfileId: String? = null
+
+    /**
+     * The selected Profile changed (or was deleted): a ladder retrying the
+     * previous one stops. The first report, and a repeat after the Activity is
+     * recreated, change nothing.
+     */
+    fun profileSelected(profileId: String?) {
+        val previous = lastSelectedProfileId
+        lastSelectedProfileId = profileId
+        if (previous != null && previous != profileId) recoveryController.cancelRecovery()
+    }
 
     /** Runs blocking work off the main thread. */
     fun runOnWork(block: () -> Unit) {
@@ -323,10 +399,28 @@ internal class HomeRuntime(
         }
     }
 
+    /** The lifecycle generation of the reconnect already waiting for the worker; -1 when none. */
+    private val queuedRecovery = AtomicLong(-1L)
+
     /** Starts the bounded reconnect ladder off the main thread. */
     fun recover() {
-        if (userDisconnected || recoveryState.isRecovering) return
-        runOnWork { recoveryController.recover() }
+        if (userDisconnected || recoveryController.isLadderLive) return
+        val queuedUnder = lifecycle.generation
+        // One waiting request per input is enough: a second one would run
+        // another full ladder after the first ended Failed.
+        if (queuedRecovery.getAndSet(queuedUnder) == queuedUnder) return
+        runOnWork {
+            queuedRecovery.compareAndSet(queuedUnder, -1L)
+            // A newer foreground or background input superseded this request
+            // while it waited for the worker, or an earlier request already
+            // reconnected: never reconnect a client that is Connected.
+            if (
+                lifecycle.isCurrent(queuedUnder) &&
+                recoveryController.state.connection != AndroidConnectionState.Connected
+            ) {
+                recoveryController.recover()
+            }
+        }
     }
 
     /** The user's explicit Connect: the only way out of a deliberate Disconnect. */
@@ -335,9 +429,12 @@ internal class HomeRuntime(
         recover()
     }
 
-    /** Disconnect is offered only while connected, and not while a prompt is being sent. */
+    /** Disconnect is offered while connected or recovering, and not during a submit. */
     val canDisconnect: Boolean
-        get() = recoveryState.connection == AndroidConnectionState.Connected && !userDisconnected
+        get() = (
+            recoveryState.connection == AndroidConnectionState.Connected ||
+                recoveryState.isRecovering
+            ) && !userDisconnected
 
     /** Disabled while a prompt submission (or a resend) is in flight. */
     val disconnectEnabled: Boolean
@@ -358,6 +455,7 @@ internal class HomeRuntime(
         val interrupting = if (hasAcceptedTurn) acceptedBinding else null
         // Set first and on the main thread so no automatic path can race the close.
         userDisconnected = true
+        recoveryController.cancelRecovery()
         journal.record("home disconnect initiator=user")
         captureController?.let { capture ->
             capture.disarmHandsFree()
@@ -460,6 +558,8 @@ internal class HomeRuntime(
         tornDown = true
         journal.record("runtime teardown reason=$reason")
         connectionObservation.cancel()
+        networkObservation.cancel()
+        recoveryController.cancelRecovery()
         turnObservation?.cancel()
         turnObservation = null
         captureController?.let { capture ->

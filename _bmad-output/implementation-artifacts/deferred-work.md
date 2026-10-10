@@ -28,3 +28,21 @@
 - Confirm the Home-issued credential shape and generation invariant against the Home issuer contract before changing Android validation.
 - Decide whether an administrative credential must be bound to the approved Home route; the Android artifact does not define route-change semantics.
 - Define an idempotent remote-consume or recovery contract for a one-time credential consumed before local secure storage succeeds; this crosses the Home API boundary.
+
+## Deferred from: code review of spec-android-home-04-foreground-reconnect-2.md (2026-10-10)
+
+- source_spec: `spec-android-home-04-foreground-reconnect-2.md`
+  summary: With a stale claim and an unconfirmed turn the user cannot Resend (`NotConnected`) until Discard clears the uncertainty, after which the next reconnect opens a fresh claim.
+  evidence: `shouldReplaceReusedClaim` withholds a fresh claim while `uncertainDelivery` is set (the ticket's `unresolvedTurn == false` gate, which a refused reconnect cannot carry); `resendUnconfirmedTurn` requires Connected. Dropping the uncertain guard would let Resend work on a fresh claim at the cost of possibly duplicating a prompt Home saw; owner decision.
+- source_spec: `spec-android-home-04-foreground-reconnect-2.md`
+  summary: The reconnect ladder holds the single worker thread for up to about 65 s, delaying approvals refresh, conversation listing and `endSession` queued behind it.
+  evidence: `HomeRuntime.recover()` runs `recoveryController.recover()` on `workExecutor`; the spec requires reusing it. Disconnect, stop and Profile switch cancel the ladder at once; unverified how often something queues behind it in practice.
+- source_spec: `spec-android-home-04-foreground-reconnect-2.md`
+  summary: `switchConversation` calls `recoveryController.recover()` directly, bypassing the lifecycle-generation and coalescing guards of `HomeRuntime.recover()`.
+  evidence: `HomeRuntime.switchConversation`; pre-existing call that now runs the paced ladder; a stop that arrives before the ladder starts is not honored.
+- source_spec: `spec-android-home-04-foreground-reconnect-2.md`
+  summary: A configuration change calls `appStarted()` and bumps the lifecycle generation, which can drop a reconnect queued just before the rotation (resume reconnects paired Profiles anyway).
+  evidence: `HomeLifecycleCoordinator.enterStarted`; needs a rotation inside the worker queue delay; operator-handle Profiles have no resume reconnect.
+- source_spec: `spec-android-home-04-foreground-reconnect-2.md`
+  summary: `MainActivity` lifecycle/Profile wiring and `ConnectivityNetworkEvents` have no automated test.
+  evidence: only instrumented tests (outside the CI recipe) can drive them; device checks are pending in `validation-android-home-04.md`.
