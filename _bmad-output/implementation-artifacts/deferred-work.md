@@ -28,3 +28,12 @@
 - Confirm the Home-issued credential shape and generation invariant against the Home issuer contract before changing Android validation.
 - Decide whether an administrative credential must be bound to the approved Home route; the Android artifact does not define route-change semantics.
 - Define an idempotent remote-consume or recovery contract for a one-time credential consumed before local secure storage succeeds; this crosses the Home API boundary.
+
+## Deferred from: bmad-build review of spec-android-watch-f1-listening-without-binding.md (2026-10-10)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-android-watch-f1-listening-without-binding.md`
+  summary: Make `HomeRuntime.switchConversation` disarm hands-free and cancel capture (or keep conversation actions disabled while capture is live), and decide the composer/tap-to-speak behavior during live capture.
+  evidence: A switch while the microphone is live leaves it listening with an Idle phase; the hole exists for manual capture today and the armed window is newly exposed by the `isTerminal` change. The fix lives in `HomeRuntime`/`MainActivity`, owned by the HOME-04 stack.
+- source_spec: `_bmad-output/implementation-artifacts/spec-android-watch-f1-listening-without-binding.md`
+  summary: Decide whether the microphone stops immediately or runs until the recognizer returns when the transport drops while hands-free is armed with no binding, then pin it with a test.
+  evidence: The connection-loss callback calls `transportLost` and schedules recovery without cancelling capture; intentionally unchanged here.

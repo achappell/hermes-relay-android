@@ -14,6 +14,7 @@
 ### Fixes
 - Await Home's `conversation.close` acknowledgement before recording a claim released; report unacknowledged close truthfully.
 - Reflow the conversation header title and Profile block to preserve the accessible overflow action at large font scales.
+- Treat unbound hands-free listening as terminal for turn actions, so an ended turn is not interrupted or treated as a live reply when capture reopens. A finishing Activity in that window now tears down immediately and releases the microphone instead of waiting on a turn that has already ended.
 
 ## 0.3.1 (2026-09-12)
 
