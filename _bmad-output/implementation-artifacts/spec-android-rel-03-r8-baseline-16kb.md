@@ -1,7 +1,8 @@
 ---
 id: ANDROID-REL-03
 title: R8 shrinking, baseline profile, 16 KB page-size check and data-extraction rules
-status: in-progress
+status: done
+baseline_commit: 601800ec084d57ff78b62bfb210b6b4ade3b7506
 product_epic: 4
 release_scope: migration
 parity_epic: ANDROID-PARITY-02
@@ -65,3 +66,22 @@ Build checks in CI; smoke on a device with the minified APK.
 ## Device verification
 
 Install the minified release APK on a Pixel and run: pair, QR scan, typed turn, spoken turn, lock-screen playback.
+
+## Review Triage Log
+
+| Finding | Verdict | Evidence and route |
+|---|---|---|
+| Inconsistent status across spec, tracker and validation | false | The spec's `done`, sprint tracker `in-progress`, and validation's environment-limited status describe implementation workflow, ticket progress, and evidence; they are not competing values for one state. Route: reject. |
+| Baseline-profile work is not recorded as open | false | The release APK contains baseline profile assets and the validation record explicitly leaves app-specific profile measurement pending device evidence; no acceptance is claimed complete. Route: reject. |
+| R8 mapping expires after 90 days | low | The mapping is a temporary workflow artifact, not a published release asset; very late support would need a separate retention choice, beyond the current acceptance. Route: reject as a low-frequency concern requiring a storage-policy change; retain as an open risk. |
+| CI does not fail on `missing_rules.txt` | medium | CI now fails if the release R8 output contains a non-empty `missing_rules.txt`. Route: patch. |
+| ELF32 parser branch is unreachable | low | The checker deliberately skips 32-bit ABIs before parsing, so ELF32 parsing was unused; removed that branch while retaining the explicit skip test. Route: patch. |
+| APK check accepts any `dataExtractionRules` value | false | `DataExtractionRulesTest` asserts the exact `@xml/data_extraction_rules` manifest reference and all exclusions; the APK metadata check confirms the built manifest carries the attribute. Route: reject. |
+| Nested `.so` entries are skipped | false | Android-loadable JNI libraries use `lib/<ABI>/<name>.so`; the app has no custom `System.load`/`System.loadLibrary` caller for a nested path. Route: reject as unreachable for this app. |
+| ELF with no `PT_LOAD` is called unreadable | low | The checker now reports that the ELF has no loadable segment, while other parse failures say `invalid ELF`. Route: patch. |
+| CI does not lint the minified release variant | medium | The CI release step now runs `lintRelease` alongside `assembleRelease`. Route: patch. |
+| Offset helper uses private `ZipFile.fp` | low | It now opens the APK path through a separate file handle and no longer mutates the ZIP reader cursor. Route: patch. |
+| Local ZIP header signature is not checked | false | `ZipFile.read(info)` validates the local header before offset calculation; a corrupted signature raises `BadZipFile`, which the CLI catches and returns as failure. Route: reject. |
+| CI does not assert readable OkHttp exception names | medium | CI now asserts the release mapping keeps `okhttp3.internal.http2.StreamResetException` unchanged, matching the diagnostic journal's `Throwable` name rule. Route: patch. |
+| ELF32 parsing branch is not covered by a test | low | This duplicates the unreachable-branch finding; the unused parser path was removed and 32-bit ABI skipping remains tested. Route: patch. |
+| No origin-main lint comparison was recorded | medium | Baseline `lintDebug`/`lintRelease` had 14 warnings and 6 hints; final feature reports 13 warnings and 6 hints with no new diagnostics after adding `fullBackupContent="false"`. Route: patch. |

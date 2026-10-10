@@ -29,39 +29,37 @@ _LOCAL_HEADER = struct.Struct("<4s5H3I2H")
 
 
 def elf_load_alignments(data: bytes) -> list[int]:
-    """Return p_align of every PT_LOAD segment of a little-endian ELF image."""
+    """Return p_align of every PT_LOAD segment of a little-endian ELF64 image.
+
+    Only the 64-bit ABIs are enforced, so ELF32 is rejected rather than parsed.
+    """
     if data[:4] != _ELF_MAGIC:
         raise ValueError("not an ELF file")
     elf_class, elf_data = data[4], data[5]
     if elf_data != 1:
         raise ValueError("big-endian ELF is not supported")
-    if elf_class == 2:
-        e_phoff, = struct.unpack_from("<Q", data, 0x20)
-        e_phentsize, e_phnum = struct.unpack_from("<HH", data, 0x36)
-        align_offset, align_format = 0x30, "<Q"
-    elif elf_class == 1:
-        e_phoff, = struct.unpack_from("<I", data, 0x1C)
-        e_phentsize, e_phnum = struct.unpack_from("<HH", data, 0x2A)
-        align_offset, align_format = 0x1C, "<I"
-    else:
-        raise ValueError(f"unknown ELF class {elf_class}")
+    if elf_class != 2:
+        raise ValueError(f"not a 64-bit ELF (class {elf_class})")
+    e_phoff, = struct.unpack_from("<Q", data, 0x20)
+    e_phentsize, e_phnum = struct.unpack_from("<HH", data, 0x36)
 
     alignments = []
     for index in range(e_phnum):
         header = e_phoff + index * e_phentsize
         p_type, = struct.unpack_from("<I", data, header)
         if p_type == _PT_LOAD:
-            alignment, = struct.unpack_from(align_format, data, header + align_offset)
+            alignment, = struct.unpack_from("<Q", data, header + 0x30)
             alignments.append(alignment)
     if not alignments:
-        raise ValueError("no PT_LOAD segment")
+        raise ValueError("ELF has no PT_LOAD segment, so it is not a loadable library")
     return alignments
 
 
-def stored_data_offset(apk, info: zipfile.ZipInfo) -> int:
+def stored_data_offset(apk_path: str, info: zipfile.ZipInfo) -> int:
     """Absolute offset of an entry's data, from its local header."""
-    apk.fp.seek(info.header_offset)
-    header = _LOCAL_HEADER.unpack(apk.fp.read(_LOCAL_HEADER.size))
+    with open(apk_path, "rb") as handle:
+        handle.seek(info.header_offset)
+        header = _LOCAL_HEADER.unpack(handle.read(_LOCAL_HEADER.size))
     name_length, extra_length = header[-2], header[-1]
     return info.header_offset + _LOCAL_HEADER.size + name_length + extra_length
 
@@ -83,7 +81,7 @@ def check(apk_path: str) -> tuple[list[str], list[str]]:
             try:
                 alignments = elf_load_alignments(apk.read(info))
             except (ValueError, struct.error) as error:
-                problems.append(f"{info.filename}: unreadable ELF ({error})")
+                problems.append(f"{info.filename}: invalid ELF ({error})")
                 continue
 
             weakest = min(alignments)
@@ -94,7 +92,7 @@ def check(apk_path: str) -> tuple[list[str], list[str]]:
                 )
 
             if info.compress_type == zipfile.ZIP_STORED:
-                offset = stored_data_offset(apk, info)
+                offset = stored_data_offset(apk_path, info)
                 if offset % PAGE_SIZE:
                     problems.append(
                         f"{info.filename}: stored at APK offset {offset}, "

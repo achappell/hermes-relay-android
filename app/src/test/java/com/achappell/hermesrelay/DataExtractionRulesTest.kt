@@ -38,6 +38,7 @@ class DataExtractionRulesTest {
         val application = parse("AndroidManifest.xml").getElementsByTagName("application").item(0) as Element
 
         assertEquals("false", application.getAttribute("android:allowBackup"))
+        assertEquals("false", application.getAttribute("android:fullBackupContent"))
         assertEquals("@xml/data_extraction_rules", application.getAttribute("android:dataExtractionRules"))
     }
 

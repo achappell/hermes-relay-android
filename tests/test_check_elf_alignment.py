@@ -123,7 +123,7 @@ class ElfAlignmentTests(unittest.TestCase):
         write_apk(self.apk, {"lib/arm64-v8a/libjunk.so": b"not an elf"})
         status, _, err = run(self.apk)
         self.assertEqual(1, status)
-        self.assertIn("unreadable ELF", err)
+        self.assertIn("invalid ELF", err)
 
     def test_an_apk_without_64_bit_libraries_says_so(self) -> None:
         write_apk(self.apk, {})

@@ -64,6 +64,11 @@ if ! grep -q 'android:dataExtractionRules=' <<<"$manifest"; then
     printf '%s\n' 'Manifest must set android:dataExtractionRules.' >&2
     exit 1
 fi
+# dataExtractionRules only applies on Android 12+; minSdk is 26.
+if ! grep -q 'android:fullBackupContent="false"' <<<"$manifest"; then
+    printf '%s\n' 'Manifest must set android:fullBackupContent="false".' >&2
+    exit 1
+fi
 
 if ! elf_report="$(python3 "$(dirname "${BASH_SOURCE[0]}")/check_elf_alignment.py" "$apk" 2>&1)"; then
     printf '%s\n' "$elf_report" >&2
