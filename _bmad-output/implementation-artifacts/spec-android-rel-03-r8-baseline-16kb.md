@@ -1,7 +1,7 @@
 ---
 id: ANDROID-REL-03
 title: R8 shrinking, baseline profile, 16 KB page-size check and data-extraction rules
-status: backlog
+status: in-progress
 product_epic: 4
 release_scope: migration
 parity_epic: ANDROID-PARITY-02

@@ -76,6 +76,17 @@ jobs:
       - name: Verify APK metadata
         run: scripts/check-apk-metadata.sh
 
+      - name: Test the 16 KB page-size check
+        run: python3 -m unittest discover -s tests -p 'test_check_elf_alignment.py'
+
+      # ANDROID-REL-03: the release variant is minified; a missing R8 keep rule
+      # or a misaligned native library must fail the pull request, not the tag.
+      # Without release secrets this signs with the debug key (never published).
+      - name: Build and verify the minified release APK
+        run: |
+          ./gradlew assembleRelease --no-daemon
+          scripts/check-apk-metadata.sh app/build/outputs/apk/release/app-release.apk
+
       - name: Check repository diff
         run: git diff --check
 

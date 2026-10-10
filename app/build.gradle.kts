@@ -87,6 +87,16 @@ android {
 
     buildTypes {
         release {
+            // ANDROID-REL-03: R8 shrinking, optimisation and resource shrinking
+            // for the sideloaded release APK. Library consumer rules (OkHttp,
+            // Okio, CameraX, Compose) are applied automatically; the app's own
+            // additions are in proguard-rules.pro. Debug builds stay unminified.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             signingConfig = signingConfigs.findByName("release")
                 ?: signingConfigs.getByName("debug")
         }

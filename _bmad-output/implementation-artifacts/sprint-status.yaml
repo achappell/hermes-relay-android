@@ -88,7 +88,7 @@ development_status:
   # Declined 2026-10-06 (disposition: declined in story-index.yaml): Play Store distribution stays out of
   # scope per README. `done` is the closest value in the shared status vocabulary; nothing was delivered.
   android-rel-02: done
-  android-rel-03: backlog
+  android-rel-03: in-progress
   epic-6: backlog
   android-diag-01: done # Explicit owner release-build physical waiver; debug Share and recipient acceptance passed, release behavior unverified.
   android-diag-02: backlog
