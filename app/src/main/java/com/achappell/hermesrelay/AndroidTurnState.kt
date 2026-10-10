@@ -42,13 +42,26 @@ internal data class AndroidTurnState(
     val structuredPrompt: AndroidStructuredPrompt? = null,
     val availableCommands: Set<String> = emptySet(),
 ) {
+    /**
+     * Whether a Hermes turn is terminal. Hands-free capture can set the phase
+     * to Listening before Home has bound a turn; that window is terminal for
+     * turn actions even though the microphone itself is still listening.
+     */
     val isTerminal: Boolean
-        get() = phase in setOf(
+        get() = when (phase) {
             AndroidTurnPhase.Complete,
             AndroidTurnPhase.Unavailable,
             AndroidTurnPhase.Disconnected,
-            AndroidTurnPhase.Interrupted,
-        )
+            AndroidTurnPhase.Interrupted -> true
+
+            AndroidTurnPhase.Listening -> binding == null
+
+            AndroidTurnPhase.Idle,
+            AndroidTurnPhase.Transcribing,
+            AndroidTurnPhase.Thinking,
+            AndroidTurnPhase.Buffering,
+            AndroidTurnPhase.Speaking -> false
+        }
 
     val isInFlight: Boolean
         get() = binding != null && !isTerminal
