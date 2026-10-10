@@ -125,6 +125,32 @@ class ElfAlignmentTests(unittest.TestCase):
         self.assertEqual(1, status)
         self.assertIn("invalid ELF", err)
 
+    def test_a_truncated_library_is_reported_not_a_traceback(self) -> None:
+        write_apk(self.apk, {"lib/arm64-v8a/libcut.so": b"\x7fELF"})
+        status, _, err = run(self.apk)
+        self.assertEqual(1, status)
+        self.assertIn("lib/arm64-v8a/libcut.so: invalid ELF (truncated ELF header)", err)
+
+    def test_an_elf_without_a_load_segment_is_reported(self) -> None:
+        write_apk(self.apk, {"lib/arm64-v8a/libnoload.so": elf64([])})
+        status, _, err = run(self.apk)
+        self.assertEqual(1, status)
+        self.assertIn("no PT_LOAD segment", err)
+
+    def test_a_32_bit_elf_in_a_64_bit_abi_folder_fails(self) -> None:
+        write_apk(self.apk, {"lib/arm64-v8a/libwrong.so": elf32([PAGE_16K])})
+        status, _, err = run(self.apk)
+        self.assertEqual(1, status)
+        self.assertIn("not a 64-bit ELF", err)
+
+    def test_a_big_endian_elf_fails(self) -> None:
+        image = bytearray(elf64([PAGE_16K]))
+        image[5] = 2
+        write_apk(self.apk, {"lib/arm64-v8a/libbe.so": bytes(image)})
+        status, _, err = run(self.apk)
+        self.assertEqual(1, status)
+        self.assertIn("big-endian ELF is not supported", err)
+
     def test_an_apk_without_64_bit_libraries_says_so(self) -> None:
         write_apk(self.apk, {})
         status, out, _ = run(self.apk)

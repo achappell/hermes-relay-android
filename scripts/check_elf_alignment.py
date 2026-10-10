@@ -24,6 +24,7 @@ PAGE_SIZE = 16 * 1024
 ENFORCED_ABIS = ("arm64-v8a", "x86_64")
 
 _PT_LOAD = 1
+_ELF64_HEADER_SIZE = 0x40
 _ELF_MAGIC = b"\x7fELF"
 _LOCAL_HEADER = struct.Struct("<4s5H3I2H")
 
@@ -35,6 +36,8 @@ def elf_load_alignments(data: bytes) -> list[int]:
     """
     if data[:4] != _ELF_MAGIC:
         raise ValueError("not an ELF file")
+    if len(data) < _ELF64_HEADER_SIZE:
+        raise ValueError("truncated ELF header")
     elf_class, elf_data = data[4], data[5]
     if elf_data != 1:
         raise ValueError("big-endian ELF is not supported")
