@@ -6,6 +6,10 @@
 # Set EXPECTED_SIGNER_SHA256 to the release signing certificate's SHA-256
 # digest (uppercase hex, colon-separated) to also assert the APK was signed
 # with that key. Without it the signing check is skipped and reported as such.
+#
+# ANDROID-REL-03: also asserts that backup stays off with data-extraction rules
+# in the manifest, and that the 64-bit native libraries are 16 KB page-size
+# aligned (scripts/check_elf_alignment.py).
 
 set -euo pipefail
 
@@ -49,6 +53,28 @@ if [[ "$version_code" != "$expected_code" ]]; then
     exit 1
 fi
 
+# allowBackup=false alone does not stop Android 12+ device-to-device transfer;
+# the extraction rules (res/xml/data_extraction_rules.xml) exclude all app data.
+manifest="$(apkanalyzer manifest print "$apk")"
+if ! grep -q 'android:allowBackup="false"' <<<"$manifest"; then
+    printf '%s\n' 'Manifest must set android:allowBackup="false".' >&2
+    exit 1
+fi
+if ! grep -q 'android:dataExtractionRules=' <<<"$manifest"; then
+    printf '%s\n' 'Manifest must set android:dataExtractionRules.' >&2
+    exit 1
+fi
+# dataExtractionRules only applies on Android 12+; minSdk is 26.
+if ! grep -q 'android:fullBackupContent="false"' <<<"$manifest"; then
+    printf '%s\n' 'Manifest must set android:fullBackupContent="false".' >&2
+    exit 1
+fi
+
+if ! elf_report="$(python3 "$(dirname "${BASH_SOURCE[0]}")/check_elf_alignment.py" "$apk" 2>&1)"; then
+    printf '%s\n' "$elf_report" >&2
+    exit 1
+fi
+
 signing_status="skipped (EXPECTED_SIGNER_SHA256 unset)"
 if [[ -n "${EXPECTED_SIGNER_SHA256:-}" ]]; then
     apksigner="apksigner"
@@ -78,5 +104,5 @@ if [[ -n "${EXPECTED_SIGNER_SHA256:-}" ]]; then
     signing_status="verified"
 fi
 
-printf 'APK metadata is correct: min SDK %s, version %s (%s), signing %s.\n' \
+printf 'APK metadata is correct: min SDK %s, version %s (%s), backup off with extraction rules, 16 KB aligned, signing %s.\n' \
     "$min_sdk" "$version_name" "$version_code" "$signing_status"
