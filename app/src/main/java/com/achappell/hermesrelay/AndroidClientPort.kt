@@ -247,6 +247,9 @@ internal interface AndroidClientPort {
             AndroidHomeUnavailableReason.TransportUnavailable,
         )
 
+    /** One reconnect with an explicit total attempt bound (`ANDROID-HOME-04`). */
+    fun reconnect(attemptTimeoutMillis: Long): AndroidReconnectOutcome = reconnect()
+
     /**
      * Whether the connected relay advertised the `interrupt` capability.
      *

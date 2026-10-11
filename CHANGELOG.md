@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Features
+- Add paced, lifecycle-aware Home reconnect after Android foregrounds: the first attempt runs at once, retries follow 0.5/1/2/4/8 s, a returning network retries immediately, and background, Disconnect or a Profile switch stop it.
+- Offer Disconnect while Home is reconnecting, and reconnect automatically (never resend) after a transport loss with an unconfirmed turn.
+- Request the normal `ACCESS_NETWORK_STATE` permission to notice the network returning.
 - Add deliberate Home Disconnect with user-only attribution and mid-reply confirmation.
 - Add 2-second interrupt acknowledgement and interrupt-and-listen behavior to Android voice controls.
 - Tell Home when Interrupt stops speech still buffered on the phone after the text turn ended, so Home releases the reply audio and accepts the next prompt.
@@ -14,6 +17,7 @@
 - Exclude all app data from cloud backup and device transfer with Android 12+ extraction rules.
 
 ### Fixes
+- Retry transport failures on a bounded backoff without discarding held claims.
 - Await Home's `conversation.close` acknowledgement before recording a claim released; report unacknowledged close truthfully.
 - Reflow the conversation header title and Profile block to preserve the accessible overflow action at large font scales.
 

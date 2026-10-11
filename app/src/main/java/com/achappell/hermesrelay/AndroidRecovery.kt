@@ -1,5 +1,8 @@
 package com.achappell.hermesrelay
 
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
+
 /** Visible Android transport-recovery state for the active Hermes Session. */
 internal sealed interface AndroidConnectionState {
     data object Connected : AndroidConnectionState
@@ -71,6 +74,8 @@ internal sealed interface AndroidReconnectOutcome {
     data class Unrecoverable(
         val reason: String,
         val reasonCode: AndroidHomeUnavailableReason? = null,
+        /** A claim request whose response was lost: the ladder must never send a second one. */
+        val ambiguousClaim: Boolean = false,
     ) : AndroidReconnectOutcome
 }
 
@@ -98,9 +103,15 @@ internal sealed interface AndroidResendResult {
  */
 internal class AndroidRecoveryController(
     private val clientPort: AndroidClientPort,
-    private val maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
+    private val policy: ReconnectPolicy = ReconnectPolicy.default,
+    private val clock: MonotonicClock = MonotonicClock.Real,
+    private val pacer: RecoveryPacer = LockRecoveryPacer(),
+    private val journal: DiagnosticsJournal = DiagnosticsJournal.None,
     private val onStateChange: (AndroidRecoveryState) -> Unit = {},
 ) {
+    private val ladderGeneration = AtomicLong(0)
+    private val liveLadder = AtomicLong(NO_LADDER)
+
     var state: AndroidRecoveryState = AndroidRecoveryState()
         private set(value) {
             val changed = field != value
@@ -158,9 +169,30 @@ internal class AndroidRecoveryController(
     }
 
     /**
-     * Run the bounded reconnect ladder.
+     * Stop the running ladder (and so any wait between attempts) at its next
+     * checkpoint; it leaves the state Disconnected rather than Reconnecting.
+     * Safe from any thread, a no-op when no ladder runs.
+     */
+    fun cancelRecovery() {
+        ladderGeneration.incrementAndGet()
+        pacer.wake()
+    }
+
+    /** Skip the rest of the current backoff wait and attempt at once (the network returned). */
+    fun retryNow() = pacer.wake()
+
+    /** True while a ladder runs that nothing has cancelled. */
+    val isLadderLive: Boolean
+        get() = liveLadder.get() == ladderGeneration.get()
+
+    /**
+     * Run the paced reconnect ladder (`ANDROID-HOME-04`).
      *
-     * A successful reconnect adopts a fresh local bridge connection identity.
+     * The first attempt runs at once and each retry waits out its
+     * [ReconnectPolicy] delay; a transport failure continues the ladder until
+     * Connected, the overall deadline, a non-retryable reason or
+     * [cancelRecovery]. A
+     * successful reconnect adopts a fresh local bridge connection identity.
      * No retained turn is submitted here under any outcome.
      */
     fun recover(): AndroidRecoveryState {
@@ -168,9 +200,29 @@ internal class AndroidRecoveryController(
             return state
         }
 
-        var attempt = 0
+        val ladder = ladderGeneration.get()
+        liveLadder.set(ladder)
+        pacer.reset()
+        val startedAt = clock.nanoTime()
+        val maxAttempts = policy.maxAttempts
         var lastReason = "Hermes Session transport was lost."
 
+        fun cancelled() = ladderGeneration.get() != ladder
+
+        fun stopped(attempt: Int): AndroidRecoveryState {
+            liveLadder.compareAndSet(ladder, NO_LADDER)
+            journal.record("home connect retry cancelled attempt=$attempt")
+            state = state.copy(connection = AndroidConnectionState.Disconnected, isRecovering = false)
+            return state
+        }
+
+        fun failed(reason: String): AndroidRecoveryState {
+            liveLadder.compareAndSet(ladder, NO_LADDER)
+            state = state.copy(connection = AndroidConnectionState.Failed(reason), isRecovering = false)
+            return state
+        }
+
+        var attempt = 0
         while (attempt < maxAttempts) {
             attempt += 1
             state = state.copy(
@@ -178,8 +230,25 @@ internal class AndroidRecoveryController(
                 isRecovering = true,
             )
 
-            when (val outcome = clientPort.reconnect()) {
+            policy.delayBefore(attempt)?.let { delay ->
+                journal.record("home connect retry scheduled attempt=$attempt delay_ms=$delay")
+                try {
+                    pacer.pause(delay)
+                } catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return stopped(attempt)
+                }
+                if (cancelled()) return stopped(attempt)
+                val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startedAt)
+                if (elapsedMillis >= policy.overallMillis) return failed(lastReason)
+            }
+
+            val elapsedBeforeAttempt = TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startedAt)
+            if (elapsedBeforeAttempt >= policy.overallMillis) return failed(lastReason)
+            val attemptBudget = minOf(policy.attemptMillis, policy.overallMillis - elapsedBeforeAttempt)
+            when (val outcome = clientPort.reconnect(attemptBudget)) {
                 is AndroidReconnectOutcome.Connected -> {
+                    liveLadder.compareAndSet(ladder, NO_LADDER)
                     state = state.copy(
                         connection = AndroidConnectionState.Connected,
                         connectionId = outcome.connectionId,
@@ -195,23 +264,26 @@ internal class AndroidRecoveryController(
                     return state
                 }
 
-                is AndroidReconnectOutcome.Retryable -> lastReason = outcome.reason
+                is AndroidReconnectOutcome.Retryable -> {
+                    lastReason = outcome.reason
+                    if (cancelled()) return stopped(attempt)
+                    if (TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startedAt) >= policy.overallMillis) {
+                        return failed(lastReason)
+                    }
+                }
 
                 is AndroidReconnectOutcome.Unrecoverable -> {
-                    state = state.copy(
-                        connection = AndroidConnectionState.Failed(outcome.reason),
-                        isRecovering = false,
-                    )
-                    return state
+                    if (cancelled()) return stopped(attempt)
+                    if (!outcome.isTransportFailure() || outcome.ambiguousClaim) return failed(outcome.reason)
+                    lastReason = outcome.reason
+                    if (TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startedAt) >= policy.overallMillis) {
+                        return failed(lastReason)
+                    }
                 }
             }
         }
 
-        state = state.copy(
-            connection = AndroidConnectionState.Failed(lastReason),
-            isRecovering = false,
-        )
-        return state
+        return failed(lastReason)
     }
 
     /**
@@ -257,7 +329,12 @@ internal class AndroidRecoveryController(
         return state
     }
 
+    /** A refused-by-the-network outcome the paced ladder retries; anything else ends it. */
+    private fun AndroidReconnectOutcome.Unrecoverable.isTransportFailure() =
+        reasonCode == AndroidHomeUnavailableReason.TransportUnavailable ||
+            reasonCode == AndroidHomeUnavailableReason.TransportTimeout
+
     private companion object {
-        const val DEFAULT_MAX_ATTEMPTS = 3
+        const val NO_LADDER = -1L
     }
 }

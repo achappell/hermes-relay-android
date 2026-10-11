@@ -28,7 +28,7 @@ class AndroidRecoveryControllerTest {
                 AndroidReconnectOutcome.Connected("session-2"),
             ),
         )
-        val controller = AndroidRecoveryController(port, maxAttempts = 3) { changed ->
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3)) { changed ->
             port.observedProgress += changed.connection
         }
 
@@ -61,7 +61,7 @@ class AndroidRecoveryControllerTest {
                 AndroidReconnectOutcome.Connected("session-2"),
             ),
         )
-        val controller = AndroidRecoveryController(port, maxAttempts = 3)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3))
 
         controller.transportLost("Transport closed.")
         val failed = controller.recover()
@@ -83,7 +83,7 @@ class AndroidRecoveryControllerTest {
                 AndroidReconnectOutcome.Connected("session-2"),
             ),
         )
-        val controller = AndroidRecoveryController(port, maxAttempts = 5)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(5))
 
         controller.transportLost("Transport closed.")
         val state = controller.recover()
@@ -98,7 +98,7 @@ class AndroidRecoveryControllerTest {
     @Test
     fun reconnect_does_not_replay_an_uncertain_turn() {
         val port = FakeRecoveryPort(outcomes = listOf(AndroidReconnectOutcome.Connected("session-2")))
-        val controller = AndroidRecoveryController(port)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3))
 
         controller.transportLost("Transport closed.", unconfirmed)
         val state = controller.recover()
@@ -126,7 +126,7 @@ class AndroidRecoveryControllerTest {
                 ),
             ),
         )
-        val controller = AndroidRecoveryController(port)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3))
 
         controller.transportLost("Transport closed.", unconfirmed)
         val resumed = controller.recover()
@@ -145,7 +145,7 @@ class AndroidRecoveryControllerTest {
     @Test
     fun delivery_uncertain_before_turn_ack_is_retained_without_a_fabricated_binding() {
         val port = FakeRecoveryPort(outcomes = listOf(AndroidReconnectOutcome.Connected("session-2")))
-        val controller = AndroidRecoveryController(port)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3))
         val request = AndroidTurnRequest(profile, AndroidTurnInput.Typed("May have arrived"))
         val preAck = AndroidUnconfirmedTurn(binding = null, request = request)
 
@@ -165,7 +165,7 @@ class AndroidRecoveryControllerTest {
                 AndroidTurnBinding(profile.id, "session-2", "turn-2"),
             ),
         )
-        val controller = AndroidRecoveryController(port)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3))
 
         controller.transportLost("Transport closed.", unconfirmed)
         controller.recover()
@@ -190,7 +190,7 @@ class AndroidRecoveryControllerTest {
                 AndroidInitiationFailure.SessionUnavailable,
             ),
         )
-        val controller = AndroidRecoveryController(port)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3))
 
         controller.transportLost("Transport closed.", unconfirmed)
         controller.recover()
@@ -207,7 +207,7 @@ class AndroidRecoveryControllerTest {
     @Test
     fun a_resend_is_refused_while_transport_is_not_connected() {
         val port = FakeRecoveryPort(outcomes = listOf(AndroidReconnectOutcome.Retryable("Down.")))
-        val controller = AndroidRecoveryController(port, maxAttempts = 1)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(1))
 
         controller.transportLost("Transport closed.", unconfirmed)
         controller.recover()
@@ -226,7 +226,7 @@ class AndroidRecoveryControllerTest {
                 AndroidReconnectOutcome.Connected("session-2"),
             ),
         )
-        val controller = AndroidRecoveryController(port, maxAttempts = 3)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3))
         port.onReconnect = {
             controller.transportLost("A second loss was reported.", unconfirmed)
             controller.recover()
@@ -259,7 +259,7 @@ class AndroidRecoveryControllerTest {
                 AndroidHomeUnavailableReason.TransportTimeout,
             ),
         )
-        val controller = AndroidRecoveryController(port, maxAttempts = 3)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3))
         val firstReconnectEntered = CountDownLatch(1)
         val releaseFirstReconnect = CountDownLatch(1)
         val blockedFirst = AtomicBoolean(false)
@@ -300,7 +300,7 @@ class AndroidRecoveryControllerTest {
     @Test
     fun a_discarded_turn_is_not_resent() {
         val port = FakeRecoveryPort(outcomes = listOf(AndroidReconnectOutcome.Connected("session-2")))
-        val controller = AndroidRecoveryController(port)
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3))
 
         controller.transportLost("Transport closed.", unconfirmed)
         controller.recover()

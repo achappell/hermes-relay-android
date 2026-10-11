@@ -518,7 +518,9 @@ internal class OkHttpRelaySessionClient(
     /** Set by the last attempt when it reused a held personal-client claim. */
     private val lastAttemptReusedClaim = AtomicBoolean(false)
 
-    override fun reconnect(): AndroidReconnectOutcome {
+    override fun reconnect(): AndroidReconnectOutcome = reconnect(DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MILLIS)
+
+    override fun reconnect(attemptTimeoutMillis: Long): AndroidReconnectOutcome {
         val requestedProfileId = collection().selected?.id
         while (true) {
             val running = reconnectFlight.get()
@@ -541,14 +543,16 @@ internal class OkHttpRelaySessionClient(
             val flight = ReconnectFlight(requestedProfileId)
             if (!reconnectFlight.compareAndSet(null, flight)) continue
             try {
-                val first = reconnectOnce()
+                val flightStartedAt = clock.nanoTime()
+                val first = reconnectOnce(attemptTimeoutMillis)
                 val outcome = if (
                     first is AndroidReconnectOutcome.Unrecoverable &&
-                    first.reasonCode != AndroidHomeUnavailableReason.ReconnectRequired &&
+                    shouldReplaceReusedClaim(first.reasonCode) &&
                     lastAttemptReusedClaim.get()
                 ) {
                     releaseHeldClaim("stale-response")
-                    reconnectOnce()
+                    // The replacement shares the attempt's budget; it does not get a second one.
+                    reconnectOnce((attemptTimeoutMillis - elapsedMillis(flightStartedAt)).coerceAtLeast(0L))
                 } else {
                     first
                 }
@@ -564,9 +568,28 @@ internal class OkHttpRelaySessionClient(
         }
     }
 
-    private fun reconnectOnce(): AndroidReconnectOutcome {
+    /**
+     * Whether a refused reconnect of a reused claim may be answered with a fresh
+     * claim in the same attempt (`ANDROID-HOME-04`).
+     *
+     * A transport failure says nothing about the claim, so the paced ladder
+     * keeps it for the next attempt. `stale_conversation` means Home ended the
+     * claim, but with a turn still unconfirmed a fresh claim would orphan it:
+     * the user decides first (Resend or Discard). `reconnect_required` keeps
+     * its own handling. Any other refusal replaces the claim, as before.
+     */
+    private fun shouldReplaceReusedClaim(code: AndroidHomeUnavailableReason?): Boolean = when (code) {
+        AndroidHomeUnavailableReason.ReconnectRequired,
+        AndroidHomeUnavailableReason.TransportUnavailable,
+        AndroidHomeUnavailableReason.TransportTimeout,
+        -> false
+        AndroidHomeUnavailableReason.StaleConversation -> !uncertainDelivery.get()
+        else -> true
+    }
+
+    private fun reconnectOnce(attemptTimeoutMillis: Long): AndroidReconnectOutcome {
         val startedAt = clock.nanoTime()
-        val outcome = attemptReconnect()
+        val outcome = attemptReconnect(attemptTimeoutMillis)
         val (result, reason) = when (outcome) {
             is AndroidReconnectOutcome.Connected -> "connected" to null
             is AndroidReconnectOutcome.Retryable -> "retryable" to outcome.reasonCode
@@ -583,7 +606,7 @@ internal class OkHttpRelaySessionClient(
     private fun elapsedMillis(startNanos: Long): Long =
         TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startNanos)
 
-    private fun attemptReconnect(): AndroidReconnectOutcome {
+    private fun attemptReconnect(attemptTimeoutMillis: Long): AndroidReconnectOutcome {
         lastAttemptReusedClaim.set(false)
         val profile = collection().selected
             ?: return AndroidReconnectOutcome.Unrecoverable(
@@ -649,7 +672,16 @@ internal class OkHttpRelaySessionClient(
                     is HomeClientClaimOutcome.Unavailable -> return if (outcome.retryable) {
                         AndroidReconnectOutcome.Retryable(outcome.message, outcome.reason)
                     } else {
-                        unavailable(outcome.message, outcome.reason)
+                        unavailable(outcome.message, outcome.reason).let {
+                            // A lost claim response is ambiguous (the transport reasons only come from that path).
+                            if (outcome.reason == AndroidHomeUnavailableReason.TransportUnavailable ||
+                                outcome.reason == AndroidHomeUnavailableReason.TransportTimeout
+                            ) {
+                                it.copy(ambiguousClaim = true)
+                            } else {
+                                it
+                            }
+                        }
                     }
                 }
             }
@@ -793,6 +825,8 @@ internal class OkHttpRelaySessionClient(
             )
         }
 
+        // The per-attempt bound covers connect and handshake, not claim creation.
+        val attemptStartedAt = clock.nanoTime()
         val socket = httpClient.newWebSocket(
             request,
             object : WebSocketListener() {
@@ -956,7 +990,11 @@ internal class OkHttpRelaySessionClient(
             },
         )
 
-        val answered = settled.await(helloTimeoutMillis, TimeUnit.MILLISECONDS)
+        val elapsedBeforeWait = elapsedMillis(attemptStartedAt)
+        val remainingAttemptMillis =
+            (minOf(attemptTimeoutMillis, helloTimeoutMillis) - elapsedBeforeWait).coerceAtLeast(0L)
+        val answered = remainingAttemptMillis > 0 &&
+            settled.await(remainingAttemptMillis, TimeUnit.MILLISECONDS)
         pending.remove(openId)
         val result = when {
             !answered -> AndroidReconnectOutcome.Retryable(
@@ -1081,7 +1119,7 @@ internal class OkHttpRelaySessionClient(
                 pairedGrant != null &&
                 (freshClaim ||
                     (result is AndroidReconnectOutcome.Unrecoverable &&
-                        resultReason != AndroidHomeUnavailableReason.ReconnectRequired))
+                        shouldReplaceReusedClaim(resultReason)))
             ) {
                 // A fresh unopened claim, or a terminally refused held claim,
                 // must not linger for Home's first-open expiry.
@@ -2300,6 +2338,7 @@ internal class OkHttpRelaySessionClient(
         const val SCHEMA_VERSION = 1
         const val DEFAULT_HELLO_TIMEOUT_MILLIS = 10_000L
         const val DEFAULT_REQUEST_TIMEOUT_MILLIS = 10_000L
+        const val DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MILLIS = 10_000L
         const val NORMAL_CLOSURE = 1000
         const val MAX_QUEUED_FRAMES = 256
         val ROUTE_CLASSES = setOf("home", "tailscale", "public")
