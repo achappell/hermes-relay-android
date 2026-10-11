@@ -55,3 +55,12 @@
 - source_spec: `spec-android-home-06-backgrounded-transport-disconnected-2.md`
   summary: A half-open socket while the app stays foregrounded still shows `Connected` until `ANDROID-NET-01` adds probing; `hasLiveTransport()` is structural only.
   evidence: decision 2 of the build spec; stop-close removes the background case.
+
+## Deferred from: bmad-build review of spec-android-rel-03-r8-baseline-16kb.md (2026-10-10)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-android-rel-03-r8-baseline-16kb.md`
+  summary: Add a shell-level contract test for `scripts/check-apk-metadata.sh` failure branches (missing manifest attributes, misaligned library) using a stubbed `apkanalyzer` and fixture APKs.
+  evidence: No test runs the script; CI only exercises the passing path, so loosening a grep or dropping the alignment call would stay green (verification-gap review, 2026-10-10).
+- source_spec: `_bmad-output/implementation-artifacts/spec-android-rel-03-r8-baseline-16kb.md`
+  summary: Run the minified release APK on an owner-approved device (pair, QR scan, typed and spoken turn, lock-screen playback, cold-start before/after) before any release tag.
+  evidence: R8 runtime correctness is unproven by static checks; install on the Pixel 6a is forbidden for this work (verification-gap review, 2026-10-10).
