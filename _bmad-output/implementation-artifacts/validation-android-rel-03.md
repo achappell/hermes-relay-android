@@ -1,12 +1,12 @@
 ---
 spec: spec-android-rel-03-r8-baseline-16kb.md
 status: done-with-environment-limitation
-updated: 2026-10-10
+updated: 2026-10-11
 ---
 
 # ANDROID-REL-03 validation
 
-Host-verifiable release configuration and checks are implemented. Device-only startup measurement and minified APK runtime smoke remain pending; this is not a full device acceptance.
+Host-verifiable release configuration and checks are implemented. A partial device smoke was run on 2026-10-11 (below). Lock-screen/background playback is blocked-by `ANDROID-HOME-08`; a before/after startup comparison was not done.
 
 ## Host evidence
 
@@ -18,14 +18,21 @@ Host-verifiable release configuration and checks are implemented. Device-only st
 - `python -m unittest discover -s tests -p 'test_bmad_issue_tracking*.py'` — attempted but the host has no `python` executable; equivalent `python3 -m unittest discover -s tests -p 'test_bmad_issue_tracking*.py'` — **18 passed**.
 - Static release inspection: R8 reduced the APK from 13,225,201 bytes before shrinking to 2,811,197 bytes after shrinking (rebuilt 2026-10-10 after review patches; first build 2,810,553). `apkanalyzer dex packages --defined-only` shows `MainActivity`, `HermesRelayApplication`, and CameraX `ImageProcessingUtil`; `mapping.txt` maps ZXing `MultiFormatReader` to its minified name while `okhttp3.internal.http2.StreamResetException` retains its name. The CameraX JNI native names remain present, and the merged R8 configuration contains native-member keep rules from the library. No `missing_rules.txt` was emitted. This is static evidence only, not proof of runtime scanner, pairing, WebSocket, Keystore, Compose or audio behavior.
 - `scripts/check-apk-metadata.sh` asserts `android:allowBackup="false"`, `android:dataExtractionRules` and pre-12 `android:fullBackupContent="false"` in the APK manifest; `DataExtractionRulesTest` checks the exact manifest values and that all app data domains are excluded from cloud backup and device transfer.
-- The minified APK packages `assets/dexopt/baseline.prof` and `.profm`. No app-specific Macrobenchmark/profile generator or startup measurement was added; required physical-device before/after measurement is unavailable under the no-install rule, so that acceptance remains pending.
+- The minified APK packages `assets/dexopt/baseline.prof` and `.profm`. No app-specific Macrobenchmark/profile generator or before/after startup measurement was added; only the single 424 ms after figure was captured on device (below), so the baseline-profile decision stays open.
 
-## Pending device / open decisions
+## Device smoke (2026-10-11, owner-authorized)
 
-- **PENDING DEVICE:** Do not install the release APK. On an owner-approved device/build, verify QR scan, Home pairing, a typed turn, a spoken turn, lock-screen playback, and the minified app's Keystore/Compose startup/runtime behavior. Record device model, Android version, build identity, and outcomes here before claiming runtime acceptance.
-- **PENDING DEVICE:** Measure cold-start performance before/after with the chosen startup tool and a recorded device model. Decide whether an app-specific baseline profile measurably helps; add one only if that evidence supports retaining it.
+- Device: Pixel 6a (`bluejay`). The minified release APK (debug-key fallback signing, 0.3.1 (301), 2,811,197 bytes) was installed with `adb install -r` over the owner's debug-signed 0.3.1 (301); same signer and versionCode, data kept (`firstInstallTime` unchanged, app opened paired to its saved profile with "Authorization: Verified"). The prior APK is backed up in `/tmp/hermes-relay-backup/` on the host.
+- Cold start (`am start -W`, force-stopped first): 424 ms. No FATAL/AndroidRuntime/ClassNotFound/NoSuchMethod/Keystore errors in logcat.
+- Owner manually confirmed QR scan, typed turn and spoken turn: **PASS**.
+- Lock-screen/background playback: **did not work; blocked-by `ANDROID-HOME-08`** (and `ANDROID-HOME-09`). Not an R8 regression: `main` has no foreground service, MediaSession, audio focus or wake lock (the manifest declares only INTERNET, RECORD_AUDIO and CAMERA), the app code is identical apart from the backup manifest attributes, and both tickets are backlog. No A/B run against the debug build was performed.
+- The owner's phone now runs this minified build.
+
+## Open decisions
+
+- No before/after startup measurement: only the 424 ms after figure exists. Decide whether an app-specific baseline profile helps only with that evidence.
 - The local APK used the debug signing fallback; production release-keystore signature verification was not performed.
 - No-device host validation cannot establish absence of runtime-only R8 regressions or 16 KB loading failures on a physical 16 KB-page device.
 - The release workflow keeps `mapping.txt` as a 90-day workflow artifact, not a published release asset; longer-term retention has not been selected.
-- Owner attention: the release pipeline changes (`release.yml` mapping upload; stricter `check-apk-metadata.sh` in the release workflow; new CI gates on `missing_rules.txt` and `StreamResetException`) can newly block a release PR or tag. `scripts/install-release.sh` would install a minified, device-unverified APK; do not merge or tag before the PENDING DEVICE checks pass.
+- Owner attention: the release pipeline changes (`release.yml` mapping upload; stricter `check-apk-metadata.sh` in the release workflow; new CI gates on `missing_rules.txt` and `StreamResetException`) can newly block a release PR or tag. `scripts/install-release.sh` would install a minified APK over a real install; lock-screen playback remains blocked-by `ANDROID-HOME-08`.
 - Approval: director review of the spec in place of the owner checkpoint (owner authorized); owner to correct.

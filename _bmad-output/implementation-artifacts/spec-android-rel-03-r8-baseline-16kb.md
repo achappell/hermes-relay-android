@@ -69,20 +69,21 @@ context:
 - [x] `scripts/check_elf_alignment.py`, `tests/test_check_elf_alignment.py`, `scripts/check-apk-metadata.sh` -- 16 KB alignment and backup checks with a misaligned-fixture failure test.
 - [x] `.github/workflows/ci.yml`, `release.yml` -- release build/lint/mapping gates in CI; mapping artifact on release.
 - [x] `CHANGELOG.md`, `validation-android-rel-03.md` -- record behavior and the host-only evidence boundary.
-- [ ] Device before/after startup measurement and minified-APK smoke -- pending, owner-approved device only; not in this PR.
+- [x] Minified-APK device smoke -- done 2026-10-11 on the owner's Pixel 6a with owner authorization (see `validation-android-rel-03.md`); QR scan, typed turn and spoken turn pass. Lock-screen/background playback is blocked-by `ANDROID-HOME-08` (not implemented on `main`), not a regression.
+- [ ] Cold-start before/after comparison -- only the after figure (424 ms) was captured; no before baseline, so no app-specific baseline profile decision.
 
 **Acceptance Criteria:**
 - Given the release variant, when `assembleRelease lintRelease` and `check-apk-metadata.sh` run, then they pass with no new lint diagnostics versus `origin/main`.
 - Given a deliberately misaligned `.so`, when the alignment check runs, then it fails; given the build output, then it passes.
 - Given the release workflow, when it runs, then the published APK asset name and signature are unchanged and nothing requires a Play account.
-- Given a physical device, when the minified APK is smoke-tested and startup measured, then results are recorded — PENDING DEVICE, so this ticket is not device-accepted.
+- Given a physical device, when the minified APK is smoke-tested, then results are recorded: Pixel 6a, QR scan, typed turn and spoken turn PASS, cold start 424 ms, no R8/Keystore errors, data kept. Lock-screen playback is **blocked-by ANDROID-HOME-08** (and `ANDROID-HOME-09`), both backlog; it fails identically on `main` and is not an R8 regression.
 
 ## Implementation Notes
 
 - Implemented in local commits `5cc1607` and `f05e9d5` before this spec was reconciled. An earlier unapproved flip of the ticket to `done` was reverted; the tracker now reads `review` (draft PR, host evidence only), the spec is `in-review` (draft PR awaiting review; not `done`), and the validation record's verdict stays `done-with-environment-limitation`: these are three different things and none claims device acceptance. R8 cut the APK from 13,225,201 to 2,810,553 bytes (static evidence only).
 - Step-04 review (this pass) patched: truncated-ELF `IndexError` in the alignment checker, tests for truncated, no-`PT_LOAD`, 32-bit-in-64-bit-folder and big-endian ELFs, `overwrite: true` on the mapping upload so a re-run does not hit an artifact-name conflict, a README paragraph for the new gates, and the multi-APK verification command.
 - `release.yml` changes are limited to one new step, the `r8-mapping-<tag>` artifact upload. The package, checksum and release-upload steps are untouched, so the APK asset name and signing are unchanged. The existing `check-apk-metadata.sh` call in that workflow now also enforces the new backup/extraction and 16 KB alignment checks, and `ci.yml` newly fails on a non-empty `missing_rules.txt` or a renamed `StreamResetException`; either can newly block a release PR or tag. Flagged for owner attention.
-- Owner-decision risk, not patched: once merged, `scripts/install-release.sh` (`installRelease`) and the next `v*` tag produce a minified APK that has had no device smoke. Do not merge or tag before the PENDING DEVICE checks pass.
+- Owner-decision risk, not patched: once merged, `scripts/install-release.sh` (`installRelease`) and the next `v*` tag produce a minified APK. It now has a partial device smoke (see validation record), and the owner's phone currently runs this build. Lock-screen playback remains blocked-by `ANDROID-HOME-08`.
 
 ## Spec Change Log
 
@@ -129,5 +130,5 @@ R8 correctness cannot be shown without running the minified app: OkHttp/Okio, Ca
 - `python3 -m unittest discover -s tests` -- expected: ELF (11) and issue-tracking tests pass.
 - `git diff --check` -- expected: clean.
 
-**Manual checks (PENDING DEVICE):**
-- On an owner-approved device: pair, QR scan, typed turn, spoken turn, lock-screen playback, and cold-start before/after. Never the Pixel 6a real install.
+**Manual checks (done 2026-10-11, owner's Pixel 6a):**
+- Pair/QR scan, typed turn, spoken turn: PASS. Lock-screen playback: blocked-by `ANDROID-HOME-08`.
