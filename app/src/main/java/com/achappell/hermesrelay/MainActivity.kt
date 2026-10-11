@@ -90,10 +90,13 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         runtime.journal.record("app phase=started")
+        runtime.appStarted()
     }
 
     override fun onStop() {
         runtime.journal.record("app phase=stopped")
+        // A recreation is not a background; the runtime ignores it.
+        runtime.appBackgrounded(isChangingConfigurations)
         super.onStop()
     }
 
@@ -450,6 +453,8 @@ internal fun AndroidClientScreen(
     // Operator-handle Profiles keep the deliberate connect action.
     val selectedIsPaired = configuration?.collection?.selected?.homeClientGrant != null
     LaunchedEffect(selectedProfileId, selectedIsPaired) {
+        // A ladder retrying the previous Profile stops before this one connects.
+        runtime.profileSelected(selectedProfileId)
         if (
             selectedIsPaired &&
             canAttemptConnection &&
@@ -507,8 +512,10 @@ internal fun AndroidClientScreen(
         runtime.reconnectIfForeground = {
             val resumed = lifecycleOwner.lifecycle.currentState
                 .isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
-            // An unresolved turn waits for the user's explicit resend/discard.
-            if (resumed && !hasUnresolvedTurn) latestResumeConnection()
+            // An unconfirmed turn does not hold the transport back: it
+            // reconnects, never resends, and the prompt stays offered for an
+            // explicit Resend or Discard (`ANDROID-HOME-04`).
+            if (resumed) latestResumeConnection()
         }
     }
     // No screen, no foreground reconnect: the runtime outlives this composition.
@@ -518,6 +525,7 @@ internal fun AndroidClientScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                runtime.appForegrounded()
                 latestResumeConnection()
                 latestRefreshApprovals()
             }

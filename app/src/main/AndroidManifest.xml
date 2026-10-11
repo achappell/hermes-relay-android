@@ -11,6 +11,8 @@
     <!-- The Hermes relay is reached over the tailnet with wss://; no cleartext
          permission or network security configuration is required. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Reconnect as soon as the default network returns (normal permission). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Tap-to-speak. Audio is transcribed on device and never uploaded: the
          relay refuses binary ingress and accepts local-STT text only. -->
@@ -22,6 +24,8 @@
     <application
         android:name=".HermesRelayApplication"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
