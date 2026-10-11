@@ -55,7 +55,6 @@
 - source_spec: `spec-android-home-06-backgrounded-transport-disconnected-2.md`
   summary: A half-open socket while the app stays foregrounded still shows `Connected` until `ANDROID-NET-01` adds probing; `hasLiveTransport()` is structural only.
   evidence: decision 2 of the build spec; stop-close removes the background case.
-
 ## Deferred from: bmad-build review of spec-android-rel-03-r8-baseline-16kb.md (2026-10-10)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-android-rel-03-r8-baseline-16kb.md`

@@ -293,11 +293,38 @@ class HomeRuntimeReconnectTest {
             mutableListOf(AndroidReconnectOutcome.Connected("bridge-2")),
             initiation = AndroidInitiationResult.Uncertain(request, AndroidHomeUnavailableReason.TransportUnavailable),
         )
+        val runtime = runtime(home)
+        runtime.appForegrounded()
+
+        runtime.initiate(AndroidTurnInput.Typed("hello"))
+        work.drain()
+        assertNotNull(runtime.recoveryState.unconfirmedTurn)
+        home.dropTransport()
+        work.drain()
+
+        assertEquals(AndroidConnectionState.Connected, runtime.recoveryState.connection)
+        assertEquals("submit failure and later transport loss each reconnect", 2, home.reconnects)
+        assertEquals("one prompt.submit overall", 1, home.beginTurns)
+        assertEquals(
+            "the unconfirmed prompt is still offered",
+            AndroidUnconfirmedTurn(null, request),
+            runtime.recoveryState.unconfirmedTurn,
+        )
+    }
+
+    /** `ANDROID-HOME-06`: submit failure and transport loss start one ladder, not two. */
+    @Test
+    fun a_submit_transport_failure_coalesces_recovery_with_transport_loss() {
+        val request = AndroidTurnRequest(profile, AndroidTurnInput.Typed("hello"))
+        val home = ScriptedHome(
+            clock,
+            mutableListOf(AndroidReconnectOutcome.Connected("bridge-2")),
+            initiation = AndroidInitiationResult.Uncertain(request, AndroidHomeUnavailableReason.TransportUnavailable),
+        )
         home.dropOnSubmit = true
         val runtime = runtime(home)
         runtime.appForegrounded()
 
-        // The submit fails and the transport loss is reported in the same attempt.
         runtime.initiate(AndroidTurnInput.Typed("hello"))
         work.drain()
 
