@@ -247,10 +247,27 @@ internal class HomeRuntime(
      */
     fun appBackgrounded(isChangingConfigurations: Boolean) {
         if (isChangingConfigurations) return
-        lifecycle.enterBackground()
+        val stopped = lifecycle.enterBackground()
         recoveryController.cancelRecovery()
+        // With a reply, capture or submit in flight the socket stays
+        // (`ANDROID-HOME-08` owns that); otherwise the transport is closed
+        // without ending the claim, so Home parks it for the next start.
+        val idle = !userDisconnected && !hasAcceptedTurn && !initiationInFlight && !resendInFlight &&
+            captureController?.isCapturing != true
+        if (!idle) return
+        runOnWork {
+            // A newer start superseded this stop: its socket is not ours to close.
+            if (!lifecycle.isCurrent(stopped)) return@runOnWork
+            journal.record("lifecycle deactivate trigger=stopWithoutRetention reply=none")
+            clientPort.closeForLifecycle()
+            // On the worker, before any queued reconnect looks at the state.
+            recoveryController.disconnectForLifecycle()
+        }
     }
 
+    /** A Connected state is trusted only while a ready socket exists (`ANDROID-HOME-06`). */
+    val needsReconnect: Boolean
+        get() = recoveryState.connection != AndroidConnectionState.Connected || !clientPort.hasLiveTransport()
     private var lastSelectedProfileId: String? = null
 
     /**
@@ -364,6 +381,10 @@ internal class HomeRuntime(
                     reason = state.reason.name,
                     inFlightTurn = AndroidUnconfirmedTurn(binding = null, request = state.request),
                 )
+                // A submit that failed at the transport reconnects; it never resends.
+                if (state.reason == AndroidHomeUnavailableReason.TransportUnavailable) {
+                    recover()
+                }
             }
 
             is AndroidInitiationState.Rejected -> lastRequest = null
@@ -405,6 +426,10 @@ internal class HomeRuntime(
     /** Starts the bounded reconnect ladder off the main thread. */
     fun recover() {
         if (userDisconnected || recoveryController.isLadderLive) return
+        // A cached Connected without a live transport is not trusted.
+        if (recoveryState.connection == AndroidConnectionState.Connected && !clientPort.hasLiveTransport()) {
+            recoveryController.transportLost("Hermes Session transport is not live.")
+        }
         val queuedUnder = lifecycle.generation
         // One waiting request per input is enough: a second one would run
         // another full ladder after the first ended Failed.

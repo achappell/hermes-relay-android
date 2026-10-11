@@ -503,7 +503,7 @@ internal fun AndroidClientScreen(
         if (
             homeConversations?.selectedIsPaired() == true &&
             canAttemptConnection &&
-            recoveryState.connection != AndroidConnectionState.Connected
+            runtime.needsReconnect
         ) {
             recover()
         }

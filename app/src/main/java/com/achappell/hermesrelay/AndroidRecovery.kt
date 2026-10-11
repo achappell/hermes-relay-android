@@ -169,6 +169,23 @@ internal class AndroidRecoveryController(
     }
 
     /**
+     * The app stopped and its transport was closed (`ANDROID-HOME-06`). A live
+     * or pending state becomes Disconnected at once; a reason already shown
+     * and an unconfirmed turn are kept.
+     */
+    fun disconnectForLifecycle(): AndroidRecoveryState {
+        if (state.connection is AndroidConnectionState.Failed) return state
+        state = state.copy(
+            connection = AndroidConnectionState.Disconnected,
+            connectionId = null,
+            unresolvedHomeTurn = false,
+            resumedTurnBinding = null,
+            isRecovering = false,
+        )
+        return state
+    }
+
+    /**
      * Stop the running ladder (and so any wait between attempts) at its next
      * checkpoint; it leaves the state Disconnected rather than Reconnecting.
      * Safe from any thread, a no-op when no ladder runs.

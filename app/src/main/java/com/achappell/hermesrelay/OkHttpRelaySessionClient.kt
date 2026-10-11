@@ -1313,16 +1313,29 @@ internal class OkHttpRelaySessionClient(
     /** Compatibility entry point used by the pre-Home live tests. */
     fun disconnect() = close()
 
+    override fun hasLiveTransport(): Boolean {
+        val profileId = collection().selected?.id
+        return profileId != null &&
+            activeSocket.get() != null &&
+            ready.get() &&
+            connectionId.get() != null &&
+            activeProfileId.get() == profileId
+    }
+
+    override fun closeForLifecycle() {
+        closeTransport(initiator = "lifecycle")
+    }
+
     override fun endSession() {
         releaseHeldClaim("disconnect", awaitCloseAcknowledgement = true)
-        closeTransport()
+        closeTransport(initiator = "disconnect")
         activeTurn.set(null)
     }
 
     override fun close() {
         journal.record("home client close")
         releaseHeldClaim("disconnect", asynchronous = true)
-        closeTransport()
+        closeTransport(initiator = "dispose")
         observer.set(null)
         activeTurn.set(null)
         synchronized(turnAdmissionLock) {
@@ -1635,10 +1648,17 @@ internal class OkHttpRelaySessionClient(
         }.start()
     }
 
-    private fun closeTransport() {
+    /**
+     * Closes the transport. The call that takes the socket records [initiator]
+     * once; later calls find none and record nothing (`ANDROID-HOME-06`).
+     */
+    private fun closeTransport(initiator: String? = null) {
         transportGeneration.incrementAndGet()
         awaitingAudio.set(false)
         val socket = activeSocket.getAndSet(null)
+        if (socket != null && initiator != null) {
+            journal.record("home client close socket=true initiator=$initiator")
+        }
         // Lifecycle teardown is not a protocol handshake. Force cancellation
         // so a peer that ignores the close frame cannot keep the app's socket
         // and OkHttp worker alive.

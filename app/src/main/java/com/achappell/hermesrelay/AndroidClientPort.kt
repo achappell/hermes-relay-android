@@ -275,6 +275,20 @@ internal interface AndroidClientPort {
      */
     fun endSession() = Unit
 
+    /**
+     * Whether a ready socket bound to the selected Profile exists
+     * (`ANDROID-HOME-06`). Structural only; probing a half-open socket is
+     * `ANDROID-NET-01`.
+     */
+    fun hasLiveTransport(): Boolean = true
+
+    /**
+     * Closes the transport because the app stopped (`ANDROID-HOME-06`) without
+     * `conversation.close`: the held claim stays so Home parks it and the next
+     * [reconnect] reopens it. Idempotent.
+     */
+    fun closeForLifecycle() = Unit
+
     /** Lifecycle owner calls this when the screen leaves the active lifecycle. */
     fun close() = Unit
 }

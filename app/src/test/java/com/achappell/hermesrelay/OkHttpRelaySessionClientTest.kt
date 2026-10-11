@@ -2634,6 +2634,72 @@ class OkHttpRelaySessionClientTest {
         client.close()
     }
 
+    /** `ANDROID-HOME-06`: a lifecycle close parks the claim; the next start reopens it, once. */
+    @Test
+    fun a_lifecycle_close_keeps_the_claim_and_the_next_start_reconnects_it() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        val closed = CountDownLatch(1)
+        val journal = RecordingJournal()
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, closed)))
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, closed)))
+        val paired = pairedClient(journal = journal)
+
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        assertTrue(paired.client.hasLiveTransport())
+        paired.client.closeForLifecycle()
+        paired.client.closeForLifecycle()
+        assertFalse("no live transport after the close", paired.client.hasLiveTransport())
+        val reopened = paired.client.reconnect()
+
+        assertTrue(reopened.toString(), reopened is AndroidReconnectOutcome.Connected)
+        assertEquals(listOf("conversation.open", "conversation.reconnect"), methods.toList())
+        assertEquals("conversation.close was never sent", 1L, closed.count)
+        assertEquals("the claim was parked, not replaced", 1, paired.claims.get())
+        assertEquals("two calls, one initiator line", 1,
+            journal.count("home client close socket=true initiator="))
+        paired.client.close()
+    }
+
+    /** `ANDROID-HOME-06`: lifecycle close, disconnect and dispose back to back cancel one socket and name one initiator. */
+    @Test
+    fun back_to_back_closes_record_one_initiator() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        val journal = RecordingJournal()
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        val paired = pairedClient(journal = journal)
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+
+        paired.client.closeForLifecycle()
+        paired.client.endSession()
+        paired.client.close()
+
+        assertEquals(1, journal.count("home client close socket=true initiator="))
+        assertEquals(1, journal.count("home client close socket=true initiator=lifecycle"))
+    }
+
+    /** `ANDROID-HOME-06`: no `prompt.submit` frame is written without a live client. */
+    @Test
+    fun a_turn_without_a_live_transport_is_refused_without_a_frame() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        server.enqueue(MockResponse().withWebSocketUpgrade(pairedBridge(methods, handles, CountDownLatch(1))))
+        val paired = pairedClient()
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+        paired.client.closeForLifecycle()
+
+        val result = paired.client.beginTurn(
+            AndroidTurnRequest(AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("hello")),
+        )
+
+        assertEquals(
+            AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable),
+            result,
+        )
+        assertEquals(listOf("conversation.open"), methods.toList())
+        paired.client.close()
+    }
     /**
      * Found on a Pixel 6a (2026-10-06): an operator Device-administration step run
      * against a paired Profile left `phase=Unavailable, last_error=InvalidEndpoint`

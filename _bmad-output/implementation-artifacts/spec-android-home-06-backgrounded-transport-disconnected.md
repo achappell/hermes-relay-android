@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-06
 title: Treat a backgrounded Home transport as disconnected, and close or reconnect it exactly once
-status: backlog
+status: review
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
