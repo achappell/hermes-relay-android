@@ -106,6 +106,16 @@ checks. Instrumentation tests remain a local-device/emulator check for Android
 changelog; merging its release PR creates a `v*` tag and packages a release APK
 with a `SHA256SUMS.txt` file.
 
+The release variant is minified with R8 and resource shrinking. Pull requests
+build and lint it (`assembleRelease lintRelease`), run
+`scripts/check-apk-metadata.sh` on it (backup and data-extraction rules, and
+16 KB page-size alignment of the 64-bit native libraries via
+`scripts/check_elf_alignment.py`), and fail if R8 emits a non-empty
+`missing_rules.txt` or renames `okhttp3.internal.http2.StreamResetException`.
+The release workflow uploads `mapping.txt` as the `r8-mapping-<tag>` workflow
+artifact (90 days); it is not a release asset. De-obfuscate a stack trace with
+`retrace mapping.txt trace.txt` from the Android SDK command-line tools.
+
 The release APK is signed with a developer keystore so it can be sideloaded and
 upgraded in place. CI reads it from four repository secrets:
 

@@ -76,3 +76,12 @@
 - source_spec: `spec-android-home-08-background-voice-2.md`
   summary: No JVM test covers `HomeVoiceService`, `ServiceForegroundController` or `PlatformAudioFocusController`, or the resend path's retention entry.
   evidence: platform classes are device-verified by design; `resendUnconfirmedTurn` shares `syncRetention` with `initiate`, which is covered.
+
+## Deferred from: bmad-build review of spec-android-rel-03-r8-baseline-16kb.md (2026-10-10)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-android-rel-03-r8-baseline-16kb.md`
+  summary: Add a shell-level contract test for `scripts/check-apk-metadata.sh` failure branches (missing manifest attributes, misaligned library) using a stubbed `apkanalyzer` and fixture APKs.
+  evidence: No test runs the script; CI only exercises the passing path, so loosening a grep or dropping the alignment call would stay green (verification-gap review, 2026-10-10).
+- source_spec: `_bmad-output/implementation-artifacts/spec-android-rel-03-r8-baseline-16kb.md`
+  summary: Run the minified release APK on an owner-approved device (pair, QR scan, typed and spoken turn, lock-screen playback, cold-start before/after) before any release tag.
+  evidence: R8 runtime correctness is unproven by static checks; install on the Pixel 6a is forbidden for this work (verification-gap review, 2026-10-10).
