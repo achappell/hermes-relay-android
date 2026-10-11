@@ -2747,7 +2747,6 @@ class OkHttpRelaySessionClientTest {
         assertEquals(listOf("conversation.open"), methods.toList())
         paired.client.close()
     }
-
     /**
      * Found on a Pixel 6a (2026-10-06): an operator Device-administration step run
      * against a paired Profile left `phase=Unavailable, last_error=InvalidEndpoint`

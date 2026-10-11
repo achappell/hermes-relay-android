@@ -76,7 +76,6 @@
 - source_spec: `spec-android-home-08-background-voice-2.md`
   summary: No JVM test covers `HomeVoiceService`, `ServiceForegroundController` or `PlatformAudioFocusController`, or the resend path's retention entry.
   evidence: platform classes are device-verified by design; `resendUnconfirmedTurn` shares `syncRetention` with `initiate`, which is covered.
-
 ## Deferred from: bmad-build review of spec-android-rel-03-r8-baseline-16kb.md (2026-10-10)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-android-rel-03-r8-baseline-16kb.md`

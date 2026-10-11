@@ -522,7 +522,6 @@ internal class HomeRuntime(
     /** A Connected state is trusted only while a ready socket exists (`ANDROID-HOME-06`). */
     val needsReconnect: Boolean
         get() = recoveryState.connection != AndroidConnectionState.Connected || !clientPort.hasLiveTransport()
-
     private var lastSelectedProfileId: String? = null
 
     /**
