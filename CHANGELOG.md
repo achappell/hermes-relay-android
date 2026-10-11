@@ -4,6 +4,7 @@
 
 ### Features
 - Add paced, lifecycle-aware Home reconnect after Android foregrounds: the first attempt runs at once, retries follow 0.5/1/2/4/8 s, a returning network retries immediately, and background, Disconnect or a Profile switch stop it.
+- Close an idle Home transport when the app stops, without ending the conversation, show Disconnected at once, reopen the same conversation on return, and reconnect (never resend) after a submit fails at the transport.
 - Offer Disconnect while Home is reconnecting, and reconnect automatically (never resend) after a transport loss with an unconfirmed turn.
 - Request the normal `ACCESS_NETWORK_STATE` permission to notice the network returning.
 - Add deliberate Home Disconnect with user-only attribution and mid-reply confirmation.

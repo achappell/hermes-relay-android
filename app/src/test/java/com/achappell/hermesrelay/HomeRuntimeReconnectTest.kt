@@ -27,6 +27,8 @@ class HomeRuntimeReconnectTest {
     ) : AndroidClientPort {
         var reconnects = 0
         var beginTurns = 0
+        /** The transport drops while the submit is being sent (`ANDROID-HOME-06`). */
+        var dropOnSubmit = false
         val attemptTimesMillis = mutableListOf<Long>()
         private var connectionListener: ((AndroidNormalizedEvent.Disconnected) -> Unit)? = null
 
@@ -40,6 +42,7 @@ class HomeRuntimeReconnectTest {
 
         override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult {
             beginTurns += 1
+            if (dropOnSubmit) dropTransport()
             return initiation
         }
 
@@ -290,17 +293,16 @@ class HomeRuntimeReconnectTest {
             mutableListOf(AndroidReconnectOutcome.Connected("bridge-2")),
             initiation = AndroidInitiationResult.Uncertain(request, AndroidHomeUnavailableReason.TransportUnavailable),
         )
+        home.dropOnSubmit = true
         val runtime = runtime(home)
         runtime.appForegrounded()
 
+        // The submit fails and the transport loss is reported in the same attempt.
         runtime.initiate(AndroidTurnInput.Typed("hello"))
-        work.drain()
-        assertNotNull(runtime.recoveryState.unconfirmedTurn)
-        home.dropTransport()
         work.drain()
 
         assertEquals(AndroidConnectionState.Connected, runtime.recoveryState.connection)
-        assertEquals(1, home.reconnects)
+        assertEquals("one recovery, not one per signal", 1, home.reconnects)
         assertEquals("one prompt.submit overall", 1, home.beginTurns)
         assertEquals(
             "the unconfirmed prompt is still offered",

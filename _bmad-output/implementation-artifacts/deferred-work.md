@@ -46,3 +46,12 @@
 - source_spec: `spec-android-home-04-foreground-reconnect-2.md`
   summary: `MainActivity` lifecycle/Profile wiring and `ConnectivityNetworkEvents` have no automated test.
   evidence: only instrumented tests (outside the CI recipe) can drive them; device checks are pending in `validation-android-home-04.md`.
+
+## Deferred from: code review of spec-android-home-06-backgrounded-transport-disconnected-2.md (2026-10-10)
+
+- source_spec: `spec-android-home-06-backgrounded-transport-disconnected-2.md`
+  summary: `latestResumeConnection` and the `MainActivity` stop wiring have no automated test; the runtime seam (`needsReconnect`, `appBackgrounded`) is covered.
+  evidence: only instrumented tests outside the CI recipe can drive the Compose lambda; device check pending.
+- source_spec: `spec-android-home-06-backgrounded-transport-disconnected-2.md`
+  summary: A half-open socket while the app stays foregrounded still shows `Connected` until `ANDROID-NET-01` adds probing; `hasLiveTransport()` is structural only.
+  evidence: decision 2 of the build spec; stop-close removes the background case.

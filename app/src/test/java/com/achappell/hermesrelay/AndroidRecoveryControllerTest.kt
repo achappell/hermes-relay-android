@@ -363,4 +363,29 @@ class AndroidRecoveryControllerTest {
             return outcome
         }
     }
+
+    @Test
+    fun a_lifecycle_disconnect_keeps_a_failed_reason() {
+        val port = FakeRecoveryPort(outcomes = listOf(AndroidReconnectOutcome.Unrecoverable("Rejected.")))
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(1))
+        controller.recover()
+
+        val state = controller.disconnectForLifecycle()
+
+        assertEquals(AndroidConnectionState.Failed("Rejected."), state.connection)
+    }
+
+    @Test
+    fun a_lifecycle_disconnect_shows_disconnected_and_keeps_the_unconfirmed_turn() {
+        val port = FakeRecoveryPort(outcomes = listOf(AndroidReconnectOutcome.Connected("session-2")))
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(1))
+        controller.transportLost("Transport closed.", unconfirmed)
+        controller.recover()
+
+        val state = controller.disconnectForLifecycle()
+
+        assertEquals(AndroidConnectionState.Disconnected, state.connection)
+        assertEquals(unconfirmed, state.unconfirmedTurn)
+        assertEquals(null, state.connectionId)
+    }
 }
