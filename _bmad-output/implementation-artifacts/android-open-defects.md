@@ -82,6 +82,7 @@ exists, so the phase can be non-terminal with a null `binding`. Nothing reads
 `binding` in that window today and `A-3`'s ladder keys off connection state, but
 recovery and interruption while hands-free is armed should be checked here
 first. Tracked as Android story `ANDROID-WATCH-F1` (spec `spec-android-watch-f1-listening-without-binding.md`, GitHub #113).
+Partial progress (draft PR, 2026-10-10): `AndroidTurnState.isTerminal` now treats `Listening` with no binding as terminal for turn actions, so `binding` is read through `hasAcceptedTurn` in that window. Not yet resolved: microphone release when the transport drops while armed, conversation switch while armed (`switchConversation` does not cancel capture), and the device recheck.
 
 ## Resolved: `ANDROID-BUG-F4` — the header contradicted the screen below it
 
