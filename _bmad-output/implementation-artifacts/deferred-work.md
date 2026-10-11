@@ -64,6 +64,27 @@
 - source_spec: `spec-android-home-06-backgrounded-transport-disconnected-2.md`
   summary: A half-open socket while the app stays foregrounded still shows `Connected` until `ANDROID-NET-01` adds probing; `hasLiveTransport()` is structural only.
   evidence: decision 2 of the build spec; stop-close removes the background case.
+
+## Deferred from: code review of spec-android-home-08-background-voice-2.md, 08a (2026-10-11)
+
+- source_spec: `spec-android-home-08-background-voice-2.md`
+  summary: A failed foreground-service start (`startForegroundService` or `startForeground` throwing) is journaled but not fed back to the runtime, which keeps the socket and audio open on a stop without the service it counts on.
+  evidence: `ServiceForegroundController.sync` and `HomeVoiceService.onStartCommand` log `fgs start failed`; `HomeRuntime.pushServiceState` records the state as applied. Settle on a device whether a start from a visible Activity ever fails.
+- source_spec: `spec-android-home-08-background-voice-2.md`
+  summary: A held reply's next stream starts unpaused until the runtime's re-pause (event, main thread, shared worker) lands.
+  evidence: `AudioTrackAudioSink.start` cancels the previous stream, which clears the hold; the 1 s startup buffer normally covers the gap unless the worker is busy. Keeping the hold in the sink across `start` is the alternative; revisit with `ANDROID-HOME-09`.
+- source_spec: `spec-android-home-08-background-voice-2.md`
+  summary: Audio focus denied (for example during a call) is journaled and the reply plays on; delayed gain is not requested.
+  evidence: `HomeRuntime.syncFocus`; `ANDROID-HOME-09` owns delayed gain and the focus nuance.
+- source_spec: `spec-android-home-08-background-voice-2.md`
+  summary: `HomeRuntime.outputPaused` is not shown in the app; a pause while the app is visible has no in-app control.
+  evidence: only the notification and focus gain resume; add an in-app indicator when HOME-09 or the UX pass touches the reply controls.
+- source_spec: `spec-android-home-08-background-voice-2.md`
+  summary: A Stop pressed while a submit is still in flight (no accepted binding yet) cannot latch a binding, so the accepted turn re-enters retention.
+  evidence: `HomeRuntime.stopReply` latches `acceptedBinding`; a submit in flight has none. Needs a submit-scoped latch.
+- source_spec: `spec-android-home-08-background-voice-2.md`
+  summary: No JVM test covers `HomeVoiceService`, `ServiceForegroundController` or `PlatformAudioFocusController`, or the resend path's retention entry.
+  evidence: platform classes are device-verified by design; `resendUnconfirmedTurn` shares `syncRetention` with `initiate`, which is covered.
 ## Deferred from: bmad-build review of spec-android-rel-03-r8-baseline-16kb.md (2026-10-10)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-android-rel-03-r8-baseline-16kb.md`

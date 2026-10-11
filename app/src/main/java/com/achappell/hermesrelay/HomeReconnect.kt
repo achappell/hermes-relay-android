@@ -114,17 +114,34 @@ internal interface NetworkListener {
 internal class HomeLifecycleCoordinator {
     private val counter = AtomicLong(0)
 
+    /**
+     * Whether the app is in front. True until the first stop, so a runtime that
+     * never saw a lifecycle input treats itself as foreground.
+     */
+    @Volatile
+    var isForeground: Boolean = true
+        private set
+
     val generation: Long
         get() = counter.get()
 
     /** Records `ON_START`; generation changes even before the resumed reconnect is considered. */
-    fun enterStarted(): Long = counter.incrementAndGet()
+    fun enterStarted(): Long {
+        isForeground = true
+        return counter.incrementAndGet()
+    }
 
     /** Records `ON_RESUME` and returns the new generation. */
-    fun enterForeground(): Long = counter.incrementAndGet()
+    fun enterForeground(): Long {
+        isForeground = true
+        return counter.incrementAndGet()
+    }
 
     /** Records the app leaving the foreground and returns the new generation. */
-    fun enterBackground(): Long = counter.incrementAndGet()
+    fun enterBackground(): Long {
+        isForeground = false
+        return counter.incrementAndGet()
+    }
 
     fun isCurrent(generation: Long): Boolean = counter.get() == generation
 }

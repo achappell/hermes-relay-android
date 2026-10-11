@@ -2661,6 +2661,53 @@ class OkHttpRelaySessionClientTest {
         paired.client.close()
     }
 
+    /** `ANDROID-HOME-08`: the port's Pause and Play reach the sink. */
+    @Test
+    fun pausing_and_resuming_the_output_reach_the_audio_sink() {
+        val sink = RecordingAudioSink()
+        val client = client(audioSink = sink)
+
+        client.pauseOutput()
+        client.resumeOutput()
+
+        assertEquals(1, sink.pauseCalls)
+        assertEquals(1, sink.resumeCalls)
+        client.close()
+    }
+
+    /** `ANDROID-HOME-08`: after an interrupt the socket closes gracefully, so the queued frame is delivered. */
+    @Test
+    fun a_close_after_an_interrupt_is_a_graceful_close_first() {
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        val handles = Collections.synchronizedList(mutableListOf<String>())
+        val bridge = pairedBridge(methods, handles, CountDownLatch(1))
+        val closing = CountDownLatch(1)
+        val closeCode = java.util.concurrent.atomic.AtomicInteger(-1)
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, text: String) =
+                        bridge.onMessage(webSocket, text)
+
+                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                        closeCode.set(code)
+                        closing.countDown()
+                        webSocket.close(code, null)
+                    }
+                },
+            ),
+        )
+        val paired = pairedClient()
+        assertTrue(paired.client.reconnect() is AndroidReconnectOutcome.Connected)
+
+        paired.client.closeAfterInterrupt()
+
+        assertTrue("the server saw a close frame, not a cancel", closing.await(5, TimeUnit.SECONDS))
+        assertEquals(1000, closeCode.get())
+        assertFalse(paired.client.hasLiveTransport())
+        paired.client.close()
+    }
+
     /** `ANDROID-HOME-06`: lifecycle close, disconnect and dispose back to back cancel one socket and name one initiator. */
     @Test
     fun back_to_back_closes_record_one_initiator() {

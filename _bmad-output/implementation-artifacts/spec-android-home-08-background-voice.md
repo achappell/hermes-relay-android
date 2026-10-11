@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-08
 title: Keep Home reply and voice conversations running in the background
-status: backlog
+status: in-progress
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01

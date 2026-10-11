@@ -5,6 +5,9 @@
 ### Features
 - Add paced, lifecycle-aware Home reconnect after Android foregrounds: the first attempt runs at once, retries follow 0.5/1/2/4/8 s, a returning network retries immediately, and background, Disconnect or a Profile switch stop it.
 - Close an idle Home transport when the app stops, without ending the conversation, show Disconnected at once, reopen the same conversation on return, and reconnect (never resend) after a submit fails at the transport.
+- Keep a Home reply playing after the app stops: a foreground service with a content-free media notification (Pause/Play, Stop) holds the transport and audio until the reply's audio has drained, then parks the conversation; Stop interrupts the reply, and a paused reply ends after 60 seconds while stopped.
+- Request audio focus once per reply, pause the reply on a transient focus loss and stop it on a permanent one.
+- Request `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `WAKE_LOCK` and (Android 13+) `POST_NOTIFICATIONS` for the reply notification; a denied notification permission never blocks a reply.
 - Offer Disconnect while Home is reconnecting, and reconnect automatically (never resend) after a transport loss with an unconfirmed turn.
 - Request the normal `ACCESS_NETWORK_STATE` permission to notice the network returning.
 - Add deliberate Home Disconnect with user-only attribution and mid-reply confirmation.

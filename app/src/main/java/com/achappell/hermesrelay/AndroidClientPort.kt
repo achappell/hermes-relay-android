@@ -264,6 +264,17 @@ internal interface AndroidClientPort {
     /** True while Home still owns an accepted turn, including audio fallback. */
     fun hasActiveTurn(): Boolean = false
 
+    /**
+     * Holds the reply's local audio output without telling Home (`ANDROID-HOME-08`);
+     * Home keeps streaming and the sink keeps what arrives. Cleared by
+     * [resumeOutput] and by anything that cancels the audio (a new stream, an
+     * interrupt, a transport close), so the caller reapplies it to a new stream.
+     */
+    fun pauseOutput() = Unit
+
+    /** Continues output held by [pauseOutput]. */
+    fun resumeOutput() = Unit
+
     /** Clears a client-side uncertain-delivery guard after an explicit user action. */
     fun prepareForExplicitResend() = Unit
 
@@ -288,6 +299,13 @@ internal interface AndroidClientPort {
      * [reconnect] reopens it. Idempotent.
      */
     fun closeForLifecycle() = Unit
+
+    /**
+     * [closeForLifecycle] after an interrupt was just sent (`ANDROID-HOME-08`):
+     * the interrupt frame is flushed before the socket is cancelled, so Home
+     * does not keep a turn the user stopped.
+     */
+    fun closeAfterInterrupt() = closeForLifecycle()
 
     /** Lifecycle owner calls this when the screen leaves the active lifecycle. */
     fun close() = Unit
