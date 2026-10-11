@@ -90,6 +90,9 @@ class HermesRelayApplication : Application() {
             onTornDown = onTornDown,
             journal = journal,
             networkEvents = ConnectivityNetworkEvents(this, journal),
+            foregroundService = ServiceForegroundController(this, journal),
+            audioFocus = PlatformAudioFocusController(this),
+            retentionTimers = MainLooperVoiceTimers,
         )
     }
 }

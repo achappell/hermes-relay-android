@@ -120,6 +120,13 @@
     <string name="android_capture_stop">Stop and send</string>
     <string name="android_capture_cancel">Cancel</string>
     <string name="android_capture_grant">Allow microphone</string>
+    <string name="android_voice_channel_name">Hermes replies</string>
+    <string name="android_voice_card_title">Hermes conversation</string>
+    <string name="android_voice_replying">Hermes is replying</string>
+    <string name="android_voice_paused">Paused</string>
+    <string name="android_voice_action_pause">Pause</string>
+    <string name="android_voice_action_play">Play</string>
+    <string name="android_voice_action_stop">Stop</string>
     <string name="android_capture_block_permission">Tap-to-speak needs the microphone. Audio is transcribed on this device and is not uploaded unless you allow network recognition.</string>
     <string name="android_capture_block_permission_rationale">Hermes transcribes your speech on this device and sends only the text. Tap-to-speak needs the microphone; allow it to continue.</string>
     <string name="android_capture_block_permission_settings">Microphone access is turned off for Hermes, so Android will not ask again. Open settings, choose Permissions, then allow the microphone.</string>

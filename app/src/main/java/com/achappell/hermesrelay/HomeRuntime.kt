@@ -39,6 +39,11 @@ internal class HomeRuntime(
     clock: MonotonicClock = MonotonicClock.Real,
     /** Default-network events: a returning network skips the rest of a backoff wait. */
     networkEvents: NetworkEvents = NetworkEvents.None,
+    /** Keeps a reply alive after the app stops (`ANDROID-HOME-08`). */
+    private val foregroundService: ForegroundServiceController = ForegroundServiceController.None,
+    private val audioFocus: AudioFocusController = AudioFocusController.None,
+    private val retentionTimers: VoiceTimers = NoVoiceTimers,
+    private val retentionTimings: RetentionTimings = RetentionTimings.Default,
 ) {
     val homeConversations: AndroidHomeConversations? = clientPort as? AndroidHomeConversations
     val initiationController = AndroidInitiationController(clientPort)
@@ -96,6 +101,22 @@ internal class HomeRuntime(
     /** Orders foreground and background inputs; only the newest one wins (`ANDROID-HOME-04`). */
     val lifecycle = HomeLifecycleCoordinator()
 
+    /** What the last [syncRetention] decided; the foreground service follows it. */
+    private var appliedRetention = BackgroundRetention.None
+    private val pauseReasons = mutableSetOf<PauseReason>()
+    private var pausedHold: VoiceTimer? = null
+    private var retentionWatchdog: VoiceTimer? = null
+    private var lastServiceState: VoiceServiceState? = null
+    private var focusAsked = false
+    private var inBackgroundRetention = false
+
+    /** The turn a stop was applied to; it never re-enters retention, whatever events follow. */
+    private var stoppedBinding: AndroidTurnBinding? = null
+
+    /** True while the user or a focus loss holds the reply's output. */
+    var outputPaused by mutableStateOf(false)
+        private set
+
     val recoveryController = AndroidRecoveryController(
         clientPort = clientPort,
         policy = reconnectPolicy,
@@ -109,6 +130,7 @@ internal class HomeRuntime(
                 updateInitiation(AndroidInitiationState.Accepted(binding))
                 updateTurn(AndroidTurnState.awaitingEvents(binding))
             }
+            syncRetention()
         }
     }
 
@@ -233,10 +255,12 @@ internal class HomeRuntime(
      */
     fun appStarted() {
         lifecycle.enterStarted()
+        foregroundEntered()
     }
 
     fun appForegrounded() {
         lifecycle.enterForeground()
+        foregroundEntered()
     }
 
     /**
@@ -249,9 +273,18 @@ internal class HomeRuntime(
         if (isChangingConfigurations) return
         val stopped = lifecycle.enterBackground()
         recoveryController.cancelRecovery()
-        // With a reply, capture or submit in flight the socket stays
-        // (`ANDROID-HOME-08` owns that); otherwise the transport is closed
-        // without ending the claim, so Home parks it for the next start.
+        // A reply in flight stays alive under the foreground service until its
+        // audio has drained (`ANDROID-HOME-08`).
+        if (appliedRetention == BackgroundRetention.Reply) {
+            inBackgroundRetention = true
+            journal.record("voice background enter retention=reply")
+            pushServiceState()
+            refreshPausedHold()
+            return
+        }
+        // Otherwise a submit or capture in flight keeps the socket, and an idle
+        // app has its transport closed without ending the claim, so Home parks
+        // it for the next start.
         val idle = !userDisconnected && !hasAcceptedTurn && !initiationInFlight && !resendInFlight &&
             captureController?.isCapturing != true
         if (!idle) return
@@ -262,6 +295,227 @@ internal class HomeRuntime(
             clientPort.closeForLifecycle()
             // On the worker, before any queued reconnect looks at the state.
             recoveryController.disconnectForLifecycle()
+        }
+    }
+
+    private fun foregroundEntered() {
+        if (inBackgroundRetention) {
+            inBackgroundRetention = false
+            journal.record("voice background exit")
+        }
+        // Returning resumes a reply the lock screen paused; a focus hold stays.
+        releaseOutput(PauseReason.User)
+        pushServiceState()
+        refreshPausedHold()
+    }
+
+    /**
+     * What a stop has to keep alive right now. A reply is retained from the
+     * submit until its audio has drained or the turn ended; a lost transport,
+     * a user Disconnect or a settled turn end it.
+     */
+    val retention: BackgroundRetention
+        get() = when {
+            tornDown || userDisconnected -> BackgroundRetention.None
+            recoveryState.connection != AndroidConnectionState.Connected -> BackgroundRetention.None
+            initiationInFlight || resendInFlight -> BackgroundRetention.Reply
+            hasAcceptedTurn && acceptedBinding != stoppedBinding -> BackgroundRetention.Reply
+            else -> BackgroundRetention.None
+        }
+
+    /** Applies a change of [retention]; safe to call after any input that can change it. */
+    private fun syncRetention() {
+        if (tornDown) return
+        val now = retention
+        if (now == appliedRetention) return
+        appliedRetention = now
+        if (now == BackgroundRetention.Reply) {
+            scheduleRetentionWatchdog()
+            pushServiceState()
+        } else {
+            leaveRetention(RetentionEnd.WorkFinished, interrupting = null)
+        }
+    }
+
+    /**
+     * Retained work is over. Releases what it held; with the app stopped it
+     * also runs the `ANDROID-HOME-06` close, so the claim is parked once.
+     */
+    private fun leaveRetention(reason: RetentionEnd, interrupting: AndroidTurnBinding?) {
+        releaseRetentionResources()
+        if (lifecycle.isForeground) {
+            interrupting?.let { binding -> runOnWork { clientPort.interruptTurn(binding) } }
+            return
+        }
+        val stopped = lifecycle.generation
+        inBackgroundRetention = false
+        journal.record("voice background retention ended reason=${reason.journal}")
+        runOnWork {
+            interrupting?.let { clientPort.interruptTurn(it) }
+            // A newer start superseded this stop: its socket is not ours to close.
+            if (!lifecycle.isCurrent(stopped)) return@runOnWork
+            journal.record("lifecycle deactivate trigger=${reason.trigger} reply=none")
+            if (interrupting != null) clientPort.closeAfterInterrupt() else clientPort.closeForLifecycle()
+            recoveryController.disconnectForLifecycle()
+            if (interrupting != null) {
+                runOnMain {
+                    updateInitiation(AndroidInitiationState.Idle)
+                    updateTurn(AndroidTurnState())
+                    // The stopped prompt must not be offered as an unconfirmed turn later.
+                    lastRequest = null
+                    tearDownIfDue()
+                }
+            }
+        }
+    }
+
+    private fun releaseRetentionResources() {
+        retentionWatchdog?.cancel()
+        retentionWatchdog = null
+        pausedHold?.cancel()
+        pausedHold = null
+        pauseReasons.clear()
+        outputPaused = false
+        abandonFocus()
+        pushServiceState()
+    }
+
+    /**
+     * Ends a retained reply at once (notification Stop, a permanent focus loss,
+     * a paused hold that ran out, task removal): Home is told to stop, and with
+     * the app stopped the transport is parked. Idempotent.
+     */
+    private fun stopReply(reason: RetentionEnd) {
+        if (appliedRetention != BackgroundRetention.Reply) return
+        val interrupting = if (hasAcceptedTurn) acceptedBinding else null
+        appliedRetention = BackgroundRetention.None
+        stoppedBinding = acceptedBinding
+        interruptCoordinator.reset()
+        leaveRetention(reason, interrupting)
+    }
+
+    /** The notification's Pause. */
+    fun pauseFromControl() = holdOutput(PauseReason.User)
+
+    /** The notification's Play. */
+    fun playFromControl() = releaseOutput(PauseReason.User)
+
+    /** The notification's Stop. */
+    fun stopFromControl() = stopReply(RetentionEnd.NotificationStop)
+
+    /** The user swiped the app away: nothing stays running, and nothing is replayed. */
+    fun taskRemoved() {
+        stopReply(RetentionEnd.TaskRemoved)
+        tearDownIfDue()
+    }
+
+    private fun holdOutput(reason: PauseReason) {
+        if (appliedRetention != BackgroundRetention.Reply) return
+        if (!pauseReasons.add(reason)) return
+        journal.record("voice output paused reason=${reason.name.lowercase()}")
+        if (pauseReasons.size == 1) {
+            outputPaused = true
+            runOnWork { clientPort.pauseOutput() }
+            pushServiceState()
+        }
+        refreshPausedHold()
+    }
+
+    private fun releaseOutput(reason: PauseReason) {
+        if (!pauseReasons.remove(reason)) return
+        if (pauseReasons.isNotEmpty()) return
+        outputPaused = false
+        refreshPausedHold()
+        // The retained reply may already be over, or its transport gone; then
+        // there is nothing to resume and the end path owns the rest.
+        if (appliedRetention != BackgroundRetention.Reply || !clientPort.hasLiveTransport()) return
+        journal.record("voice output resumed reason=${reason.name.lowercase()}")
+        runOnWork { clientPort.resumeOutput() }
+        pushServiceState()
+    }
+
+    /** A reply held paused while stopped ends after [RetentionTimings.pausedHoldMillis]. */
+    private fun refreshPausedHold() {
+        val wanted = pauseReasons.isNotEmpty() && !lifecycle.isForeground &&
+            appliedRetention == BackgroundRetention.Reply
+        if (wanted && pausedHold == null) {
+            pausedHold = retentionTimers.after(retentionTimings.pausedHoldMillis) {
+                pausedHold = null
+                stopReply(RetentionEnd.IdleTimeout)
+            }
+        } else if (!wanted) {
+            pausedHold?.cancel()
+            pausedHold = null
+        }
+    }
+
+    private fun scheduleRetentionWatchdog() {
+        retentionWatchdog?.cancel()
+        retentionWatchdog = retentionTimers.after(retentionTimings.recheckMillis) {
+            retentionWatchdog = null
+            syncRetention()
+            if (appliedRetention == BackgroundRetention.Reply) scheduleRetentionWatchdog()
+        }
+    }
+
+    /**
+     * Tells the foreground service what to show, only when that changes. The
+     * service is started while the app is visible; a start from the background
+     * is not allowed on current Android, so it is skipped and journaled.
+     */
+    private fun pushServiceState() {
+        val state = VoiceServiceState(
+            active = appliedRetention == BackgroundRetention.Reply,
+            paused = outputPaused,
+            appStopped = !lifecycle.isForeground,
+        )
+        val last = lastServiceState
+        if (state == last) return
+        val running = last?.active == true
+        if (!state.active && !running) {
+            lastServiceState = state
+            return
+        }
+        if (state.active && !running && !lifecycle.isForeground) {
+            journal.record("fgs start skipped reason=background")
+            return
+        }
+        lastServiceState = state
+        foregroundService.sync(state)
+    }
+
+    /** One focus request per reply, at the first audio; the gain type is chosen then and never changed. */
+    private fun syncFocus() {
+        if (turnState.isTerminal) {
+            focusAsked = false
+            abandonFocus()
+        } else if (
+            turnState.phase == AndroidTurnPhase.Speaking &&
+            !focusAsked &&
+            appliedRetention == BackgroundRetention.Reply
+        ) {
+            focusAsked = true
+            val granted = audioFocus.request(allowDuck = lifecycle.isForeground) { change ->
+                postToMain { onFocusChange(change) }
+            }
+            journal.record("audio focus request result=${if (granted) "granted" else "denied"}")
+        }
+    }
+
+    private fun abandonFocus() {
+        if (!focusAsked) return
+        focusAsked = false
+        audioFocus.abandon()
+    }
+
+    private fun onFocusChange(change: FocusChange) {
+        journal.record("audio focus event change=${change.name}")
+        when (change) {
+            FocusChange.LossTransient -> holdOutput(PauseReason.Focus)
+            FocusChange.LossPermanent -> stopReply(RetentionEnd.FocusLost)
+            FocusChange.Gain -> releaseOutput(PauseReason.Focus)
+            // Ducking is `ANDROID-HOME-09`; the reply keeps playing.
+            FocusChange.Duck -> Unit
         }
     }
 
@@ -295,21 +549,34 @@ internal class HomeRuntime(
     private fun updateInitiation(state: AndroidInitiationState) {
         initiationState = state
         val binding = acceptedBinding
-        if (binding == observedBinding) return
-        turnObservation?.cancel()
-        observedBinding = binding
-        turnObservation = binding?.let {
-            clientPort.observeTurn(it) { event -> postToMain { onTurnEvent(event) } }
+        if (binding != observedBinding) {
+            turnObservation?.cancel()
+            observedBinding = binding
+            turnObservation = binding?.let {
+                clientPort.observeTurn(it) { event -> postToMain { onTurnEvent(event) } }
+            }
         }
+        syncRetention()
     }
 
     private fun updateTurn(state: AndroidTurnState) {
         turnState = state
         if (!state.isTerminal) settledHandled = false
+        syncRetention()
     }
 
     private fun onTurnEvent(event: AndroidNormalizedEvent) {
+        val phaseBefore = turnState.phase
         updateTurn(AndroidTurnStateReducer.reduce(turnState, event))
+        // A new stream starts unpaused: hold it again if the user or focus still does.
+        if (
+            pauseReasons.isNotEmpty() &&
+            turnState.phase == AndroidTurnPhase.Speaking &&
+            phaseBefore != AndroidTurnPhase.Speaking
+        ) {
+            runOnWork { clientPort.pauseOutput() }
+        }
+        syncFocus()
         // Text-complete (audio still pending) resolves the Home turn as well: Home's
         // control turn is over even though the reply is not yet terminal for the user.
         if (
@@ -407,6 +674,7 @@ internal class HomeRuntime(
             }
         }
         initiationInFlight = true
+        syncRetention()
         clientPort.snapshot().selectedProfile?.let { lastRequest = AndroidTurnRequest(it, input) }
         runOnWork {
             val state = initiationController.initiate(input)
@@ -417,6 +685,7 @@ internal class HomeRuntime(
                     recordAcceptedInput = true,
                     clearTypedPrompt = input is AndroidTurnInput.Typed,
                 )
+                syncRetention()
             }
         }
     }
@@ -481,6 +750,7 @@ internal class HomeRuntime(
         val interrupting = if (hasAcceptedTurn) acceptedBinding else null
         // Set first and on the main thread so no automatic path can race the close.
         userDisconnected = true
+        syncRetention()
         recoveryController.cancelRecovery()
         journal.record("home disconnect initiator=user")
         captureController?.let { capture ->
@@ -517,6 +787,7 @@ internal class HomeRuntime(
     fun resendUnconfirmedTurn() {
         if (resendInFlight) return
         resendInFlight = true
+        syncRetention()
         runOnWork {
             val result = recoveryController.resendUnconfirmedTurn()
             runOnMain {
@@ -527,6 +798,7 @@ internal class HomeRuntime(
                     updateInitiation(AndroidInitiationState.Accepted(result.binding))
                     updateTurn(AndroidTurnState.awaitingEvents(result.binding))
                 }
+                syncRetention()
             }
         }
     }
@@ -574,7 +846,8 @@ internal class HomeRuntime(
     }
 
     private fun tearDownIfDue() {
-        if (teardownWhenSettled && attachedActivities == 0 && turnState.isTerminal) {
+        // Settled: the turn ended, or a stop cleared it.
+        if (teardownWhenSettled && attachedActivities == 0 && (turnState.isTerminal || acceptedBinding == null)) {
             tearDown("replySettled")
         }
     }
@@ -586,6 +859,8 @@ internal class HomeRuntime(
         connectionObservation.cancel()
         networkObservation.cancel()
         recoveryController.cancelRecovery()
+        appliedRetention = BackgroundRetention.None
+        releaseRetentionResources()
         turnObservation?.cancel()
         turnObservation = null
         captureController?.let { capture ->
@@ -625,6 +900,10 @@ internal class HomeRuntimeBox(
         // `runtime teardown` between is a regression.
         journal.record("runtime created")
     }
+
+    /** The runtime if one exists; never creates one. */
+    @Synchronized
+    fun current(): HomeRuntime? = runtime
 
     @Synchronized
     private fun release() {

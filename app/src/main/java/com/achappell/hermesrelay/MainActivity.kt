@@ -235,6 +235,23 @@ internal fun AndroidClientScreen(
     )
     val permissionRevision = microphone.revision
 
+    // The reply card needs notification permission on Android 13+. Ask once, at the
+    // first reply (a user action), and never block the reply on the answer: the
+    // service still runs without it (`ANDROID-HOME-08`).
+    val notifications = rememberRuntimePermission(
+        permission = android.Manifest.permission.POST_NOTIFICATIONS,
+        openSettings = openApplicationSettings,
+    )
+    LaunchedEffect(runtime.retention) {
+        if (
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            runtime.retention == BackgroundRetention.Reply &&
+            notifications.state == RuntimePermissionState.NotAsked
+        ) {
+            notifications.request()
+        }
+    }
+
     val captureBlock = remember(
         captureController,
         isAuthorized,

@@ -1177,6 +1177,10 @@ internal class OkHttpRelaySessionClient(
 
     override fun hasActiveTurn(): Boolean = activeTurn.get() != null
 
+    override fun pauseOutput() = audioSink.pause()
+
+    override fun resumeOutput() = audioSink.resume()
+
     override fun prepareForExplicitResend() {
         synchronized(turnAdmissionLock) {
             uncertainDelivery.set(false)
@@ -1324,6 +1328,10 @@ internal class OkHttpRelaySessionClient(
 
     override fun closeForLifecycle() {
         closeTransport(initiator = "lifecycle")
+    }
+
+    override fun closeAfterInterrupt() {
+        closeTransport(initiator = "lifecycle", flushQueued = true)
     }
 
     override fun endSession() {
@@ -1652,7 +1660,7 @@ internal class OkHttpRelaySessionClient(
      * Closes the transport. The call that takes the socket records [initiator]
      * once; later calls find none and record nothing (`ANDROID-HOME-06`).
      */
-    private fun closeTransport(initiator: String? = null) {
+    private fun closeTransport(initiator: String? = null, flushQueued: Boolean = false) {
         transportGeneration.incrementAndGet()
         awaitingAudio.set(false)
         val socket = activeSocket.getAndSet(null)
@@ -1661,8 +1669,10 @@ internal class OkHttpRelaySessionClient(
         }
         // Lifecycle teardown is not a protocol handshake. Force cancellation
         // so a peer that ignores the close frame cannot keep the app's socket
-        // and OkHttp worker alive.
-        socket?.cancel()
+        // and OkHttp worker alive. After an interrupt the close is graceful
+        // first, so the queued interrupt frame is delivered, and the same
+        // cancel follows after the request timeout.
+        if (flushQueued && socket != null) closeSocketAfterClaimRelease(socket) else socket?.cancel()
         ready.set(false)
         activeProfileId.set(null)
         connectionId.set(null)
