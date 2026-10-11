@@ -10,6 +10,8 @@
 - Let typed Send take ownership from interrupt-and-listen capture, preventing a late transcript from replacing the accepted next turn.
 - Add day/night-aware Android splash styling and enable platform predictive-back support for modal sheets.
 - Add durable Home claim-management capability detection and an "Open on Home" list/close flow for the conversations sheet.
+- Enable R8/resource shrinking for signed release APKs, retain their mapping artifact, and check CameraX libraries for 16 KB page alignment.
+- Exclude all app data from cloud backup and device transfer with Android 12+ extraction rules.
 
 ### Fixes
 - Await Home's `conversation.close` acknowledgement before recording a claim released; report unacknowledged close truthfully.
