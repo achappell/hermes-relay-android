@@ -24,6 +24,7 @@
 - Exclude all app data from cloud backup and device transfer with Android 12+ extraction rules.
 
 ### Fixes
+- Preserve Standard interrupted-turn safety across process death with an opaque write-ahead marker; block silent replacement sessions/replay until deliberate New conversation, while retaining completed history, credentials and drafts.
 - Reveal clipped TalkBack focus targets above the conversation composer using Compose's native scrolling action, without moving keyboard focus.
 - Make ordinary availability, connection/retry and Profile-verification status readable on focus instead of automatically announced, so recovery does not enqueue stale status claims. Preserve microphone-permission guidance, capture/turn feedback and urgent errors.
 - Distinguish temporary connection loss from missing or rejected authorization in doorway, typed-send and microphone guidance. Preserve typed session-refusal reasons and deliberate New conversation recovery without suggesting futile Retry or replaying prompts.

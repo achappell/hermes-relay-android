@@ -15,6 +15,7 @@ import java.util.concurrent.Executors
 internal class HermesRelayServices(context: Context) {
     val credentials = KeystoreRelayCredentialStore(context)
     val historyStore = FileAndroidHistoryStore(context)
+    val standardRestartStore = FileStandardRestartStore(context)
     val pairings = FileHomeClientPairingStore(context)
     val clientService = HttpHomeClientService()
     val configuration = RelayConfigurationController(
@@ -22,6 +23,7 @@ internal class HermesRelayServices(context: Context) {
         credentials = credentials,
         history = historyStore,
         homeClientPairings = pairings,
+        standardRestartStore = standardRestartStore,
     )
     val homePairing = HomeClientPairingCoordinator(
         store = pairings,
@@ -84,6 +86,7 @@ class HermesRelayApplication : Application() {
             standard = OkHttpStandardSessionClient(
                 collection = { services.configuration.collection },
                 credentials = services.credentials,
+                restartStore = services.standardRestartStore,
                 audioSink = AudioTrackAudioSink(driverFactory = platformAudioTrackDriverFactory(platform)),
                 journal = journal,
             ),

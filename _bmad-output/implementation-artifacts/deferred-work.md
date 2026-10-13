@@ -99,3 +99,9 @@
 - source_spec: `spec-compact-doorway-layout.md`
   summary: Add a deterministic real-window IME regression when an isolated keyboard fixture is available; the current permanent test covers composition focus across viewport resize, not Android window pan.
   evidence: Interaction review correctly noted that a synthetic Box resize cannot catch removal of adjustResize. Actual API 36 full-IME smoke reproduced adjustPan and verified the fix at 2x in portrait/landscape, including a fully reachable Send target. Automating that gate must isolate and restore keyboard selection/settings instead of depending on the user's installed IME.
+
+## Deferred from: Standard restart verification (2026-10-13)
+
+- source_spec: `spec-standard-restart.md`
+  summary: Investigate the intermittent AudioSinkPauseTest drain-deadline failure without weakening pause semantics or skipping the regression.
+  evidence: The first full restart-fix run executed 592 tests and failed only AudioSinkPauseTest.kt:129 (paused reply's failure latch became 0). Audio sink/test source was unchanged. Thirty isolated runs on the prior recovery-guidance baseline passed, and the next full run passed without an audio fix. A pause arriving between the worker's paused check and its fresh deadline clock reads is a source-level candidate, not a confirmed root cause; reproduce with controlled barriers before changing the implementation. Runtime severity is medium if confirmed.

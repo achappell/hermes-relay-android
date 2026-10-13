@@ -133,3 +133,13 @@ above is preserved; it is not the current delivery verdict.
 The full scope remains in force. This is not a voice waiver or a completed
 release. See [validation-android-std-01.md](validation-android-std-01.md) for
 commands, actual observations, review fixes and remaining gates.
+
+## Process-restart follow-up — 2026-10-13
+
+Implemented and emulator-verified the bounded restart safety slice in
+`spec-standard-restart.md`: preserve existing saved configuration/history/draft,
+persist only an opaque unresolved-turn marker, and require deliberate successful
+New conversation after interrupted process death. Never replay or silently create
+a replacement session. Session references remain memory-only; this does not add
+cross-launch Resume. See the dated validation section for red/green native proof,
+regression gates, the separately deferred audio-pause failure and remaining limits.

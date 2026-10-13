@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit
 internal class OkHttpStandardSessionClient(
     private val collection: () -> RelayProfileCollection,
     private val credentials: RelayCredentialStore,
+    private val restartStore: StandardRestartStore,
     private val httpClient: OkHttpClient = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build(),
     private val audioSink: AndroidAudioSink = RecordingAudioSink(),
     private val journal: DiagnosticsJournal = DiagnosticsJournal.None,
@@ -53,6 +54,8 @@ internal class OkHttpStandardSessionClient(
     private var storedSession: String? = null
     private var connectionId = ""
     private var uncertain = false
+    private val restoredIdentities = mutableSetOf<String>()
+    private var restartBlocked = false
     private var turn: AndroidTurnBinding? = null
     private var observationBinding: AndroidTurnBinding? = null
     private var observer: ((AndroidNormalizedEvent) -> Unit)? = null
@@ -68,6 +71,52 @@ internal class OkHttpStandardSessionClient(
     private var audioEnding = false
     private var audioFrameBytes = 2
     private var audioRemainder = ByteArray(0)
+
+    init {
+        collection().selected?.takeIf { it.mode == RelayConnectionMode.Standard }?.let(::restoreIdentity)
+    }
+
+    /** Read once per identity: our live write-ahead marker is not a process restart. */
+    private fun restoreIdentity(profile: RelayProfile) {
+        val selectedIdentity = identityOf(profile)
+        if (identity != selectedIdentity) {
+            detachTransport()
+            storedSession = null
+            runtimeSession = null
+            identity = selectedIdentity
+            connectedProfile = profile
+        }
+        if (!restoredIdentities.add(selectedIdentity)) return
+        restartBlocked = try {
+            restartStore.hasUnresolvedTurn(profile)
+        } catch (_: Exception) {
+            journal.record("standard restart result=load_failed")
+            true
+        }
+        if (restartBlocked) {
+            uncertain = true
+            journal.record("standard restart result=blocked")
+        }
+    }
+
+    private fun restartUnavailable() = unavailable(
+        "The previous Standard turn may be unfinished, or its restart safety state could not be saved. Start a new conversation deliberately; reconnect will not resend it.",
+        AndroidHomeUnavailableReason.StaleConversation,
+    )
+
+    /** Existing uncertainty is cleared only by a successful explicit New conversation. */
+    private fun resolveMarker(explicit: Boolean = false): Boolean {
+        if (uncertain && !explicit) return true
+        return try {
+            restartStore.clearUnresolvedTurn(checkNotNull(connectedProfile))
+            true
+        } catch (_: Exception) {
+            uncertain = true
+            restartBlocked = true
+            journal.record("standard restart result=clear_failed")
+            false
+        }
+    }
 
     override fun connectionMode() = RelayConnectionMode.Standard
     override fun hasUncertainTurn() = synchronized(state) { uncertain }
@@ -108,7 +157,7 @@ internal class OkHttpStandardSessionClient(
         connect(newSession = true, timeout = requestTimeoutMillis)
     }
 
-    private fun identityOf(profile: RelayProfile) = "${profile.id}:${profile.historyKey}"
+    private fun identityOf(profile: RelayProfile) = "${profile.id}:${profile.mode}:${profile.historyKey}"
 
     private fun connect(newSession: Boolean, timeout: Long): AndroidReconnectOutcome {
         val profile = collection().selected?.takeIf { it.mode == RelayConnectionMode.Standard }
@@ -119,6 +168,8 @@ internal class OkHttpStandardSessionClient(
             if (identity != null && identity != selectedIdentity && (turn != null || uncertain)) {
                 return unavailable("Finish this conversation before switching profiles.", AndroidHomeUnavailableReason.UnresolvedTurn)
             }
+            restoreIdentity(profile)
+            if (!newSession && restartBlocked) return restartUnavailable()
             if (!newSession && ready && identity == selectedIdentity) return connected()
         }
         val token = runCatching { credentials.readStandardCredential(profile.id) }.getOrNull()
@@ -129,14 +180,7 @@ internal class OkHttpStandardSessionClient(
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeout.coerceAtLeast(1))
         fun remaining() = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).coerceAtLeast(1)
         synchronized(state) {
-            if (identity != selectedIdentity) {
-                detachTransport()
-                storedSession = null
-                runtimeSession = null
-                identity = selectedIdentity
-                connectedProfile = profile
-            }
-            if (newSession && turn != null) uncertain = true
+            if (newSession && turn != null && !textEnded) uncertain = true
         }
         if (!synchronized(state) { ready }) {
             val opened = CountDownLatch(1)
@@ -213,6 +257,11 @@ internal class OkHttpStandardSessionClient(
             storedSession = stored
             connectedProfile = profile
             if (newSession) {
+                if (!resolveMarker(explicit = true)) {
+                    detachTransport()
+                    return restartUnavailable()
+                }
+                restartBlocked = false
                 stopAudio()
                 turn?.let { emit(AndroidNormalizedEvent.TurnInterrupted(it, "A new conversation was started.")) }
                 turn = null
@@ -238,6 +287,8 @@ internal class OkHttpStandardSessionClient(
         val binding: AndroidTurnBinding
         val session: String
         synchronized(state) {
+            if (profile != null && profile.mode == RelayConnectionMode.Standard &&
+                (identity == identityOf(profile) || (turn == null && !uncertain))) restoreIdentity(profile)
             if (profile == null || profile.mode != RelayConnectionMode.Standard || request.profile.id != profile.id ||
                 identity != identityOf(profile)) {
                 return@admission AndroidInitiationResult.Rejected(AndroidInitiationFailure.ProfileUnavailable)
@@ -245,6 +296,14 @@ internal class OkHttpStandardSessionClient(
             if (uncertain) return@admission AndroidInitiationResult.Rejected(AndroidInitiationFailure.DeliveryUncertain)
             if (!ready || turn != null || runtimeSession == null) {
                 return@admission AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable)
+            }
+            try {
+                restartStore.markUnresolvedTurn(profile)
+            } catch (_: Exception) {
+                uncertain = true
+                restartBlocked = true
+                journal.record("standard restart result=mark_failed")
+                return@admission AndroidInitiationResult.Rejected(AndroidInitiationFailure.DeliveryUncertain)
             }
             session = checkNotNull(runtimeSession)
             binding = AndroidTurnBinding(profile.id, checkNotNull(storedSession), connectionId, UUID.randomUUID().toString())
@@ -261,6 +320,10 @@ internal class OkHttpStandardSessionClient(
         val frame = rpc("prompt.submit", JSONObject().put("session_id", session).put("text", text).put("surface", "android"))
         synchronized(state) {
             if (frame == null || (!frame.has("error") && frame.optJSONObject("result") == null)) {
+                if (textEnded && !uncertain) {
+                    journal.record("standard prompt result=accepted")
+                    return@admission AndroidInitiationResult.Accepted(binding)
+                }
                 uncertain = true
                 journal.record("standard prompt result=uncertain")
                 return@admission AndroidInitiationResult.Uncertain(request, AndroidHomeUnavailableReason.TransportUnavailable)
@@ -269,6 +332,9 @@ internal class OkHttpStandardSessionClient(
                 stopAudio()
                 turn = null
                 events.clear()
+                if (!resolveMarker()) {
+                    return@admission AndroidInitiationResult.Rejected(AndroidInitiationFailure.DeliveryUncertain)
+                }
                 journal.record("standard prompt result=rejected")
                 return@admission AndroidInitiationResult.Rejected(AndroidInitiationFailure.RequestRejected)
             }
@@ -319,6 +385,7 @@ internal class OkHttpStandardSessionClient(
                 is AndroidNormalizedEvent.TurnCompleted -> {
                     if (textEnded) return@forEach
                     textEnded = true
+                    resolveMarker()
                     if (stopped || rendered.isBlank()) {
                         finishTurn(binding, if (stopped) AndroidNormalizedEvent.TurnInterrupted(binding, "The response was stopped.") else event)
                     } else {
@@ -328,6 +395,7 @@ internal class OkHttpStandardSessionClient(
                 }
                 is AndroidNormalizedEvent.TurnInterrupted, is AndroidNormalizedEvent.TurnFailed -> {
                     textEnded = true
+                    resolveMarker()
                     stopAudio()
                     val terminal = if (event is AndroidNormalizedEvent.TurnInterrupted) {
                         AndroidNormalizedEvent.TurnInterrupted(binding, "Hermes ended the interrupted response.")
@@ -364,6 +432,7 @@ internal class OkHttpStandardSessionClient(
         synchronized(state) {
             if (acknowledged) {
                 textEnded = true
+                resolveMarker()
                 finishTurn(binding, AndroidNormalizedEvent.TurnInterrupted(binding, "Hermes confirmed the interrupt."))
             }
             journal.record("standard interrupt acknowledged=$acknowledged")
