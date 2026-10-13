@@ -51,8 +51,19 @@ internal fun RelayConfigurationScreen(
     versionLabel: String? = null,
     onChanged: () -> Unit,
     onSetupCompleted: () -> Unit = {},
+    canReconfigure: Boolean = true,
 ) {
+    if (!canReconfigure) {
+        Text(stringResource(R.string.android_connection_switch_blocked))
+        return
+    }
+    var setupMode by rememberSaveable {
+        mutableStateOf(controller.collection.selected?.mode?.takeIf { it == RelayConnectionMode.HomeBridge })
+    }
+    var editingStandardId by rememberSaveable { mutableStateOf<String?>(null) }
+    var setupChecking by remember { mutableStateOf(false) }
     var collection by remember { mutableStateOf(controller.collection) }
+    val editingStandard = collection.profiles.firstOrNull { it.id == editingStandardId }
     var endpoint by rememberSaveable { mutableStateOf("") }
     var clientId by rememberSaveable { mutableStateOf("") }
     var deviceId by rememberSaveable { mutableStateOf("") }
@@ -96,6 +107,11 @@ internal fun RelayConfigurationScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(profile.displayName, style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(when (profile.mode) {
+                        RelayConnectionMode.HomeBridge -> R.string.android_mode_home
+                        RelayConnectionMode.Standard -> R.string.android_mode_standard
+                        RelayConnectionMode.Legacy -> R.string.android_mode_legacy
+                    }))
                     Text(profile.endpoint, style = MaterialTheme.typography.bodySmall)
                     Text(
                         text = stringResource(
@@ -107,6 +123,7 @@ internal fun RelayConfigurationScreen(
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(
+                            enabled = !setupChecking && profile.mode != RelayConnectionMode.Legacy,
                             onClick = {
                                 controller.select(profile.id)
                                 completeSetup()
@@ -115,6 +132,7 @@ internal fun RelayConfigurationScreen(
                             Text(stringResource(R.string.android_relay_select))
                         }
                         TextButton(
+                            enabled = !setupChecking,
                             onClick = {
                                 controller.delete(profile.id)
                                 completeSetup()
@@ -123,10 +141,41 @@ internal fun RelayConfigurationScreen(
                             Text(stringResource(R.string.android_relay_delete))
                         }
                     }
+                    if (profile.mode == RelayConnectionMode.Standard) {
+                        TextButton(
+                            enabled = !setupChecking,
+                            onClick = {
+                                editingStandardId = profile.id
+                                setupMode = RelayConnectionMode.Standard
+                            },
+                        ) { Text(stringResource(R.string.android_standard_edit)) }
+                    }
                 }
             }
         }
 
+        Text(stringResource(R.string.android_connection_choose))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(
+                enabled = !setupChecking,
+                onClick = { setupMode = RelayConnectionMode.HomeBridge; editingStandardId = null },
+                modifier = Modifier.testTag("android_choose_home"),
+            ) { Text(stringResource(R.string.android_mode_home)) }
+            TextButton(
+                enabled = !setupChecking,
+                onClick = { setupMode = RelayConnectionMode.Standard; editingStandardId = null },
+                modifier = Modifier.testTag("android_choose_standard"),
+            ) { Text(stringResource(R.string.android_mode_standard)) }
+        }
+        if (setupMode == RelayConnectionMode.Standard) {
+            StandardSetupSection(
+                controller = controller,
+                editing = editingStandard,
+                onChecking = { setupChecking = it },
+                onSaved = ::completeSetup,
+            )
+        }
+        if (setupMode == RelayConnectionMode.HomeBridge) {
         homePairing?.let { coordinator ->
             HomePairingSection(
                 coordinator = coordinator,
@@ -140,6 +189,7 @@ internal fun RelayConfigurationScreen(
                 onChanged = ::refresh,
             )
         }
+        }
 
         if (collection.profiles.isEmpty()) {
             Text(
@@ -149,6 +199,10 @@ internal fun RelayConfigurationScreen(
             )
         }
 
+        // Retain the existing operator/rollback path only for an existing legacy configuration.
+        if (setupMode == RelayConnectionMode.HomeBridge && collection.profiles.any {
+                it.mode == RelayConnectionMode.Legacy || it.homeBinding != null
+            }) {
         RelayField(
             tag = "android_relay_endpoint",
             value = endpoint,
@@ -205,10 +259,14 @@ internal fun RelayConfigurationScreen(
         ) {
             Text(stringResource(R.string.android_relay_save))
         }
+        }
 
         // Device administration belongs to operator-handle Profiles; a paired
         // Profile has no administration binding to act on.
-        homeAdministration?.takeIf { collection.selected?.homeClientGrant == null }?.let {
+        homeAdministration?.takeIf {
+            collection.selected?.mode == RelayConnectionMode.HomeBridge &&
+                collection.selected?.homeClientGrant == null
+        }?.let {
             HomeDeviceAdministrationScreen(
                 controller = it,
                 selectedProfileId = collection.selectedId,

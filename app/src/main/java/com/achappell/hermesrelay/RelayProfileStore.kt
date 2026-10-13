@@ -120,6 +120,54 @@ internal class RelayConfigurationController(
         return emptyMap()
     }
 
+    /** Call only after an explicit Standard connection check has succeeded. */
+    fun saveStandard(
+        endpoint: String,
+        displayName: String,
+        hermesProfile: String,
+        token: String,
+        profileId: String? = null,
+    ): Map<RelayProfileField, RelayProfileError> {
+        val errors = mutableMapOf<RelayProfileField, RelayProfileError>()
+        StandardEndpoint.validate(endpoint)?.let { errors[RelayProfileField.Endpoint] = it }
+        if (displayName.isBlank()) errors[RelayProfileField.DisplayName] = RelayProfileError.Required
+        if (errors.isNotEmpty()) return errors
+
+        val current = profileId?.let { id -> collection.profiles.firstOrNull { it.id == id } }
+        if (profileId != null && (current == null || current.mode == RelayConnectionMode.HomeBridge)) {
+            return mapOf(RelayProfileField.Endpoint to RelayProfileError.StorageUnavailable)
+        }
+        val canonicalEndpoint = StandardEndpoint.canonicalize(endpoint)
+        val id = current?.id ?: idFactory()
+        val previousToken = credentials.readStandardCredential(id)
+        val sameEndpoint = current?.mode == RelayConnectionMode.Standard &&
+            StandardEndpoint.canonicalize(current.endpoint) == canonicalEndpoint
+        if (token.isBlank() && (!sameEndpoint || previousToken.isNullOrBlank())) {
+            return mapOf(RelayProfileField.Token to RelayProfileError.Required)
+        }
+        val profile = RelayProfile(
+            id = id,
+            endpoint = canonicalEndpoint,
+            clientId = "",
+            deviceId = "",
+            displayName = displayName.trim(),
+            mode = RelayConnectionMode.Standard,
+            hermesProfile = StandardEndpoint.normalizeHermesProfile(hermesProfile),
+        )
+        val replaceToken = token.isNotBlank()
+        if (replaceToken && !credentials.putStandardCredential(id, token.trim())) {
+            return mapOf(RelayProfileField.Token to RelayProfileError.StorageUnavailable)
+        }
+        if (!update(collection.add(profile))) {
+            if (replaceToken) {
+                if (previousToken == null) credentials.deleteStandardCredential(id)
+                else credentials.putStandardCredential(id, previousToken)
+            }
+            return mapOf(RelayProfileField.Token to RelayProfileError.StorageUnavailable)
+        }
+        return emptyMap()
+    }
+
     fun select(id: String) = update(collection.select(id))
 
     /**
@@ -170,6 +218,7 @@ internal class RelayConfigurationController(
         }
 
         val migrated = current.copy(
+            mode = RelayConnectionMode.HomeBridge,
             homeBinding = RelayHomeBinding(
                 approvedRoute = pairing.approvedRoute.trim().trimEnd('/'),
                 conversationHandle = pairing.conversationHandle,
@@ -215,6 +264,7 @@ internal class RelayConfigurationController(
 
         val next = collection.upsert(
             current.copy(
+                mode = RelayConnectionMode.HomeBridge,
                 homeAdministration = RelayHomeAdministration(
                     phase = RelayHomeAdministrationPhase.Approved,
                     deviceId = deviceId.trim(),
@@ -303,7 +353,7 @@ internal class RelayConfigurationController(
         if (update(collection.remove(id))) {
             credentials.delete(id)
             // A Profile's conversation must not outlive the Profile that held it.
-            history?.delete(id)
+            deleted?.let { history?.delete(it.historyKey) }
             deleted?.homeClientGrant?.let(::releasePairingIfUnused)
         }
     }

@@ -1,6 +1,7 @@
 ---
 id: ANDROID-STD-01
-status: ready-for-dev
+status: in-review
+baseline_commit: afb7c37aa703b8a5bfbb6bbd093f7075f2a3291e
 product_epic: 2
 created: 2026-09-23
 ---
@@ -116,3 +117,19 @@ If audio is unusable, stop at this step per Q1.
 
 - Unit tests for setup, Profile store and mode, credential-slot isolation, transport, history keying, New conversation success and failure, busy state, and switch guards; full `./gradlew test`.
 - Live gates recorded separately: baseline check; Standard typed streaming; unsupported prompt; connection failure; uncertain-turn recovery; New conversation; other Profiles intact after Standard setup; endpoint change forces token re-entry; tap-to-speak; response audio; hands-free barge-in; and remote interrupt (or, if unsupported, the busy-state message).
+
+## Implementation record — 2026-10-12
+
+The three approved slices are implemented locally against baseline
+`afb7c37aa703b8a5bfbb6bbd093f7075f2a3291e`. The historical readiness review
+above is preserved; it is not the current delivery verdict.
+
+| Slice | Implementation evidence | Merge | Live/physical acceptance |
+| --- | --- | --- | --- |
+| 1 — connection and typed chat | Explicit modes, checked setup, distinct Standard credentials, direct JSON-RPC transport, identity-scoped history, deliberate New conversation, uncertainty guards | Pending PR merge | Upstream 0.21.5 baseline and Android emulator typed/New conversation paths passed; structured prompt and live uncertain-loss scenarios remain unverified |
+| 2 — voice | Shared on-device capture/hands-free runtime, Standard response-audio sidecar, verified remote interrupt, uncertainty capture guard | Pending PR merge | Amanda confirmed Standard spoken input, audible reply, manual stop and next question in the emulator after provisioning/volume repairs; physical-phone and automatic hands-free/barge-in acceptance remain unverified |
+| 3 — guards and isolation | Pending input, initiation/resend, active/uncertain turn, recovery and armed/capturing voice guards; separate credentials/history; mode-checked Home interfaces | Pending PR merge | JVM and focused instrumentation passed; cross-mode setup/endpoint changes have deterministic rather than full live acceptance |
+
+The full scope remains in force. This is not a voice waiver or a completed
+release. See [validation-android-std-01.md](validation-android-std-01.md) for
+commands, actual observations, review fixes and remaining gates.

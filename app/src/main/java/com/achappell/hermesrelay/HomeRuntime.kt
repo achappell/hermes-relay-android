@@ -45,7 +45,8 @@ internal class HomeRuntime(
     private val retentionTimers: VoiceTimers = NoVoiceTimers,
     private val retentionTimings: RetentionTimings = RetentionTimings.Default,
 ) {
-    val homeConversations: AndroidHomeConversations? = clientPort as? AndroidHomeConversations
+    val homeConversations: AndroidHomeConversations?
+        get() = clientPort.homeConversations()
     val initiationController = AndroidInitiationController(clientPort)
     val recorder: AndroidHistoryRecorder? = historyStore?.let { AndroidHistoryRecorder(it) }
 
@@ -70,6 +71,14 @@ internal class HomeRuntime(
     var resendInFlight by mutableStateOf(false)
         private set
     var promptHistory by mutableStateOf(AndroidPromptHistory())
+    private var historyIdentity: String? = null
+
+    fun openHistory(identity: String?) {
+        if (historyIdentity == identity) return
+        historyIdentity = identity
+        recorder?.open(identity)
+        promptHistory = AndroidPromptHistory()
+    }
 
     /** Bumped when Local History changes outside Compose; the sheet re-reads on change. */
     var historyRevision by mutableIntStateOf(0)
@@ -139,7 +148,14 @@ internal class HomeRuntime(
             speech = input,
             timers = voiceTimers,
             initiation = initiationController,
-            isConnected = { recoveryState.connection == AndroidConnectionState.Connected },
+            isConnected = {
+                recoveryState.connection == AndroidConnectionState.Connected &&
+                    (clientPort.connectionMode() != RelayConnectionMode.Standard ||
+                        (!clientPort.hasUncertainTurn() &&
+                            !recoveryState.hasUnconfirmedTurn &&
+                            !recoveryState.unresolvedHomeTurn &&
+                            !clientPort.hasActiveTurn()))
+            },
             isAuthorized = {
                 val current = clientPort.snapshot()
                 current.selectedProfile != null &&
@@ -533,6 +549,55 @@ internal class HomeRuntime(
         val previous = lastSelectedProfileId
         lastSelectedProfileId = profileId
         if (previous != null && previous != profileId) recoveryController.cancelRecovery()
+    }
+
+    /** Settings may never move pending input or an unresolved turn to another identity. */
+    val canReconfigure: Boolean
+        get() = !hasAcceptedTurn && !clientPort.hasActiveTurn() &&
+            !clientPort.hasUncertainTurn() && !recoveryState.hasUnconfirmedTurn &&
+            !recoveryState.unresolvedHomeTurn && !recoveryState.isRecovering &&
+            !initiationInFlight && !resendInFlight && !handsFree &&
+            captureController?.isCapturing != true
+
+    fun configurationChanged() {
+        if (!canReconfigure) return
+        recoveryController.cancelRecovery()
+        if (clientPort is ModeAwareClientPort) clientPort.configurationChanged() else clientPort.endSession()
+        recoveryState = recoveryController.disconnectDeliberately()
+        updateInitiation(AndroidInitiationState.Idle)
+        updateTurn(AndroidTurnState())
+        lastRequest = null
+    }
+
+    /** Only a successful Standard session.create resolves an uncertain Standard turn. */
+    fun newStandardConversation(onResult: (Boolean) -> Unit) {
+        if (clientPort.connectionMode() != RelayConnectionMode.Standard || initiationInFlight || resendInFlight) return
+        initiationInFlight = true
+        recoveryController.cancelRecovery()
+        captureController?.disarmHandsFree()
+        captureController?.cancelCapture()
+        interruptCoordinator.reset()
+        runOnWork {
+            val outcome = clientPort.newConversation()
+            runOnMain {
+                journal.record("standard new_conversation result=${if (outcome is AndroidReconnectOutcome.Connected) "connected" else "failed"}")
+                initiationInFlight = false
+                if (outcome is AndroidReconnectOutcome.Connected) {
+                    recoveryState = recoveryController.acceptNewConversation(outcome)
+                    userDisconnected = false
+                    lastRequest = null
+                    resendResult = null
+                    updateInitiation(AndroidInitiationState.Idle)
+                    updateTurn(AndroidTurnState())
+                    recorder?.recordDivider("New conversation")
+                    historyRevision += 1
+                }
+                if (outcome !is AndroidReconnectOutcome.Connected && !clientPort.hasLiveTransport()) {
+                    recoveryState = recoveryController.transportLost("Standard could not create a new conversation.")
+                }
+                onResult(outcome is AndroidReconnectOutcome.Connected)
+            }
+        }
     }
 
     /** Runs blocking work off the main thread. */

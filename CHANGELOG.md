@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Features
+- Add explicit Standard setup alongside HomeBridge, with checked authentication, a separate Keystore credential slot, and mode/endpoint/Hermes-profile-scoped Local History.
+- Connect directly to unmodified Standard Hermes for streamed typed turns, on-device voice input, response audio after text completion, and remote interrupt; retain text if response audio fails.
+- Add Standard New conversation and no-replay recovery, preserving uncertainty across reconnect and blocking unsafe Profile/mode changes. Keep Home-only controls hidden in Standard and existing unlinked Profiles explicitly Legacy.
 - Add paced, lifecycle-aware Home reconnect after Android foregrounds: the first attempt runs at once, retries follow 0.5/1/2/4/8 s, a returning network retries immediately, and background, Disconnect or a Profile switch stop it.
 - Close an idle Home transport when the app stops, without ending the conversation, show Disconnected at once, reopen the same conversation on return, and reconnect (never resend) after a submit fails at the transport.
 - Keep a Home reply playing after the app stops: a foreground service with a content-free media notification (Pause/Play, Stop) holds the transport and audio until the reply's audio has drained, then parks the conversation; Stop interrupts the reply, and a paused reply ends after 60 seconds while stopped.

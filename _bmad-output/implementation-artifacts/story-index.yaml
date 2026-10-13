@@ -231,6 +231,7 @@ stories:
     tracker_key: android-std-01
     release_scope: migration
     spec: _bmad-output/implementation-artifacts/spec-android-std-01.md
+    validation: _bmad-output/implementation-artifacts/validation-android-std-01.md
     depends_on:
       - android:ANDROID-HOME-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/53

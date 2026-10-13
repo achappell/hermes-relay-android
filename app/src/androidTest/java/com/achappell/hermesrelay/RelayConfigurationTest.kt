@@ -6,6 +6,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onNodeWithTag
@@ -201,70 +203,72 @@ class RelayConfigurationTest {
     }
 
     @Test
-    fun saving_a_profile_never_renders_the_token_back() {
+    fun editing_standard_never_renders_the_stored_token_back() {
         val controller = RelayConfigurationController(
             profiles = InMemoryRelayProfileStore(),
             credentials = credentials,
         )
-
+        assertTrue(controller.saveStandard(
+            "wss://standard.example/api/ws", "Standard", "default", "super-secret-token",
+        ).isEmpty())
         composeRule.setContent {
             HermesRelayTheme {
-                // Host it inside a scrolling column, as the real screen does.
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     RelayConfigurationScreen(controller = controller, onChanged = {})
                 }
             }
         }
-
-        composeRule.onNodeWithTag("android_relay_endpoint")
-            .performTextInput("wss://relay.example/voice-session")
-        composeRule.onNodeWithTag("android_relay_client_id").performTextInput("amanda-laptop")
-        composeRule.onNodeWithTag("android_relay_device_id").performTextInput("android")
-        composeRule.onNodeWithTag("android_relay_display_name").performTextInput("Amanda")
-        composeRule.onNodeWithTag("android_relay_token").performTextInput("super-secret-token")
-        closeSoftKeyboard()
-        composeRule.onNodeWithTag("android_relay_save").performScrollTo().performClick()
-        composeRule.waitForIdle()
-
-        assertEquals(1, controller.collection.profiles.size)
-        composeRule.onAllNodesWithText("super-secret-token").assertCountEquals(0)
-        composeRule.onNodeWithText("wss://relay.example/voice-session")
-            .performScrollTo()
-            .assertIsDisplayed()
+        composeRule.onNodeWithText("Edit Standard connection").performScrollTo().performClick()
+        composeRule.onNodeWithTag("android_standard_token").performScrollTo().assertIsDisplayed()
+        composeRule.onAllNodesWithText("super-secret-token", useUnmergedTree = true).assertCountEquals(0)
+        assertEquals("super-secret-token", credentials.readStandardCredential(checkNotNull(controller.collection.selectedId)))
     }
 
     @Test
-    fun a_cleartext_endpoint_is_refused_with_field_level_guidance() {
+    fun standard_setup_rejects_cleartext_without_saving_a_profile_or_credential() {
         val controller = RelayConfigurationController(
             profiles = InMemoryRelayProfileStore(),
             credentials = credentials,
         )
-
         composeRule.setContent {
             HermesRelayTheme {
-                // Host it inside a scrolling column, as the real screen does.
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     RelayConfigurationScreen(controller = controller, onChanged = {})
                 }
             }
         }
-
-        composeRule.onNodeWithTag("android_relay_endpoint")
-            .performTextInput("ws://relay.example:8792/voice-session")
-        composeRule.onNodeWithTag("android_relay_client_id").performTextInput("amanda-laptop")
-        composeRule.onNodeWithTag("android_relay_device_id").performTextInput("android")
-        composeRule.onNodeWithTag("android_relay_display_name").performTextInput("Amanda")
-        composeRule.onNodeWithTag("android_relay_token").performTextInput("token")
+        composeRule.onNodeWithTag("android_choose_standard").performClick()
+        composeRule.onNodeWithTag("android_standard_endpoint")
+            .performScrollTo().performTextInput("ws://standard.example/api/ws")
+        composeRule.onNodeWithTag("android_standard_name").performScrollTo().performTextInput("Standard")
+        composeRule.onNodeWithTag("android_standard_token").performScrollTo().performTextInput("test-only-token")
         closeSoftKeyboard()
-        composeRule.onNodeWithTag("android_relay_save").performScrollTo().performClick()
+        composeRule.onNodeWithTag("android_standard_save").performScrollTo().performClick()
         composeRule.waitForIdle()
-
         assertTrue(controller.collection.profiles.isEmpty())
-        composeRule
-            .onNodeWithText(
-                "The endpoint must use wss://. A cleartext relay would send the token in the clear.",
-            )
-            .performScrollTo()
-            .assertIsDisplayed()
+        composeRule.onNodeWithTag("android_standard_setup_result").performScrollTo().assertIsDisplayed()
+    }
+    @Test
+    fun restoring_standard_editor_keeps_the_original_profile_target() {
+        val controller = RelayConfigurationController(
+            profiles = InMemoryRelayProfileStore(),
+            credentials = credentials,
+        )
+        assertTrue(controller.saveStandard(
+            "wss://standard.example/api/ws", "Existing Standard", "amanda", "test-only-token",
+        ).isEmpty())
+        val restoration = StateRestorationTester(composeRule)
+        restoration.setContent {
+            HermesRelayTheme {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    RelayConfigurationScreen(controller = controller, onChanged = {})
+                }
+            }
+        }
+        composeRule.onNodeWithText("Edit Standard connection").performScrollTo().performClick()
+        restoration.emulateSavedInstanceStateRestore()
+        composeRule.onNodeWithTag("android_standard_name").performScrollTo().assertTextContains("Existing Standard")
+        composeRule.onNodeWithTag("android_standard_profile").performScrollTo().assertTextContains("amanda")
+        assertEquals(1, controller.collection.profiles.size)
     }
 }

@@ -65,17 +65,6 @@ class PairedHomesFeedbackTest {
         composeRule.onAllNodesWithTag("android_relay_configuration_sheet").assertCountEquals(0)
     }
 
-    @Test
-    fun saving_a_profile_still_completes_configuration() {
-        showConfiguration()
-        enter("android_relay_endpoint", "wss://relay.example/voice-session")
-        enter("android_relay_client_id", "test-client")
-        enter("android_relay_device_id", "test-device")
-        enter("android_relay_display_name", "Saved")
-        enter("android_relay_token", "test-only-token")
-        composeRule.onNodeWithTag("android_relay_save").performScrollTo().performClick()
-        composeRule.onAllNodesWithTag("android_relay_configuration_sheet").assertCountEquals(0)
-    }
 
     @Test
     fun completing_pairing_still_completes_configuration() {
