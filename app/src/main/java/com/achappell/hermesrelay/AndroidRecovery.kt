@@ -11,7 +11,10 @@ internal sealed interface AndroidConnectionState {
 
     data class Reconnecting(val attempt: Int, val of: Int) : AndroidConnectionState
 
-    data class Failed(val reason: String) : AndroidConnectionState
+    data class Failed(
+        val reason: String,
+        val reasonCode: AndroidHomeUnavailableReason? = null,
+    ) : AndroidConnectionState
 }
 
 /**
@@ -123,11 +126,27 @@ internal class AndroidRecoveryController(
 
 
     /** Deliberate Standard session creation is the only safe uncertainty reset. */
-    fun acceptNewConversation(outcome: AndroidReconnectOutcome.Connected): AndroidRecoveryState {
-        state = AndroidRecoveryState(
-            connection = AndroidConnectionState.Connected,
-            connectionId = outcome.connectionId,
-        )
+    fun acceptNewConversation(outcome: AndroidReconnectOutcome): AndroidRecoveryState {
+        state = when (outcome) {
+            is AndroidReconnectOutcome.Connected -> AndroidRecoveryState(
+                connection = AndroidConnectionState.Connected,
+                connectionId = outcome.connectionId,
+            )
+            is AndroidReconnectOutcome.Retryable -> state.copy(
+                connection = AndroidConnectionState.Failed(outcome.reason, outcome.reasonCode),
+                connectionId = null,
+                unresolvedHomeTurn = false,
+                resumedTurnBinding = null,
+                isRecovering = false,
+            )
+            is AndroidReconnectOutcome.Unrecoverable -> state.copy(
+                connection = AndroidConnectionState.Failed(outcome.reason, outcome.reasonCode),
+                connectionId = null,
+                unresolvedHomeTurn = false,
+                resumedTurnBinding = null,
+                isRecovering = false,
+            )
+        }
         return state
     }
     /**
@@ -232,6 +251,7 @@ internal class AndroidRecoveryController(
         val startedAt = clock.nanoTime()
         val maxAttempts = policy.maxAttempts
         var lastReason = "Hermes Session transport was lost."
+        var lastReasonCode: AndroidHomeUnavailableReason? = null
 
         fun cancelled() = ladderGeneration.get() != ladder
 
@@ -242,9 +262,9 @@ internal class AndroidRecoveryController(
             return state
         }
 
-        fun failed(reason: String): AndroidRecoveryState {
+        fun failed(reason: String, reasonCode: AndroidHomeUnavailableReason?): AndroidRecoveryState {
             liveLadder.compareAndSet(ladder, NO_LADDER)
-            state = state.copy(connection = AndroidConnectionState.Failed(reason), isRecovering = false)
+            state = state.copy(connection = AndroidConnectionState.Failed(reason, reasonCode), isRecovering = false)
             return state
         }
 
@@ -266,11 +286,11 @@ internal class AndroidRecoveryController(
                 }
                 if (cancelled()) return stopped(attempt)
                 val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startedAt)
-                if (elapsedMillis >= policy.overallMillis) return failed(lastReason)
+                if (elapsedMillis >= policy.overallMillis) return failed(lastReason, lastReasonCode)
             }
 
             val elapsedBeforeAttempt = TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startedAt)
-            if (elapsedBeforeAttempt >= policy.overallMillis) return failed(lastReason)
+            if (elapsedBeforeAttempt >= policy.overallMillis) return failed(lastReason, lastReasonCode)
             val attemptBudget = minOf(policy.attemptMillis, policy.overallMillis - elapsedBeforeAttempt)
             when (val outcome = clientPort.reconnect(attemptBudget)) {
                 is AndroidReconnectOutcome.Connected -> {
@@ -292,24 +312,28 @@ internal class AndroidRecoveryController(
 
                 is AndroidReconnectOutcome.Retryable -> {
                     lastReason = outcome.reason
+                    lastReasonCode = outcome.reasonCode
                     if (cancelled()) return stopped(attempt)
                     if (TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startedAt) >= policy.overallMillis) {
-                        return failed(lastReason)
+                        return failed(lastReason, lastReasonCode)
                     }
                 }
 
                 is AndroidReconnectOutcome.Unrecoverable -> {
                     if (cancelled()) return stopped(attempt)
-                    if (!outcome.isTransportFailure() || outcome.ambiguousClaim) return failed(outcome.reason)
+                    if (!outcome.isTransportFailure() || outcome.ambiguousClaim) {
+                        return failed(outcome.reason, outcome.reasonCode)
+                    }
                     lastReason = outcome.reason
+                    lastReasonCode = outcome.reasonCode
                     if (TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startedAt) >= policy.overallMillis) {
-                        return failed(lastReason)
+                        return failed(lastReason, lastReasonCode)
                     }
                 }
             }
         }
 
-        return failed(lastReason)
+        return failed(lastReason, lastReasonCode)
     }
 
     /**

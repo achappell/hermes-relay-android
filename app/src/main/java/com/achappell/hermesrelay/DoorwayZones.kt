@@ -93,6 +93,7 @@ import java.util.Date
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun DoorwayHeaderZone(
     snapshot: AndroidClientSnapshot,
+    authorizationState: AndroidAuthorizationState,
     canConfigure: Boolean = false,
     canShowHistory: Boolean = false,
     onConfigure: () -> Unit = {},
@@ -167,7 +168,7 @@ internal fun DoorwayHeaderZone(
                         modifier = Modifier.a11yOrder(A11yOrder.PROFILE),
                         text = stringResource(
                             R.string.android_authorization_label,
-                            stringResource(snapshot.authorizationState.labelRes()),
+                            stringResource(authorizationState.labelRes()),
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -701,13 +702,14 @@ internal fun ColumnScope.IdleCaptureZone(
     hasUnconfirmedTurn: Boolean = false,
     isAuthorized: Boolean,
     isConnected: Boolean,
+    availabilityBlock: AndroidAvailabilityBlock?,
     permissionRevision: Int,
     microphoneState: RuntimePermissionState,
     onRequestMicrophone: () -> Unit,
     onOpenMicrophoneSettings: () -> Unit,
     showBlockMessage: Boolean = true,
 ) {
-    val block = remember(
+    val admissionBlock = remember(
         captureController,
         isAuthorized,
         isConnected,
@@ -716,6 +718,11 @@ internal fun ColumnScope.IdleCaptureZone(
         permissionRevision,
         captureState,
     ) { captureController.blockingReason() }
+    // Change only the explanation: both reasons still prohibit capture.
+    val block = if (
+        admissionBlock == AndroidCaptureBlock.ProfileUnavailable &&
+        availabilityBlock == AndroidAvailabilityBlock.Connection
+    ) AndroidCaptureBlock.NotConnected else admissionBlock
 
     captureController.lastHandsFreeExit
         // A deliberate disarm needs no explanation; the user did it.

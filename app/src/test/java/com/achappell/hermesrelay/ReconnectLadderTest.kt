@@ -74,7 +74,7 @@ class ReconnectLadderTest {
 
         val state = controller(port).recover()
 
-        assertEquals(AndroidConnectionState.Failed("Home is unreachable."), state.connection)
+        assertEquals(AndroidConnectionState.Failed("Home is unreachable.", unavailable.reasonCode), state.connection)
         assertEquals(listOf(0L, 500L, 1_500L, 3_500L, 7_500L, 15_500L), port.attemptTimesMillis)
         assertFalse(state.isRecovering)
     }
@@ -90,7 +90,7 @@ class ReconnectLadderTest {
 
         val state = controller(port, policy).recover()
 
-        assertEquals(AndroidConnectionState.Failed("Home is unreachable."), state.connection)
+        assertEquals(AndroidConnectionState.Failed("Home is unreachable.", unavailable.reasonCode), state.connection)
         assertEquals("the attempt due at the 60 s mark never runs", listOf(0L, 30_000L), port.attemptTimesMillis)
     }
 
@@ -128,11 +128,31 @@ class ReconnectLadderTest {
         val state = controller(port).recover()
 
         assertEquals(
-            AndroidConnectionState.Failed("The Home bridge rejected this Device credential."),
+            AndroidConnectionState.Failed(
+                "The Home bridge rejected this Device credential.",
+                AndroidHomeUnavailableReason.Unauthorized,
+            ),
             state.connection,
         )
         assertEquals(listOf(0L), port.attemptTimesMillis)
         assertEquals(emptyList<Long>(), pacer.pauses)
+    }
+
+    @Test
+    fun a_transport_failure_reported_as_unrecoverable_keeps_its_code_at_the_deadline() {
+        val port = ScriptedPort(
+            clock,
+            listOf(AndroidReconnectOutcome.Unrecoverable("Timed out.", AndroidHomeUnavailableReason.TransportTimeout)),
+        )
+        port.onReconnect = { clock.advanceMillis(60_000L) }
+
+        val state = controller(port).recover()
+
+        assertEquals(
+            AndroidConnectionState.Failed("Timed out.", AndroidHomeUnavailableReason.TransportTimeout),
+            state.connection,
+        )
+        assertEquals(listOf(0L), port.attemptTimesMillis)
     }
 
     @Test

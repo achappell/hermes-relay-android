@@ -16,7 +16,7 @@
     <string name="android_state_unavailable_authorization">This Profile is unavailable until relay authorization is verified. Edit relay settings before speaking or sending.</string>
     <string name="android_state_unavailable_connection">The connection is unavailable. Retry to reconnect; an unresolved turn will not be replayed.</string>
     <string name="android_state_unavailable_connection_reconnecting">The connection is unavailable while it reconnects. Unresolved turns are never replayed.</string>
-    <string name="android_state_unavailable_connection_failed">The connection is unavailable: %1$s Retry to connect again; unresolved turns are never replayed.</string>
+    <string name="android_state_unavailable_connection_failed">The connection is unavailable: %1$s Unresolved turns are never replayed.</string>
     <string name="android_state_unavailable_microphone">Microphone unavailable. Allow microphone for tap-to-speak; typed turns remain available.</string>
     <string name="android_state_unavailable_unconfirmed">An unresolved turn needs your decision. It was not replayed.</string>
     <string name="android_state_ready">Ready</string>

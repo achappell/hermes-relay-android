@@ -26,6 +26,7 @@
 ### Fixes
 - Reveal clipped TalkBack focus targets above the conversation composer using Compose's native scrolling action, without moving keyboard focus.
 - Make ordinary availability, connection/retry and Profile-verification status readable on focus instead of automatically announced, so recovery does not enqueue stale status claims. Preserve microphone-permission guidance, capture/turn feedback and urgent errors.
+- Distinguish temporary connection loss from missing or rejected authorization in doorway, typed-send and microphone guidance. Preserve typed session-refusal reasons and deliberate New conversation recovery without suggesting futile Retry or replaying prompts.
 - Reconnect the selected Standard connection after configuration changes even when its Profile ID is unchanged, including saving/deleting another connection and reselecting the current one.
 - Refresh Standard microphone admission and idle status after uncertain or active turns clear, so successful New conversation and completed replies restore Ready and Tap to speak. Keep shared recovery messages transport-neutral.
 - Retry transport failures on a bounded backoff without discarding held claims.

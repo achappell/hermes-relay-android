@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.ViewCompat
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.performSemanticsAction
@@ -317,7 +318,7 @@ class AccessibilityOrderTest {
     }
 
     @Test
-    fun verification_during_recovery_keeps_profile_guidance_readable_but_not_live() {
+    fun verification_during_recovery_keeps_connection_guidance_readable_but_not_live() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         composeRule.setContent {
             HermesRelayTheme {
@@ -336,11 +337,14 @@ class AccessibilityOrderTest {
         authorization.assertIsDisplayed()
         assertFalse(authorization.fetchSemanticsNode().config.contains(SemanticsProperties.LiveRegion))
         composeRule.onNodeWithTag("android_send_blocked")
-            .assertTextEquals(context.getString(R.string.android_composer_block_authorization))
+            .assertTextEquals(context.getString(R.string.android_composer_block_disconnected))
         assertNull(liveRegionOf("android_send_blocked"))
         composeRule.onNodeWithTag("android_capture_block")
-            .assertTextEquals(context.getString(R.string.android_capture_block_profile))
+            .assertTextEquals(context.getString(R.string.android_capture_block_not_connected))
         assertNull(liveRegionOf("android_capture_block"))
+        composeRule.onNodeWithTag("android_doorway_state_description")
+            .assertTextEquals(context.getString(R.string.android_state_unavailable_connection))
+        composeRule.onNodeWithTag("android_tap_to_speak").assertIsNotEnabled()
     }
 
     @Test

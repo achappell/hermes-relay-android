@@ -5,22 +5,14 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AndroidDoorwayStateTest {
-    private val profile = AndroidProfile("amanda", "Amanda")
-    private val authorizedSnapshot = AndroidClientSnapshot(
-        titleRes = BootstrapState.titleRes,
-        descriptionRes = BootstrapState.descriptionRes,
-        boundaryRes = BootstrapState.boundaryRes,
-        selectedProfile = profile,
-        authorizationState = AndroidAuthorizationState.Verified,
-    )
 
     @Test
     fun no_profile_is_a_configuration_state() {
         assertEquals(
             AndroidDoorwayState.NoProfile,
             resolveAndroidDoorwayState(
-                snapshot = authorizedSnapshot.copy(selectedProfile = null),
-                isConnected = false,
+                hasProfile = false,
+                availabilityBlock = AndroidAvailabilityBlock.Authorization,
                 hasAcceptedTurn = false,
                 isCapturing = false,
                 hasUnconfirmedTurn = false,
@@ -34,8 +26,8 @@ class AndroidDoorwayStateTest {
         assertEquals(
             AndroidDoorwayState.Unavailable(AndroidDoorwayUnavailableReason.Connection),
             resolveAndroidDoorwayState(
-                snapshot = authorizedSnapshot,
-                isConnected = false,
+                hasProfile = true,
+                availabilityBlock = AndroidAvailabilityBlock.Connection,
                 hasAcceptedTurn = false,
                 isCapturing = false,
                 hasUnconfirmedTurn = false,
@@ -49,10 +41,8 @@ class AndroidDoorwayStateTest {
         assertEquals(
             AndroidDoorwayState.Unavailable(AndroidDoorwayUnavailableReason.Authorization),
             resolveAndroidDoorwayState(
-                snapshot = authorizedSnapshot.copy(
-                    authorizationState = AndroidAuthorizationState.Unavailable,
-                ),
-                isConnected = true,
+                hasProfile = true,
+                availabilityBlock = AndroidAvailabilityBlock.Authorization,
                 hasAcceptedTurn = false,
                 isCapturing = false,
                 hasUnconfirmedTurn = false,
@@ -66,8 +56,8 @@ class AndroidDoorwayStateTest {
         assertEquals(
             AndroidDoorwayState.Ready,
             resolveAndroidDoorwayState(
-                snapshot = authorizedSnapshot,
-                isConnected = true,
+                hasProfile = true,
+                availabilityBlock = null,
                 hasAcceptedTurn = false,
                 isCapturing = false,
                 hasUnconfirmedTurn = false,
@@ -81,8 +71,8 @@ class AndroidDoorwayStateTest {
         assertEquals(
             AndroidDoorwayState.Unavailable(AndroidDoorwayUnavailableReason.Microphone),
             resolveAndroidDoorwayState(
-                snapshot = authorizedSnapshot,
-                isConnected = true,
+                hasProfile = true,
+                availabilityBlock = null,
                 hasAcceptedTurn = false,
                 isCapturing = false,
                 hasUnconfirmedTurn = false,
@@ -95,8 +85,8 @@ class AndroidDoorwayStateTest {
     fun live_capture_or_turn_owns_the_state_label() {
         assertNull(
             resolveAndroidDoorwayState(
-                snapshot = authorizedSnapshot,
-                isConnected = true,
+                hasProfile = true,
+                availabilityBlock = AndroidAvailabilityBlock.Authorization,
                 hasAcceptedTurn = true,
                 isCapturing = false,
                 hasUnconfirmedTurn = false,
@@ -105,8 +95,8 @@ class AndroidDoorwayStateTest {
         )
         assertNull(
             resolveAndroidDoorwayState(
-                snapshot = authorizedSnapshot,
-                isConnected = true,
+                hasProfile = true,
+                availabilityBlock = AndroidAvailabilityBlock.Connection,
                 hasAcceptedTurn = false,
                 isCapturing = true,
                 hasUnconfirmedTurn = false,
@@ -120,12 +110,65 @@ class AndroidDoorwayStateTest {
         assertEquals(
             AndroidDoorwayState.Unavailable(AndroidDoorwayUnavailableReason.UnconfirmedTurn),
             resolveAndroidDoorwayState(
-                snapshot = authorizedSnapshot,
-                isConnected = true,
+                hasProfile = true,
+                availabilityBlock = null,
                 hasAcceptedTurn = false,
                 isCapturing = false,
                 hasUnconfirmedTurn = true,
                 captureBlock = null,
+            ),
+        )
+    }
+
+    @Test
+    fun availability_and_uncertainty_keep_precedence_over_microphone_blocks() {
+        for (captureBlock in listOf(
+            AndroidCaptureBlock.PermissionRequired,
+            AndroidCaptureBlock.RecognizerUnavailable,
+            AndroidCaptureBlock.SessionReplaced,
+        )) {
+            for ((availability, expected) in listOf(
+                AndroidAvailabilityBlock.Authorization to AndroidDoorwayUnavailableReason.Authorization,
+                AndroidAvailabilityBlock.Connection to AndroidDoorwayUnavailableReason.Connection,
+                null to AndroidDoorwayUnavailableReason.UnconfirmedTurn,
+            )) {
+                assertEquals(
+                    AndroidDoorwayState.Unavailable(expected),
+                    resolveAndroidDoorwayState(
+                        hasProfile = true,
+                        availabilityBlock = availability,
+                        hasAcceptedTurn = false,
+                        isCapturing = false,
+                        hasUnconfirmedTurn = true,
+                        captureBlock = captureBlock,
+                    ),
+                )
+            }
+            assertEquals(
+                AndroidDoorwayState.Unavailable(AndroidDoorwayUnavailableReason.Microphone),
+                resolveAndroidDoorwayState(
+                    hasProfile = true,
+                    availabilityBlock = null,
+                    hasAcceptedTurn = false,
+                    isCapturing = false,
+                    hasUnconfirmedTurn = false,
+                    captureBlock = captureBlock,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun no_profile_keeps_precedence_over_active_capture_and_turn() {
+        assertEquals(
+            AndroidDoorwayState.NoProfile,
+            resolveAndroidDoorwayState(
+                hasProfile = false,
+                availabilityBlock = AndroidAvailabilityBlock.Connection,
+                hasAcceptedTurn = true,
+                isCapturing = true,
+                hasUnconfirmedTurn = true,
+                captureBlock = AndroidCaptureBlock.PermissionRequired,
             ),
         )
     }

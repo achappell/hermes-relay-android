@@ -24,14 +24,14 @@ internal enum class AndroidDoorwayUnavailableReason {
  * instead; returning null prevents a stale `Ready` card from appearing over it.
  */
 internal fun resolveAndroidDoorwayState(
-    snapshot: AndroidClientSnapshot,
-    isConnected: Boolean,
+    hasProfile: Boolean,
+    availabilityBlock: AndroidAvailabilityBlock?,
     hasAcceptedTurn: Boolean,
     isCapturing: Boolean,
     hasUnconfirmedTurn: Boolean,
     captureBlock: AndroidCaptureBlock?,
 ): AndroidDoorwayState? {
-    if (snapshot.selectedProfile == null) {
+    if (!hasProfile) {
         return AndroidDoorwayState.NoProfile
     }
 
@@ -39,13 +39,13 @@ internal fun resolveAndroidDoorwayState(
         return null
     }
 
-    if (snapshot.authorizationState != AndroidAuthorizationState.Verified) {
+    if (availabilityBlock == AndroidAvailabilityBlock.Authorization) {
         return AndroidDoorwayState.Unavailable(
             AndroidDoorwayUnavailableReason.Authorization,
         )
     }
 
-    if (!isConnected) {
+    if (availabilityBlock == AndroidAvailabilityBlock.Connection) {
         return AndroidDoorwayState.Unavailable(
             AndroidDoorwayUnavailableReason.Connection,
         )

@@ -51,3 +51,52 @@ slice; the transport behaviors are proven against a local `MockWebServer`.
   simulated, and will need re-checking when capture lands.
 - Response audio playback still does not exist, so a text-only turn ends
   `Unavailable` with its text retained, per the `A-2` contract.
+
+## Connection-guidance follow-up — 2026-10-13
+
+The September checks and deferred statements above are historical, not rerun
+claims. Current Android has microphone capture and response audio.
+[Recovery-guidance implementation and failure history](spec-recovery-guidance.md).
+
+### Current checks
+
+- Red emulator regression reproduced the misleading verify-Profile instruction
+  on the merged APK. It passes after the shared availability-classification fix.
+- Full JVM suite (574 tests), debug/test APK assembly and lint passed. Recovery
+  repetition gate: 30 consecutive runs of AndroidRecoveryControllerTest,
+  ReconnectLadderTest, OkHttpStandardSessionClientTest and StandardRuntimeTest,
+  50 tests per run, zero failures.
+- Direct instrumentation on `hermes-std-20261012`, API 36: 48 tests passed.
+  Covers connection and authorization guidance, read-on-focus semantics,
+  capture/send gating, explicit recovery, preserved uncertainty, configuration
+  recovery, Home lifecycle/notification behavior and header/overflow surfaces.
+  The first batch's five failures were resolved: explicit substring assertions
+  for retained refusal reasons, and keyboard dismissal before three synthetic
+  send interactions. A screenshot confirmed the keyboard covered Send; neither
+  timeouts nor production admission were weakened.
+- APK metadata passed: min SDK 26, version 0.3.1 (301), backup/extraction rules,
+  16 KB alignment. Signer verification skipped: EXPECTED_SIGNER_SHA256 unset.
+- Independent production and verification reviews found no supported defect.
+
+### Actual installed-app smoke
+
+One controlled typed Standard turn completed and audio drained. Two bounded
+Wi-Fi/mobile-data outages showed reconnect guidance, `Connect before sending.`
+and `Connect before speaking.`, with disabled Send and Tap to speak rather than
+Profile-repair instructions. The completed reply and unsent draft survived.
+The content-free journal recorded exactly one accepted prompt across the smoke
+and session.resume recovery, including additional observed reconnects after
+radio restoration; no replay was introduced.
+
+Both radios were restored in `finally`. Cleanup observed Ready, the original
+empty draft, intact saved Profile/credential/history, original TalkBack-off
+state and zero wake locks. Only the test APK and owned captures were removed;
+the fixed main APK remains installed.
+
+### Limits
+
+Authorization rejection and session RPC refusal were exercised through
+MockWebServer and emulator fixtures, not by changing the real saved credential.
+No unattended microphone capture, fresh native TalkBack speech acceptance,
+physical Pixel acceptance, release-signer verification or prolonged bake was
+performed. No server behavior changed. Broader Standard gates remain unchanged.

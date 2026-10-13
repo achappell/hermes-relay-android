@@ -81,6 +81,7 @@ class DoorwayHeaderLayoutTest {
                                     selectedProfile = AndroidProfile("layout-test", profileName),
                                     authorizationState = AndroidAuthorizationState.Verified,
                                 ),
+                                authorizationState = AndroidAuthorizationState.Verified,
                                 canShowConversations = true,
                             )
                         },

@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
@@ -57,6 +58,7 @@ class StandardConfigurationRecoveryTest {
             .performScrollTo().performClick()
         composeRule.waitUntil { port.disconnects > 0 && port.connected }
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("after configuration")
+        closeSoftKeyboard()
         composeRule.onNodeWithText("Start typed turn").performScrollTo().assertIsEnabled().performClick()
         composeRule.waitUntil { port.submitted }
         composeRule.runOnIdle {
