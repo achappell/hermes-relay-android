@@ -40,23 +40,6 @@ class MainActivityTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun shows_honest_bootstrap_state() {
-        composeRule.setContent {
-            HermesRelayTheme {
-                AndroidClientScreen(BootstrapClientPort)
-            }
-        }
-
-        composeRule.onNodeWithText("Hermes conversation").assertIsDisplayed()
-        composeRule
-            .onNodeWithText("Use this doorway for typed and spoken Hermes turns.")
-            .assertIsDisplayed()
-        composeRule
-            .onNodeWithText("Configure a relay to begin.")
-            .assertIsDisplayed()
-    }
-
-    @Test
     fun conversation_shell_exposes_a_fixed_header_and_action_surface() {
         composeRule.setContent {
             HermesRelayTheme {

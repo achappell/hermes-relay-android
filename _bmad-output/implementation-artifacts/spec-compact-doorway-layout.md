@@ -86,3 +86,14 @@ changes were not included in this branch's APK.
   including reproducing pan and verifying resize at 2×. A deterministic,
   isolated real-window IME fixture remains recorded in `deferred-work.md`;
   no claim is made that the permanent test protects the manifest setting.
+
+## Post-review test cleanup
+
+Removed the obsolete `shows_honest_bootstrap_state` copy-only assertion instead
+of retaining a test that pins title/description wording. The existing
+no-profile/configuration-path test still covers the actual bootstrap behavior.
+The 36-test run above is historical evidence from before this deletion; the
+production APK is unchanged.
+
+Rebuilt the final test APK (9 s) and reran the same focused emulator suite:
+**35 behavior tests passed in 56.828 s** after the deletion.
