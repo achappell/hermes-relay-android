@@ -1,7 +1,7 @@
 # Active epic parents are in story-index.yaml; numeric story prefixes remain historical.
 schema_version: 1
 generated: 2026-09-12
-last_updated: '2026-10-12'
+last_updated: '2026-10-13'
 project: hermes-relay-android
 tracking_system: file-system
 status_authority: local
@@ -33,7 +33,7 @@ development_status:
   android-home-08: in-progress # 08a reply retention in review; 08b hands-free voice not started.
   android-home-09: backlog
   android-home-10: backlog
-  android-home-11: backlog
+  android-home-11: in-progress # Compact-viewport/IME bugfix emulator-verified 2026-10-13; full matrix and physical Pixel gate remain open.
   android-test-01: done
   # Umbrella epics (kind: epic in story-index.yaml): not stories; exclude from story counts.
   android-parity-01: backlog

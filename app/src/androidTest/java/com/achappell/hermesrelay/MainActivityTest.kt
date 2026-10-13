@@ -1,5 +1,17 @@
 package com.achappell.hermesrelay
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -17,6 +29,7 @@ import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -189,6 +202,7 @@ class MainActivityTest {
 
         composeRule.onNodeWithTag("android_typed_prompt").assertIsEnabled()
             .performTextInput("written while offline")
+        composeRule.onNodeWithTag("android_action_surface").performScrollTo()
         composeRule.onNodeWithTag("android_cached_draft").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Verify the selected Hermes Profile before sending.")
             .performScrollTo()
@@ -421,8 +435,76 @@ class MainActivityTest {
         composeRule.onNodeWithTag("android_cached_draft").performScrollTo().assertIsDisplayed()
     }
 
-    private class AuthorizedFakePort : AndroidClientPort {
-        private val profile = AndroidProfile("amanda", "Amanda")
+    @Test
+    fun short_windows_keep_header_state_and_composer_reachable_at_large_font_scales() {
+        val port = AuthorizedFakePort("Long synthetic profile name for compact layout verification")
+        val configuration = configuredConfiguration()
+        val fontScale = mutableStateOf(1f)
+        composeRule.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, fontScale.value)) {
+                Box(Modifier.requiredSize(360.dp, 320.dp).testTag("layout_viewport")) {
+                    HermesRelayTheme {
+                        AndroidClientScreen(port, configuration = configuration)
+                    }
+                }
+            }
+        }
+
+        for (scale in listOf(1f, 2f)) {
+            composeRule.runOnIdle { fontScale.value = scale }
+            val header = composeRule.onNodeWithTag("android_doorway_header").getUnclippedBoundsInRoot()
+            val rail = composeRule.onNodeWithTag("android_conversation_rail").getUnclippedBoundsInRoot()
+            val actions = composeRule.onNodeWithTag("android_action_surface").getUnclippedBoundsInRoot()
+            assertTrue("the conversation must be below the header", rail.top >= header.bottom)
+            assertTrue("the composer must not obscure the conversation", actions.top >= rail.bottom)
+
+            composeRule.onNodeWithTag("android_conversation_rail").performScrollTo()
+            composeRule.scrollToConversationTag("android_doorway_state")
+            composeRule.onNodeWithText("Unavailable").assertIsDisplayed()
+            composeRule.scrollToConversationTag("android_connect")
+            composeRule.onNodeWithTag("android_connect").assertIsDisplayed().assertIsEnabled()
+
+            composeRule.onNodeWithTag("android_more_menu").performScrollTo().performClick()
+            composeRule.onNodeWithTag("android_menu_configure_relay").assertIsDisplayed()
+            pressBack()
+
+            composeRule.onNodeWithTag("android_action_surface").performScrollTo()
+            composeRule.onNodeWithTag("android_typed_prompt").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("Start typed turn").performScrollTo().assertIsDisplayed()
+            val send = composeRule.onNodeWithText("Start typed turn").getUnclippedBoundsInRoot()
+            val viewport = composeRule.onNodeWithTag("layout_viewport").getUnclippedBoundsInRoot()
+            assertTrue("the complete Send target must be reachable", send.top >= viewport.top && send.bottom <= viewport.bottom)
+        }
+    }
+
+    @Test
+    fun shrinking_and_expanding_the_viewport_preserves_the_focused_draft() {
+        val port = AuthorizedFakePort()
+        val height = mutableStateOf(600.dp)
+        val draft = "Keep this draft while the keyboard changes"
+        composeRule.setContent {
+            Box(Modifier.requiredSize(360.dp, height.value)) {
+                HermesRelayTheme {
+                    AndroidClientScreen(port)
+                }
+            }
+        }
+        val field = composeRule.onNodeWithTag("android_typed_prompt")
+        field.performScrollTo().performTextInput(draft)
+        closeSoftKeyboard()
+
+        for (viewportHeight in listOf(320.dp, 600.dp)) {
+            composeRule.runOnIdle { height.value = viewportHeight }
+            field.assertIsFocused()
+            assertEquals(draft, field.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+            composeRule.onNodeWithTag("android_action_surface").performScrollTo()
+            field.performScrollTo().assertIsDisplayed()
+        }
+    }
+
+    private class AuthorizedFakePort(profileName: String = "Amanda") : AndroidClientPort {
+        private val profile = AndroidProfile("amanda", profileName)
         val requests = mutableListOf<AndroidTurnRequest>()
 
         override fun snapshot() = AndroidClientSnapshot(

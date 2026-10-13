@@ -93,3 +93,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-android-rel-03-r8-baseline-16kb.md`
   summary: Run the minified release APK on an owner-approved device (pair, QR scan, typed and spoken turn, lock-screen playback, cold-start before/after) before any release tag.
   evidence: R8 runtime correctness is unproven by static checks; install on the Pixel 6a is forbidden for this work (verification-gap review, 2026-10-10).
+
+## Deferred from: compact doorway layout interaction review (2026-10-13)
+
+- source_spec: `spec-compact-doorway-layout.md`
+  summary: Add a deterministic real-window IME regression when an isolated keyboard fixture is available; the current permanent test covers composition focus across viewport resize, not Android window pan.
+  evidence: Interaction review correctly noted that a synthetic Box resize cannot catch removal of adjustResize. Actual API 36 full-IME smoke reproduced adjustPan and verified the fix at 2x in portrait/landscape, including a fully reachable Send target. Automating that gate must isolate and restore keyboard selection/settings instead of depending on the user's installed IME.

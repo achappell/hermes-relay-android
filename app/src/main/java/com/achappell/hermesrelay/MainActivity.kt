@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,7 +25,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -611,12 +608,11 @@ internal fun AndroidClientScreen(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Scaffold(
+        DoorwayLayout(
             modifier = Modifier
                 .fillMaxSize()
                 .semantics { isTraversalGroup = true },
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
+            header = {
                 DoorwayHeaderZone(
                     snapshot = snapshot,
                     canConfigure = configuration != null,
@@ -651,7 +647,7 @@ internal fun AndroidClientScreen(
                     onShowConversations = { showConversations() },
                 )
             },
-            bottomBar = {
+            actions = {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -660,10 +656,7 @@ internal fun AndroidClientScreen(
                     tonalElevation = 2.dp,
                 ) {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .imePadding(),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(
                             modifier = Modifier
@@ -725,11 +718,9 @@ internal fun AndroidClientScreen(
                     }
                 }
             },
-        ) { innerPadding ->
+        ) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 LazyColumn(
                     modifier = Modifier
