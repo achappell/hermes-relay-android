@@ -1,7 +1,7 @@
 ---
 id: ANDROID-HOME-11
 title: Keep the Home conversation reachable at large font scales, with the keyboard, and on every screen size
-status: backlog
+status: in-progress
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-03
@@ -74,3 +74,19 @@ No journal lines. Evidence = screenshots/semantics output in the validation reco
 ## References
 
 iOS PR #123 (`5aff151`); iOS `AmbientHUD.swift`, `ContentView.swift` (`ViewportFillLayout`, `CompressibleOrb`); Android `MainActivity.kt` (`Scaffold`), `DoorwayZones.kt`.
+
+## 2026-10-13 — compact-viewport follow-up
+
+`spec-compact-doorway-layout.md` records an independently reproduced defect:
+Scaffold's header and composer exceeded the landscape window and reduced the
+conversation rail to zero height. `DoorwayLayout` now fills the safe viewport
+when possible and scrolls overflow, with finite rail measurement. MainActivity
+explicitly requests `adjustResize` so IME insets do not combine with window pan.
+
+The focused 36-test emulator suite passed. Actual API 36 Standard checks
+covered the normal portrait arrangement, restored landscape rail, 2× editing
+and Send above the full landscape keyboard, 2× portrait editing, and a 30-line
+response whose final line remained visible above the composer after rotation.
+These are targeted bugfix checks, not completion of the matrix above.
+The physical Pixel, tablet/Fold, split-screen and unsampled matrix cells remain
+open; no acceptance requirement or historical evidence is replaced.
