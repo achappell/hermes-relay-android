@@ -114,6 +114,11 @@ Saving or deleting a connection, or reselecting the current Standard Profile,
 automatically reconnects the selected Standard connection after its settings
 reset. No manual New conversation is needed just to restore connectivity.
 
+Connections with the same canonical Standard endpoint and Hermes profile share
+Local History and its draft, but retain separate credential slots. Deleting one
+connection preserves that history while another saved connection owns the same
+identity; deleting the last owner removes it.
+
 Standard offers typed streaming, on-device speech capture, and response audio
 through `/api/audio/speak-stream`. Audio starts after the text response
 completes, so this is not low-latency incremental speech. An audio failure

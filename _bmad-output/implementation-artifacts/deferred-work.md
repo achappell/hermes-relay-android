@@ -111,3 +111,12 @@
 - source_spec: `spec-audio-pause-deadline.md`
   summary: Confirmed and fixed the paused-time deadline race; retain the earlier observation as historical evidence.
   evidence: A latch-controlled pause after the drain pause check reproduced failure on merged baseline a192e0cb25d8024eaadde314f2a2e9ebc8c10686. Transition-based active-time accounting passes that regression and protects write/drain budgets across unseen holds. Final full JVM suite passed; 30 runs of 58 audio/lifecycle tests had zero failures. The real emulator held the same AudioTrack over 35 s via notification Pause, resumed and drained without failure. No timeout increases or assertion suppression.
+
+## Deferred from: Standard isolation smoke (2026-10-13)
+
+- source_spec: `spec-standard-isolation.md`
+  summary: Diagnose failed response audio for the disposable default Hermes profile without losing its completed text or changing server configuration without approval.
+  evidence: API 36 real Standard prompt accepted at 23:32:50.811Z, completed text visible in native Local History, standard audio result=failed at 23:33:29.386Z, foreground service/wakelock subsequently released. No retry-to-green or audible/drained success claimed. Whether this is server/profile configuration, transport or client playback remains unconfirmed.
+- source_spec: `spec-standard-isolation.md`
+  summary: Correct failed-authentication status and recovery presentation for a saved Standard connection.
+  evidence: Deliberately invalidating only the owned probe credential produced four failed connection attempts at 23:37:30–31Z and left Authorization Verifying alongside Disconnected/Unavailable and retry guidance. No fallback to the original credential or seeded Home/rollback slots occurred; selecting the original restored Verified/Ready. Source inspection suggests handshake failure invokes lostTransport/connectionObserver before the typed Unauthorized outcome is delivered; this is a candidate race, not a confirmed diagnosis. Preserve isolation and no-replay guards while reproducing the ordering deterministically.

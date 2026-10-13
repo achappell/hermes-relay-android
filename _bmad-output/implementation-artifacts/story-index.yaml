@@ -234,7 +234,7 @@ stories:
     release_scope: migration
     spec: _bmad-output/implementation-artifacts/spec-android-std-01.md
     validation: _bmad-output/implementation-artifacts/validation-android-std-01.md
-    scope_note: Standard process-restart safety verified on the configured emulator (spec-standard-restart.md); no cross-launch session restoration or waiver of remaining physical/voice gates.
+    scope_note: Standard restart safety and bounded emulator configuration/isolation verified (spec-standard-restart.md, spec-standard-isolation.md). Duplicate deletion retains shared history until its last owner. Default-profile audio failure and invalid-credential status wording remain recorded follow-ups; no physical/voice or broader acceptance waiver.
     depends_on:
       - android:ANDROID-HOME-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/53

@@ -73,7 +73,7 @@ development_status:
   android-parity-02: backlog
   android-parity-03: backlog
   epic-2: backlog
-  android-std-01: review # Emulator restart safety verified; remaining broader acceptance unchanged.
+  android-std-01: review # Emulator restart/isolation guards and shared-history deletion verified; default-profile audio and failed-auth status follow-ups remain.
   epic-3: in-progress
   3-a-1: backlog
   3-a-2: backlog

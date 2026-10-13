@@ -130,5 +130,72 @@ class StandardProfileTest {
         assertNull(backing.readStandardCredential("p"))
     }
 
+    @Test fun deleting_one_standard_alias_preserves_history_until_the_last_owner_is_deleted() {
+        val first = standard()
+        val alias = first.copy(id = "alias", endpoint = "https://RELAY.example:443/", hermesProfile = " ")
+        val other = first.copy(id = "other", hermesProfile = "amanda")
+        val history = InMemoryAndroidHistoryStore()
+        val shared = AndroidLocalHistory(
+            entries = listOf(AndroidTranscriptEntry(AndroidTranscriptRole.Assistant, "shared reply", 1)),
+            draft = "shared unsent draft",
+        )
+        val separate = AndroidLocalHistory(draft = "other identity's draft")
+        history.save(first.historyKey, shared)
+        history.save(other.historyKey, separate)
+        val credentials = InMemoryRelayCredentialStore(
+            standardCredentials = mapOf(first.id to "first-secret", alias.id to "alias-secret", other.id to "other-secret"),
+        )
+        val markers = InMemoryStandardRestartStore().apply {
+            markUnresolvedTurn(first)
+            markUnresolvedTurn(alias)
+        }
+        val controller = RelayConfigurationController(
+            InMemoryRelayProfileStore(RelayProfileCollection(listOf(first, alias, other), alias.id)),
+            credentials, history, standardRestartStore = markers,
+        )
+
+        controller.delete(first.id)
+
+        assertEquals(shared, history.load(alias.historyKey))
+        assertEquals(alias.id, controller.collection.selectedId)
+        assertNull(credentials.readStandardCredential(first.id))
+        assertEquals("alias-secret", credentials.readStandardCredential(alias.id))
+        assertFalse(markers.hasUnresolvedTurn(first))
+        assertTrue(markers.hasUnresolvedTurn(alias))
+        assertEquals(separate, history.load(other.historyKey))
+
+        controller.delete(alias.id)
+
+        assertFalse(history.contains(first.historyKey))
+        assertNull(credentials.readStandardCredential(alias.id))
+        assertFalse(markers.hasUnresolvedTurn(alias))
+        assertEquals(separate, history.load(other.historyKey))
+        assertEquals("other-secret", credentials.readStandardCredential(other.id))
+    }
+
+    @Test fun failed_deletion_keeps_profile_credential_history_and_restart_state() {
+        val profile = standard()
+        val initial = RelayProfileCollection(listOf(profile), profile.id)
+        val profiles = object : RelayProfileStore {
+            override fun load() = initial
+            override fun save(collection: RelayProfileCollection) = false
+        }
+        val credentials = InMemoryRelayCredentialStore(standardCredentials = mapOf(profile.id to "secret"))
+        val history = InMemoryAndroidHistoryStore()
+        val saved = AndroidLocalHistory(draft = "retained draft")
+        history.save(profile.historyKey, saved)
+        val markers = InMemoryStandardRestartStore().apply { markUnresolvedTurn(profile) }
+        val controller = RelayConfigurationController(
+            profiles, credentials, history, standardRestartStore = markers,
+        )
+
+        controller.delete(profile.id)
+
+        assertEquals(initial, controller.collection)
+        assertEquals("secret", credentials.readStandardCredential(profile.id))
+        assertEquals(saved, history.load(profile.historyKey))
+        assertTrue(markers.hasUnresolvedTurn(profile))
+    }
+
     private fun standard() = RelayProfile("p", "wss://relay.example/api/ws", "", "", "Standard", mode = RelayConnectionMode.Standard)
 }

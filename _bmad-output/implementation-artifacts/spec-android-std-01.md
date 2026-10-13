@@ -143,3 +143,17 @@ New conversation after interrupted process death. Never replay or silently creat
 a replacement session. Session references remain memory-only; this does not add
 cross-launch Resume. See the dated validation section for red/green native proof,
 regression gates, the separately deferred audio-pause failure and remaining limits.
+
+## Configuration/isolation follow-up — 2026-10-13
+
+`spec-standard-isolation.md` closes the bounded emulator isolation/guard slice and
+fixes shared-history deletion: Standard aliases retain their identity-scoped
+history/draft until the last saved owner is deleted. Native checks covered separate
+Hermes identities, credential failure without fallback, draft/active/uncertain
+switching guards and deliberate no-replay recovery. The original configured
+connection/data were retained and disposable profiles removed.
+
+The dated validation addendum records an audio failure on the disposable default
+profile and misleading failed-authentication status as separate unresolved findings.
+Cross-endpoint/Home live isolation and remaining physical/voice acceptance are not
+waived; the broader Standard story stays in review.
