@@ -45,6 +45,19 @@ every text change assertively; claim conformance that was not measured.
 - Given section labels, then they are exposed as headings.
 - Given a turn reaches a terminal state, then focus returns to the composer.
 
+### 2026-10-13 approved availability-policy exception
+
+Amanda selected **Read status on focus** after native TalkBack demonstrated
+obsolete polite availability speech starting after recovery. This supersedes
+the automatic-connection-announcement requirement above: doorway availability,
+connection/retry details, Profile verification status and their duplicate
+composer/capture availability explanations remain readable on focus, not live.
+Capture/turn feedback, actionable microphone-permission guidance and assertive
+failures retain their existing behavior. This is a deliberate policy change,
+not a repair of TalkBack's queue or physical-device acceptance. See
+[the follow-up spec](spec-talkback-recovery-announcements.md) and its validation.
+
+
 ## Code Map
 
 - `MainActivity.kt` — the `A11yOrder` bands, the `a11yOrder`/`a11yHeading`

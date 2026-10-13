@@ -20,7 +20,7 @@ development_status:
   2-a-1: done
   2-a-2: done
   5-a-1: done
-  5-a-2: done # 2026-10-13 emulator focus-reveal follow-up verified; queued stale speech and physical-device gates remain open.
+  5-a-2: done # 2026-10-13 emulator focus reveal and owner-approved on-focus recovery status verified; no TalkBack queue repair or physical-device acceptance claimed.
   5-a-3: done
   5-a-4: done
   5-a-4-live-home-gate: done
