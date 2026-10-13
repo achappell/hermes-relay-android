@@ -105,3 +105,9 @@
 - source_spec: `spec-standard-restart.md`
   summary: Investigate the intermittent AudioSinkPauseTest drain-deadline failure without weakening pause semantics or skipping the regression.
   evidence: The first full restart-fix run executed 592 tests and failed only AudioSinkPauseTest.kt:129 (paused reply's failure latch became 0). Audio sink/test source was unchanged. Thirty isolated runs on the prior recovery-guidance baseline passed, and the next full run passed without an audio fix. A pause arriving between the worker's paused check and its fresh deadline clock reads is a source-level candidate, not a confirmed root cause; reproduce with controlled barriers before changing the implementation. Runtime severity is medium if confirmed.
+
+## Resolved: Standard restart audio-pause observation (2026-10-13)
+
+- source_spec: `spec-audio-pause-deadline.md`
+  summary: Confirmed and fixed the paused-time deadline race; retain the earlier observation as historical evidence.
+  evidence: A latch-controlled pause after the drain pause check reproduced failure on merged baseline a192e0cb25d8024eaadde314f2a2e9ebc8c10686. Transition-based active-time accounting passes that regression and protects write/drain budgets across unseen holds. Final full JVM suite passed; 30 runs of 58 audio/lifecycle tests had zero failures. The real emulator held the same AudioTrack over 35 s via notification Pause, resumed and drained without failure. No timeout increases or assertion suppression.
