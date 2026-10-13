@@ -125,3 +125,21 @@ Residual risks: physical and gesture-only accessibility acceptance remains
 unverified. Queued obsolete polite speech remains blocked in the separate
 unpublished combined worktree; this branch deliberately contains no speech or
 notification changes. Main's pre-existing edits were untouched.
+
+### Integration fixture follow-up
+
+The first combined PR #153/#154/#155 run failed before creating the fixture's
+turn: its coordinate-based Send setup left `lastBinding` null. Adding an
+explicit idle barrier after Connect did not fix that failure. The focus test
+now seeds the turn through the enabled Send control's semantic action, rather
+than depending on a coordinate tap inside the constrained nested viewport.
+It retains the original prompt-to-label native focus hop and every clipped,
+visible, declined-action and keyboard-focus assertion. The connection idle
+barrier follows the other tests in this file. No production behavior changed.
+
+The combined native-focus regression passed in 4.120 seconds with that final
+fixture. This does not replace real coordinate-based Send verification.
+
+Final fixture verification: **35 standalone focused tests passed in 54.839 s**;
+**37 combined focused tests passed in 60.433 s**. Both runs retained the original
+native focus hop. The test APK rebuilt successfully in each worktree.

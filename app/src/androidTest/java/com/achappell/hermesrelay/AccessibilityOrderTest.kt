@@ -9,6 +9,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.ViewCompat
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.performSemanticsAction
@@ -85,10 +86,15 @@ class AccessibilityOrderTest {
         }
         composeRule.scrollToConversationTag("android_connect")
         composeRule.onNodeWithTag("android_connect").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Read the completed turn")
+        // Seed the turn through Send's semantic action; nested scrolling must not
+        // turn this focus-provider fixture into a coordinate-tap test.
         composeRule.onNodeWithText(
             InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.android_start_typed_turn),
-        ).performScrollTo().performClick()
+        ).assertIsEnabled().performSemanticsAction(SemanticsActions.OnClick) { click ->
+            assertTrue(click())
+        }
         closeSoftKeyboard()
         composeRule.runOnIdle {
             val binding = port.lastBinding!!
