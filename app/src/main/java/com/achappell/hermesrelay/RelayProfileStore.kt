@@ -83,6 +83,7 @@ internal class RelayConfigurationController(
     private val credentials: RelayCredentialStore,
     private val history: AndroidHistoryStore? = null,
     private val homeClientPairings: HomeClientPairingStore? = null,
+    private val standardRestartStore: StandardRestartStore? = null,
     private val idFactory: () -> String = { java.util.UUID.randomUUID().toString() },
 ) {
     var collection: RelayProfileCollection = profiles.load()
@@ -354,6 +355,7 @@ internal class RelayConfigurationController(
             credentials.delete(id)
             // A Profile's conversation must not outlive the Profile that held it.
             deleted?.let { history?.delete(it.historyKey) }
+            standardRestartStore?.deleteProfile(id)
             deleted?.homeClientGrant?.let(::releasePairingIfUnused)
         }
     }

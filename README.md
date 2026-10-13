@@ -129,6 +129,15 @@ across process restarts, and Standard does not expose Home conversation or
 approval menus. Profile/mode changes are blocked while input, capture, a turn,
 or uncertain delivery is pending.
 
+A content-free, no-backup safety marker is saved before Standard prompt submission.
+If the process dies before the turn is resolved, the next launch blocks new input
+and requires deliberate **New conversation**; it neither replays the prompt nor
+silently creates a replacement session. Unreadable/corrupt safety storage fails closed.
+Completed turns clear the marker without waiting for local audio playback to drain.
+Saved setup, credentials, Local History and unsent drafts survive ordinary restart;
+this does not restore the upstream session. Clearing Local History does not clear
+the safety marker; deleting its Profile removes the marker.
+
 See [ANDROID-STD-01 validation](_bmad-output/implementation-artifacts/validation-android-std-01.md)
 for the verified upstream baseline, emulator evidence, and physical voice and
 accessibility gates that remain unverified.

@@ -13,6 +13,8 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
@@ -21,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class OkHttpStandardSessionClientTest {
+    @get:Rule val temporaryFolder = TemporaryFolder()
     private lateinit var server: MockWebServer
     private lateinit var clientCertificates: HandshakeCertificates
     private lateinit var profile: RelayProfile
@@ -31,6 +34,10 @@ class OkHttpStandardSessionClientTest {
     private val peer = AtomicReference<WebSocket>()
     private val rejectCreate = AtomicBoolean(false)
     private val omitSubmitReply = AtomicBoolean(false)
+    private val rejectSubmit = AtomicBoolean(false)
+    private val completeWithoutSubmitReply = AtomicBoolean(false)
+    private var submissionStore: StandardRestartStore? = null
+    private val markerAtSubmission = AtomicBoolean(false)
     private val holdInterrupt = AtomicBoolean(false)
     private val interruptSeen = CountDownLatch(1)
     private val interruptRequest = AtomicReference<JSONObject>()
@@ -60,8 +67,11 @@ class OkHttpStandardSessionClientTest {
         server.shutdown()
     }
 
-    private fun client(sink: AndroidAudioSink = RecordingAudioSink()) = OkHttpStandardSessionClient(
-        { profiles }, credentials,
+    private fun client(
+        sink: AndroidAudioSink = RecordingAudioSink(),
+        store: StandardRestartStore = InMemoryStandardRestartStore(),
+    ) = OkHttpStandardSessionClient(
+        { profiles }, credentials, store,
         OkHttpClient.Builder().sslSocketFactory(clientCertificates.sslSocketFactory(), clientCertificates.trustManager).build(),
         sink, journal, requestTimeoutMillis = 1_000,
     ).also { clients.add(it) }
@@ -78,7 +88,17 @@ class OkHttpStandardSessionClientTest {
                             .put("error", JSONObject().put("code", 4007).put("message", "standard-secret")).toString())
                     } else respond(webSocket, frame, JSONObject().put("session_id", "runtime").put("stored_session_id", "durable"))
                     "session.resume" -> respond(webSocket, frame, JSONObject().put("session_id", "runtime-resumed"))
-                    "prompt.submit" -> if (!omitSubmitReply.get()) respond(webSocket, frame, JSONObject().put("status", "submitted"))
+                    "prompt.submit" -> {
+                        submissionStore?.let { markerAtSubmission.set(it.hasUnresolvedTurn(profile)) }
+                        if (rejectSubmit.get()) {
+                            webSocket.send(JSONObject().put("jsonrpc", "2.0").put("id", frame.getString("id"))
+                                .put("error", JSONObject().put("code", 4007).put("message", "standard-secret")).toString())
+                        } else if (completeWithoutSubmitReply.get()) {
+                            webSocket.send(JSONObject().put("jsonrpc", "2.0").put("method", "event")
+                                .put("params", JSONObject().put("session_id", "runtime").put("seq", 1)
+                                    .put("type", "message.complete").put("payload", JSONObject())).toString())
+                        } else if (!omitSubmitReply.get()) respond(webSocket, frame, JSONObject().put("status", "submitted"))
+                    }
                     "session.interrupt" -> {
                         interruptRequest.set(frame)
                         if (!holdInterrupt.get()) respond(webSocket, frame, JSONObject().put("status", "interrupted"))
@@ -112,6 +132,266 @@ class OkHttpStandardSessionClientTest {
             .put("params", JSONObject().put("session_id", session).put("seq", 1).put("type", type).put("payload", payload)).toString()))
     }
 
+    @Test fun process_restart_restores_before_admission_and_requires_successful_explicit_new_conversation() {
+        val directory = temporaryFolder.newFolder()
+        val store = FileStandardRestartStore(directory)
+        submissionStore = store
+        enqueueSession()
+        val original = client(store = store)
+        assertTrue(original.reconnect() is AndroidReconnectOutcome.Connected)
+        nextMethod("session.create")
+        submit(original)
+        assertTrue(markerAtSubmission.get())
+        assertFalse(original.hasUncertainTurn())
+        assertTrue(original.reconnect() is AndroidReconnectOutcome.Connected)
+        assertTrue(requests.isEmpty())
+        original.close()
+
+        val restoredStore = FileStandardRestartStore(directory)
+        val restored = client(store = restoredStore)
+        assertTrue(restored.hasUncertainTurn())
+        val before = server.requestCount
+        val failure = restored.reconnect() as AndroidReconnectOutcome.Unrecoverable
+        assertEquals(AndroidHomeUnavailableReason.StaleConversation, failure.reasonCode)
+        assertFalse(restored.hasLiveTransport())
+        val runtime = AndroidRecoveryController(restored, policy = ReconnectPolicy.unpaced(3)).recover()
+        assertEquals(AndroidHomeUnavailableReason.StaleConversation,
+            (runtime.connection as AndroidConnectionState.Failed).reasonCode)
+        assertEquals(AndroidInitiationResult.Rejected(AndroidInitiationFailure.DeliveryUncertain),
+            restored.beginTurn(AndroidTurnRequest(AndroidProfile(profile.id, "Standard"), AndroidTurnInput.Typed("not replayed"))))
+        assertEquals(before, server.requestCount)
+        assertTrue(requests.isEmpty())
+
+        rejectCreate.set(true)
+        enqueueSession()
+        assertTrue(restored.newConversation() is AndroidReconnectOutcome.Unrecoverable)
+        nextMethod("session.create")
+        assertTrue(restored.hasUncertainTurn())
+        assertTrue(restoredStore.hasUnresolvedTurn(profile))
+        val afterFailure = server.requestCount
+        assertTrue(restored.reconnect() is AndroidReconnectOutcome.Unrecoverable)
+        assertEquals(afterFailure, server.requestCount)
+        rejectCreate.set(false)
+        enqueueSession()
+        assertTrue(restored.newConversation() is AndroidReconnectOutcome.Connected)
+        nextMethod("session.create")
+        assertFalse(restored.hasUncertainTurn())
+        assertFalse(restoredStore.hasUnresolvedTurn(profile))
+        assertTrue(requests.isEmpty())
+        submit(restored)
+        assertTrue(restoredStore.hasUnresolvedTurn(profile))
+    }
+
+    @Test fun definitive_rejection_and_interrupt_allow_clean_fresh_client_restart() {
+        val directory = temporaryFolder.newFolder()
+        val store = FileStandardRestartStore(directory)
+        enqueueSession()
+        val original = client(store = store)
+        original.reconnect()
+        nextMethod("session.create")
+        rejectSubmit.set(true)
+        val rejected = original.beginTurn(AndroidTurnRequest(AndroidProfile(profile.id, "Standard"), AndroidTurnInput.Typed("private prompt")))
+        nextMethod("prompt.submit")
+        assertEquals(AndroidInitiationResult.Rejected(AndroidInitiationFailure.RequestRejected), rejected)
+        assertFalse(store.hasUnresolvedTurn(profile))
+        assertFalse(original.hasUncertainTurn())
+        rejectSubmit.set(false)
+        val binding = submit(original)
+        assertTrue(original.interruptTurn(binding))
+        nextMethod("session.interrupt")
+        assertFalse(store.hasUnresolvedTurn(profile))
+        original.close()
+        enqueueSession()
+        val restored = client(store = FileStandardRestartStore(directory))
+        assertFalse(restored.hasUncertainTurn())
+        assertTrue(restored.reconnect() is AndroidReconnectOutcome.Connected)
+        nextMethod("session.create")
+        assertTrue(requests.isEmpty())
+    }
+
+    @Test fun restart_marker_is_scoped_to_profile_endpoint_and_hermes_profile() {
+        val directory = temporaryFolder.newFolder()
+        val store = FileStandardRestartStore(directory)
+        store.markUnresolvedTurn(profile)
+        val original = profile
+        listOf(
+            original.copy(id = "other-id"),
+            original.copy(endpoint = server.url("/other/ws").toString()),
+            original.copy(hermesProfile = "other-hermes-profile"),
+        ).forEach { isolated ->
+            profile = isolated
+            profiles = RelayProfileCollection(listOf(profile), profile.id)
+            credentials.putStandardCredential(profile.id, "standard-secret")
+            enqueueSession()
+            val isolatedClient = client(store = FileStandardRestartStore(directory))
+            assertFalse(isolatedClient.hasUncertainTurn())
+            assertTrue(isolatedClient.reconnect() is AndroidReconnectOutcome.Connected)
+            nextMethod("session.create")
+            assertTrue(requests.isEmpty())
+            isolatedClient.close()
+        }
+        profile = original
+        profiles = RelayProfileCollection(listOf(profile), profile.id)
+        val restored = client(store = FileStandardRestartStore(directory))
+        val before = server.requestCount
+        assertTrue(restored.hasUncertainTurn())
+        assertTrue(restored.reconnect() is AndroidReconnectOutcome.Unrecoverable)
+        assertEquals(before, server.requestCount)
+    }
+
+    @Test fun storage_load_and_write_failures_fail_closed_without_submission() {
+        val loadFailure = FailingRestartStore().apply { failLoad = true }
+        val blocked = client(store = loadFailure)
+        assertTrue(blocked.hasUncertainTurn())
+        assertEquals(AndroidHomeUnavailableReason.StaleConversation,
+            (blocked.reconnect() as AndroidReconnectOutcome.Unrecoverable).reasonCode)
+        assertEquals(0, server.requestCount)
+        enqueueSession()
+        assertTrue(blocked.newConversation() is AndroidReconnectOutcome.Connected)
+        nextMethod("session.create")
+        assertFalse(blocked.hasUncertainTurn())
+
+        val writeFailure = FailingRestartStore().apply { failMark = true }
+        enqueueSession()
+        val ready = client(store = writeFailure)
+        ready.reconnect()
+        nextMethod("session.create")
+        val result = ready.beginTurn(AndroidTurnRequest(AndroidProfile(profile.id, "Standard"), AndroidTurnInput.Typed("not sent")))
+        assertEquals(AndroidInitiationResult.Rejected(AndroidInitiationFailure.DeliveryUncertain), result)
+        assertTrue(ready.hasUncertainTurn())
+        assertFalse(ready.hasActiveTurn())
+        assertTrue(requests.isEmpty())
+        assertEquals(AndroidHomeUnavailableReason.StaleConversation,
+            (ready.reconnect() as AndroidReconnectOutcome.Unrecoverable).reasonCode)
+        assertFalse(journalLines.joinToString().contains("private-storage-detail"))
+    }
+
+    @Test fun failed_resolution_persistence_never_reports_new_conversation_recovery() {
+        val store = FailingRestartStore()
+        store.markUnresolvedTurn(profile)
+        store.failClear = true
+        val restored = client(store = store)
+        enqueueSession()
+        assertEquals(AndroidHomeUnavailableReason.StaleConversation,
+            (restored.newConversation() as AndroidReconnectOutcome.Unrecoverable).reasonCode)
+        nextMethod("session.create")
+        assertTrue(restored.hasUncertainTurn())
+        assertFalse(restored.hasLiveTransport())
+        assertTrue(store.hasUnresolvedTurn(profile))
+        assertTrue(requests.isEmpty())
+        store.failClear = false
+        enqueueSession()
+        assertTrue(restored.newConversation() is AndroidReconnectOutcome.Connected)
+        nextMethod("session.create")
+        assertFalse(restored.hasUncertainTurn())
+        assertFalse(store.hasUnresolvedTurn(profile))
+    }
+
+    @Test fun terminal_clear_failure_blocks_admission_and_retains_restart_marker() {
+        val store = FailingRestartStore()
+        enqueueSession()
+        val active = client(store = store)
+        active.reconnect()
+        nextMethod("session.create")
+        val binding = submit(active)
+        store.failClear = true
+        val terminal = CountDownLatch(1)
+        active.observeTurn(binding) { if (it is AndroidNormalizedEvent.TurnInterrupted) terminal.countDown() }
+        event("message.complete", JSONObject().put("status", "interrupted"))
+        assertTrue(terminal.await(5, TimeUnit.SECONDS))
+        assertFalse(active.hasActiveTurn())
+        assertTrue(active.hasUncertainTurn())
+        assertTrue(store.hasUnresolvedTurn(profile))
+        assertEquals(AndroidInitiationResult.Rejected(AndroidInitiationFailure.DeliveryUncertain),
+            active.beginTurn(AndroidTurnRequest(AndroidProfile(profile.id, "Standard"), AndroidTurnInput.Typed("not sent"))))
+        assertTrue(requests.isEmpty())
+    }
+
+    @Test fun authoritative_terminal_without_submit_reply_does_not_restore_false_uncertainty() {
+        val store = FileStandardRestartStore(temporaryFolder.newFolder())
+        enqueueSession()
+        val active = client(store = store)
+        active.reconnect()
+        nextMethod("session.create")
+        completeWithoutSubmitReply.set(true)
+        submit(active)
+        assertFalse(active.hasUncertainTurn())
+        assertFalse(active.hasActiveTurn())
+        assertFalse(store.hasUnresolvedTurn(profile))
+        assertEquals(1, journalLines.count { it == "standard prompt result=accepted" })
+        assertTrue(requests.isEmpty())
+    }
+
+    @Test fun late_terminal_preserves_already_raised_uncertainty_across_restart() {
+        val directory = temporaryFolder.newFolder()
+        val store = FileStandardRestartStore(directory)
+        enqueueSession()
+        val active = client(store = store)
+        active.reconnect()
+        nextMethod("session.create")
+        omitSubmitReply.set(true)
+        val result = active.beginTurn(
+            AndroidTurnRequest(AndroidProfile(profile.id, profile.displayName), AndroidTurnInput.Typed("private prompt")),
+        )
+        nextMethod("prompt.submit")
+        assertTrue(result is AndroidInitiationResult.Uncertain)
+        val disconnected = CountDownLatch(1)
+        active.observeConnection { disconnected.countDown() }
+        event("message.complete")
+        // The close frame follows the terminal on the same socket, so this callback
+        // is a receipt barrier rather than a sleep or a guessed event-processing delay.
+        assertTrue(peer.get().close(1000, null))
+        assertTrue(disconnected.await(5, TimeUnit.SECONDS))
+        assertTrue(active.hasUncertainTurn())
+        assertTrue(store.hasUnresolvedTurn(profile))
+        active.close()
+
+        val restarted = client(store = FileStandardRestartStore(directory))
+        assertTrue(restarted.hasUncertainTurn())
+        val recovery = restarted.reconnect() as AndroidReconnectOutcome.Unrecoverable
+        assertEquals(AndroidHomeUnavailableReason.StaleConversation, recovery.reasonCode)
+        assertEquals(1, server.requestCount)
+        assertTrue(requests.isEmpty())
+    }
+
+    @Test fun rejection_clear_failure_retains_marker_and_blocks_further_submission() {
+        val store = FailingRestartStore()
+        enqueueSession()
+        val active = client(store = store)
+        active.reconnect()
+        nextMethod("session.create")
+        store.failClear = true
+        rejectSubmit.set(true)
+        val request = AndroidTurnRequest(AndroidProfile(profile.id, "Standard"), AndroidTurnInput.Typed("private prompt"))
+        assertEquals(AndroidInitiationResult.Rejected(AndroidInitiationFailure.DeliveryUncertain), active.beginTurn(request))
+        nextMethod("prompt.submit")
+        assertTrue(active.hasUncertainTurn())
+        assertFalse(active.hasActiveTurn())
+        assertTrue(store.hasUnresolvedTurn(profile))
+        assertEquals(AndroidInitiationResult.Rejected(AndroidInitiationFailure.DeliveryUncertain), active.beginTurn(request))
+        assertTrue(requests.isEmpty())
+        assertFalse(journalLines.joinToString().contains("private-storage-detail"))
+    }
+
+    private class FailingRestartStore : StandardRestartStore {
+        private val delegate = InMemoryStandardRestartStore()
+        var failLoad = false
+        var failMark = false
+        var failClear = false
+        override fun hasUnresolvedTurn(profile: RelayProfile): Boolean {
+            check(!failLoad) { "private-storage-detail" }
+            return delegate.hasUnresolvedTurn(profile)
+        }
+        override fun markUnresolvedTurn(profile: RelayProfile) {
+            check(!failMark) { "private-storage-detail" }
+            delegate.markUnresolvedTurn(profile)
+        }
+        override fun clearUnresolvedTurn(profile: RelayProfile) {
+            check(!failClear) { "private-storage-detail" }
+            delegate.clearUnresolvedTurn(profile)
+        }
+        override fun deleteProfile(profileId: String) = delegate.deleteProfile(profileId)
+    }
     @Test fun http_401_and_403_remain_nonretryable_authorization_failures_until_manual_recovery() {
         listOf(401, 403).forEach { status ->
             server.enqueue(MockResponse().setResponseCode(status).setBody("standard-secret"))
@@ -266,7 +546,8 @@ class OkHttpStandardSessionClientTest {
 
     @Test fun unsupported_prompt_is_visible_failure_not_approval_or_response_text() {
         enqueueSession()
-        val client = client()
+        val store = FileStandardRestartStore(temporaryFolder.newFolder())
+        val client = client(store = store)
         client.reconnect()
         nextMethod("session.create")
         val binding = submit(client)
@@ -279,6 +560,11 @@ class OkHttpStandardSessionClientTest {
         assertTrue(client.hasUncertainTurn())
         assertTrue(client.hasActiveTurn())
         assertFalse(journalLines.joinToString().contains("sensitive"))
+        event("message.complete", JSONObject().put("status", "interrupted"))
+        assertTrue(events.poll(5, TimeUnit.SECONDS) is AndroidNormalizedEvent.TurnInterrupted)
+        assertTrue(client.hasUncertainTurn())
+        assertTrue(store.hasUnresolvedTurn(profile))
+        assertTrue(requests.isEmpty())
     }
 
     @Test fun interrupt_stops_local_audio_immediately_but_busy_waits_for_acknowledgement() {
@@ -324,7 +610,9 @@ class OkHttpStandardSessionClientTest {
             }
         }))
         val sink = DrainSink()
-        val client = client(sink)
+        val directory = temporaryFolder.newFolder()
+        val store = FileStandardRestartStore(directory)
+        val client = client(sink, store)
         client.reconnect()
         nextMethod("session.create")
         val binding = submit(client)
@@ -336,6 +624,10 @@ class OkHttpStandardSessionClientTest {
         event("message.complete", JSONObject().put("text", "hello world"))
         assertTrue(sink.finishCalled.await(5, TimeUnit.SECONDS))
         assertTrue(client.hasActiveTurn())
+        assertFalse(store.hasUnresolvedTurn(profile))
+        assertFalse(client.hasUncertainTurn())
+        val restartedDuringDrain = client(store = FileStandardRestartStore(directory))
+        assertFalse(restartedDuringDrain.hasUncertainTurn())
         assertEquals(4, sink.bytes)
         assertEquals(AndroidAudioFormat(24000, 1, 2, "pcm_s16le"), sink.format)
         assertTrue(observed.any { it is AndroidNormalizedEvent.TextCompleted })
@@ -353,6 +645,11 @@ class OkHttpStandardSessionClientTest {
         assertEquals("amanda", audio.queryParameter("profile"))
         assertEquals("standard-secret", audio.queryParameter("token"))
         assertTrue(journalLines.contains("standard audio result=drained"))
+        client.close()
+        enqueueSession()
+        assertTrue(restartedDuringDrain.reconnect() is AndroidReconnectOutcome.Connected)
+        nextMethod("session.create")
+        assertTrue(requests.isEmpty())
     }
 
     @Test fun sidecar_failure_is_sanitized_and_releases_completed_text_turn() {
@@ -377,7 +674,8 @@ class OkHttpStandardSessionClientTest {
 
     @Test fun interrupted_terminal_is_not_success_and_never_opens_audio() {
         enqueueSession()
-        val client = client()
+        val store = InMemoryStandardRestartStore()
+        val client = client(store = store)
         client.reconnect()
         nextMethod("session.create")
         val binding = submit(client)
@@ -388,6 +686,8 @@ class OkHttpStandardSessionClientTest {
         event("message.complete", JSONObject().put("status", "interrupted").put("text", "partial"))
         assertTrue(terminal.poll(5, TimeUnit.SECONDS) is AndroidNormalizedEvent.TurnInterrupted)
         assertFalse(client.hasActiveTurn())
+        assertFalse(store.hasUnresolvedTurn(profile))
+        assertFalse(client.hasUncertainTurn())
         assertEquals(1, server.requestCount)
     }
 

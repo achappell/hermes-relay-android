@@ -101,6 +101,7 @@ internal fun StandardSetupSection(
                                 val client = OkHttpStandardSessionClient(
                                     collection = { RelayProfileCollection(listOf(candidate), candidate.id) },
                                     credentials = credentials,
+                                    restartStore = InMemoryStandardRestartStore(),
                                 )
                                 try {
                                     client.reconnect() is AndroidReconnectOutcome.Connected
