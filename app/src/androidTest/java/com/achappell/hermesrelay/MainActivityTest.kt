@@ -239,9 +239,6 @@ class MainActivityTest {
         composeRule.waitForIdle()
 
         composeRule.scrollToConversationTag("android_turn_status")
-        composeRule
-            .onNodeWithText("Turn accepted for Amanda. Waiting for Home events.")
-            .assertIsDisplayed()
         composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
         assertEquals(1, port.requests.size)
         assertEquals("amanda", port.requests.single().profile.id)

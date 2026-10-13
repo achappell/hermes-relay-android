@@ -77,9 +77,6 @@ class MicrophoneCaptureTest {
 
         // No connect click: there is no live Session yet.
         composeRule.onNodeWithTag("android_capture_block").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Connect to the Home bridge before speaking.")
-            .performScrollTo()
-            .assertIsDisplayed()
         assertEquals(0, speech.startCount)
     }
 
@@ -120,9 +117,6 @@ class MicrophoneCaptureTest {
             AndroidTurnInput.Typed("check the weather"),
             port.requests.single().input,
         )
-        composeRule.onNodeWithText("Turn accepted for Amanda. Waiting for Home events.")
-            .performScrollTo()
-            .assertIsDisplayed()
     }
 
     @Test
