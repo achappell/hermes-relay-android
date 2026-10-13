@@ -31,6 +31,13 @@ internal class HermesEventNormalizer(
     fun normalizeBinary(binding: AndroidTurnBinding): AndroidNormalizedEvent =
         AndroidNormalizedEvent.AudioChunkReceived(binding)
 
+    /** Direct Standard notifications already passed transport/session validation. */
+    fun normalizeStandard(
+        type: String,
+        payload: JSONObject,
+        binding: AndroidTurnBinding,
+    ): List<AndroidNormalizedEvent> = standardEvents(type, payload, binding, null)
+
     fun normalize(text: String, fallback: AndroidTurnBinding): List<AndroidNormalizedEvent> {
         val frame = runCatching { JSONObject(text) }.getOrNull()
             ?: return listOf(AndroidNormalizedEvent.Unknown(fallback, "malformed"))

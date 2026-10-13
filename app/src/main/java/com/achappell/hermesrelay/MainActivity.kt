@@ -155,7 +155,8 @@ internal fun AndroidClientScreen(
         recoveryState.connectionId,
     ) { clientPort.snapshot() }
     var configurationVisible by rememberSaveable { mutableStateOf(false) }
-    val homeConversations = clientPort as? AndroidHomeConversations
+    val standardMode = clientPort.connectionMode() == RelayConnectionMode.Standard
+    val homeConversations = clientPort.homeConversations()
     var conversationsVisible by rememberSaveable { mutableStateOf(false) }
     var disconnectConfirmVisible by rememberSaveable { mutableStateOf(false) }
     var conversationsState by remember {
@@ -171,7 +172,7 @@ internal fun AndroidClientScreen(
     // The divider to record once the requested conversation actually opens.
     var pendingDivider by remember { mutableStateOf<String?>(null) }
     var conversationMessage by remember { mutableStateOf<String?>(null) }
-    val homeApprovals = clientPort as? AndroidHomeApprovals
+    val homeApprovals = clientPort.homeApprovals()
     var approvalsVisible by rememberSaveable { mutableStateOf(false) }
     var approvalsState by remember { mutableStateOf<HomeApprovalsState>(HomeApprovalsState.Loading) }
     var approvalsMessage by remember { mutableStateOf<String?>(null) }
@@ -199,8 +200,9 @@ internal fun AndroidClientScreen(
     // Local History follows the selected Profile: switching Profiles opens that
     // Profile's conversation and never shows another's.
     val selectedProfileId = configuration?.collection?.selectedId
-    LaunchedEffect(recorder, selectedProfileId, configurationRevision) {
-        recorder?.open(selectedProfileId)
+    val selectedHistoryKey = configuration?.collection?.selected?.historyKey
+    LaunchedEffect(recorder, selectedHistoryKey) {
+        runtime.openHistory(selectedHistoryKey)
         recorder?.let { prompt = it.history.draft }
         runtime.historyRevision += 1
     }
@@ -208,8 +210,8 @@ internal fun AndroidClientScreen(
         snapshot.selectedProfile != null
     val isConnected = recoveryState.connection == AndroidConnectionState.Connected
     val hasUnresolvedTurn = recoveryState.hasUnconfirmedTurn ||
-        recoveryState.unresolvedHomeTurn
-    val hasAcceptedTurn = runtime.hasAcceptedTurn
+        recoveryState.unresolvedHomeTurn || clientPort.hasUncertainTurn()
+    val hasAcceptedTurn = runtime.hasAcceptedTurn || clientPort.hasActiveTurn()
     val canAttemptConnection = snapshot.selectedProfile != null &&
         snapshot.unavailableReason !in setOf(
             AndroidHomeUnavailableReason.MissingBinding,
@@ -469,11 +471,11 @@ internal fun AndroidClientScreen(
     // is no single-use handle to protect: connect it as soon as it is selected.
     // Operator-handle Profiles keep the deliberate connect action.
     val selectedIsPaired = configuration?.collection?.selected?.homeClientGrant != null
-    LaunchedEffect(selectedProfileId, selectedIsPaired) {
+    LaunchedEffect(selectedProfileId, selectedIsPaired, standardMode) {
         // A ladder retrying the previous Profile stops before this one connects.
         runtime.profileSelected(selectedProfileId)
         if (
-            selectedIsPaired &&
+            (selectedIsPaired || standardMode) &&
             canAttemptConnection &&
             recoveryState.connection != AndroidConnectionState.Connected
         ) {
@@ -518,7 +520,7 @@ internal fun AndroidClientScreen(
     // this reopens the same conversation with conversation.reconnect.
     val latestResumeConnection by rememberUpdatedState({
         if (
-            homeConversations?.selectedIsPaired() == true &&
+            (homeConversations?.selectedIsPaired() == true || standardMode) &&
             canAttemptConnection &&
             runtime.needsReconnect
         ) {
@@ -735,6 +737,20 @@ internal fun AndroidClientScreen(
                     contentPadding = PaddingValues(horizontal = HermesSpacing.xl, vertical = HermesSpacing.lg),
                     verticalArrangement = Arrangement.spacedBy(HermesSpacing.lg),
                 ) {
+                        item {
+                            Text(
+                                stringResource(
+                                    if (doorwayState is AndroidDoorwayState.NoProfile) {
+                                        R.string.android_connection_choose
+                                    } else when (clientPort.connectionMode()) {
+                                        RelayConnectionMode.Standard -> R.string.android_mode_standard
+                                        RelayConnectionMode.HomeBridge -> R.string.android_mode_home
+                                        RelayConnectionMode.Legacy -> R.string.android_mode_legacy
+                                    },
+                                ),
+                                Modifier.testTag("android_connection_mode"),
+                            )
+                        }
                     doorwayState?.let { currentState ->
                         item {
                             DoorwayStateZone(
@@ -817,6 +833,28 @@ internal fun AndroidClientScreen(
                         }
                     }
 
+                    if (standardMode) {
+                        item {
+                            Column {
+                                if (hasUnresolvedTurn) {
+                                    Text(stringResource(R.string.android_standard_uncertain))
+                                } else if (clientPort.hasActiveTurn()) {
+                                    Text(stringResource(R.string.android_standard_finishing))
+                                }
+                                androidx.compose.material3.TextButton(
+                                    enabled = !initiationInFlight && !recoveryState.isRecovering,
+                                    modifier = Modifier.testTag("android_standard_new_conversation"),
+                                    onClick = {
+                                        runtime.newStandardConversation { success ->
+                                            conversationMessage = if (success) null else
+                                                resources.getString(R.string.android_standard_new_failed)
+                                        }
+                                    },
+                                ) { Text(stringResource(R.string.android_standard_new)) }
+                            }
+                        }
+                    }
+
                     item {
                         Column {
                             ConnectionRecoveryZone(
@@ -832,6 +870,7 @@ internal fun AndroidClientScreen(
                                 onEditRelay = { configurationVisible = true },
                                 onResend = { resendUnconfirmedTurn() },
                                 onDiscard = { discardUnconfirmedTurn() },
+                                standardMode = standardMode,
                             )
                         }
                     }
@@ -877,10 +916,11 @@ internal fun AndroidClientScreen(
                     ) {
                         RelayConfigurationScreen(
                             controller = configurationController,
+                            canReconfigure = runtime.canReconfigure && prompt.isBlank(),
                             homeAdministration = homeAdministration,
                             onHomeAdministrationChanged = { configurationRevision += 1 },
                             onHomeCredentialChanged = {
-                                clientPort.close()
+                                runtime.configurationChanged()
                                 configurationRevision += 1
                             },
                             homePairing = homePairing,
@@ -893,6 +933,9 @@ internal fun AndroidClientScreen(
                             pendingPairingLink = pendingPairingLink,
                             onPendingPairingLinkConsumed = onPendingPairingLinkConsumed,
                             onChanged = {
+                                if (standardMode || configurationController.collection.selectedId != selectedProfileId) {
+                                    runtime.configurationChanged()
+                                }
                                 configurationRevision += 1
                             },
                             onSetupCompleted = {

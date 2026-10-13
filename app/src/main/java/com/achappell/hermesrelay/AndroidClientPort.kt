@@ -217,6 +217,14 @@ internal sealed interface AndroidInitiationResult {
 internal interface AndroidClientPort {
     fun snapshot(): AndroidClientSnapshot
 
+    fun connectionMode(): RelayConnectionMode = RelayConnectionMode.HomeBridge
+
+    /** Uncertainty is cleared only by a verified deliberate session boundary. */
+    fun hasUncertainTurn(): Boolean = false
+
+    fun newConversation(): AndroidReconnectOutcome =
+        AndroidReconnectOutcome.Unrecoverable("New conversation is unavailable for this connection.")
+
     fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult
 
     /**

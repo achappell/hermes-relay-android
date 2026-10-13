@@ -3,6 +3,9 @@ package com.achappell.hermesrelay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
+import java.security.MessageDigest
+
+internal enum class RelayConnectionMode { HomeBridge, Standard, Legacy }
 
 /**
  * The non-secret half of a relay configuration.
@@ -13,7 +16,7 @@ import java.net.URI
  */
 internal data class RelayProfile(
     val id: String,
-    /** Legacy field retained as the editable route label for old JSON. */
+    /** Standard server endpoint, or the retained route label for Home/legacy. */
     val endpoint: String,
     val clientId: String,
     val deviceId: String,
@@ -22,7 +25,24 @@ internal data class RelayProfile(
     val homeAdministration: RelayHomeAdministration? = null,
     /** Set when this Profile is one grant of a HOME-NW-17 personal-client pairing. */
     val homeClientGrant: RelayHomeClientGrantRef? = null,
-)
+    val mode: RelayConnectionMode = if (homeBinding != null || homeClientGrant != null) {
+        RelayConnectionMode.HomeBridge
+    } else {
+        RelayConnectionMode.Legacy
+    },
+    val hermesProfile: String = "default",
+) {
+    /** Standard history belongs to the server identity, never to a Home/legacy ID. */
+    val historyKey: String
+        get() {
+            if (mode != RelayConnectionMode.Standard) return id
+            val endpointIdentity = StandardEndpoint.canonicalize(endpoint)
+            val name = StandardEndpoint.normalizeHermesProfile(hermesProfile)
+            val identity = "${endpointIdentity.length}:$endpointIdentity${name.length}:$name"
+            val digest = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
+            return "standard:" + digest.joinToString("") { "%02x".format(it) }
+        }
+}
 
 /**
  * Points a Profile at one grant of a pairing. Both values are opaque, non-secret
@@ -228,7 +248,11 @@ internal data class RelayProfileCollection(
                     .put("client_id", profile.clientId)
                     .put("device_id", profile.deviceId)
                     .put("display_name", profile.displayName)
-            profile.homeBinding?.let { binding ->
+                    .put("mode", profile.mode.name)
+            if (profile.mode == RelayConnectionMode.Standard) {
+                item.put("hermes_profile", StandardEndpoint.normalizeHermesProfile(profile.hermesProfile))
+            }
+            profile.homeBinding?.takeUnless { profile.mode == RelayConnectionMode.Standard }?.let { binding ->
                 item.put(
                     "home_binding",
                     JSONObject()
@@ -237,7 +261,7 @@ internal data class RelayProfileCollection(
                         .put("conversation_handle", binding.conversationHandle),
                 )
             }
-            profile.homeAdministration?.let { administration ->
+            profile.homeAdministration?.takeUnless { profile.mode == RelayConnectionMode.Standard }?.let { administration ->
                 item.put(
                     "home_administration",
                     JSONObject()
@@ -252,7 +276,7 @@ internal data class RelayProfileCollection(
                         .putOpt("last_error", administration.lastError),
                 )
             }
-            profile.homeClientGrant?.let { grant ->
+            profile.homeClientGrant?.takeUnless { profile.mode == RelayConnectionMode.Standard }?.let { grant ->
                 item.put(
                     "home_client_grant",
                     JSONObject()
@@ -304,15 +328,31 @@ internal data class RelayProfileCollection(
                             null
                         }
                     }
+                    val mode = if (item.has("mode")) {
+                        runCatching { RelayConnectionMode.valueOf(item.getString("mode")) }
+                            .getOrDefault(RelayConnectionMode.Legacy)
+                    } else if (homeBinding != null || homeClientGrant != null) {
+                        RelayConnectionMode.HomeBridge
+                    } else {
+                        RelayConnectionMode.Legacy
+                    }
+                    val endpoint = item.optString("endpoint")
+                    if (mode == RelayConnectionMode.Standard && StandardEndpoint.validate(endpoint) != null) {
+                        return@mapNotNull null
+                    }
                     RelayProfile(
                         id = id,
-                        endpoint = item.optString("endpoint"),
+                        endpoint = if (mode == RelayConnectionMode.Standard) StandardEndpoint.canonicalize(endpoint) else endpoint,
                         clientId = item.optString("client_id"),
                         deviceId = item.optString("device_id"),
                         displayName = item.optString("display_name"),
-                        homeBinding = homeBinding,
-                        homeAdministration = homeAdministration,
-                        homeClientGrant = homeClientGrant,
+                        homeBinding = homeBinding.takeUnless { mode == RelayConnectionMode.Standard },
+                        homeAdministration = homeAdministration.takeUnless { mode == RelayConnectionMode.Standard },
+                        homeClientGrant = homeClientGrant.takeUnless { mode == RelayConnectionMode.Standard },
+                        mode = mode,
+                        hermesProfile = if (mode == RelayConnectionMode.Standard) {
+                            StandardEndpoint.normalizeHermesProfile(item.optString("hermes_profile"))
+                        } else "default",
                     )
                 }
                 val selected = root.optString("selected_id").takeIf { it.isNotBlank() }
@@ -394,6 +434,6 @@ internal data class RelayProfileCollection(
             }
         }
 
-        private const val PROFILE_COLLECTION_SCHEMA_VERSION = 2
+        private const val PROFILE_COLLECTION_SCHEMA_VERSION = 3
     }
 }

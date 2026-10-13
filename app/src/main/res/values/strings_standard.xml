@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="android_connection_choose">Choose a connection</string>
+    <string name="android_mode_home">HomeBridge</string>
+    <string name="android_mode_standard">Standard Hermes</string>
+    <string name="android_mode_legacy">Legacy — needs setup</string>
+    <string name="android_standard_endpoint">Standard endpoint (https or wss)</string>
+    <string name="android_standard_profile">Hermes Profile (default if blank)</string>
+    <string name="android_standard_name">Connection name</string>
+    <string name="android_standard_token">Standard token</string>
+    <string name="android_standard_check_save">Check connection and save</string>
+    <string name="android_standard_checking">Checking Standard connection…</string>
+    <string name="android_standard_invalid">Enter a secure endpoint, connection name, and fresh Standard token.</string>
+    <string name="android_standard_failed">Could not verify Standard. Check its address, token, and network. Nothing was saved.</string>
+    <string name="android_standard_save_failed">Could not save Standard securely. Existing connections were preserved.</string>
+    <string name="android_standard_limits">Direct Standard connection. Home grants, device administration, household conversations, and structured prompts are unavailable. Connection failures never switch modes.</string>
+    <string name="android_standard_new">New conversation</string>
+    <string name="android_standard_new_failed">New conversation failed. The previous turn remains unresolved; nothing was resent.</string>
+    <string name="android_standard_uncertain">The previous turn is uncertain. Reconnect does not resend it. Start a New conversation to leave it behind.</string>
+    <string name="android_standard_finishing">Hermes is finishing the previous response.</string>
+    <string name="android_connection_switch_blocked">Finish or leave the current turn, stop voice, and clear pending input before changing connections.</string>
+    <string name="android_standard_edit">Edit Standard connection</string>
+</resources>

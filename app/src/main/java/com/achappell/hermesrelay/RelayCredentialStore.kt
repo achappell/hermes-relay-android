@@ -28,6 +28,11 @@ internal interface RelayCredentialStore {
     /** Legacy API: reads the rollback-only credential slot. */
     fun read(profileId: String): String?
 
+    /** Direct Standard bearer; never falls back to any Home or rollback slot. */
+    fun putStandardCredential(profileId: String, credential: String): Boolean = false
+    fun readStandardCredential(profileId: String): String? = null
+    fun deleteStandardCredential(profileId: String): Boolean = false
+
     /** Stores a validated Home Device credential in its distinct secure slot. */
     fun putHomeCredential(profileId: String, credential: String): Boolean = false
 
@@ -66,7 +71,7 @@ internal interface RelayCredentialStore {
     fun hasStoredRollbackCredential(profileId: String): Boolean =
         hasReadableRollbackCredential(profileId)
 
-    /** Removes both slots when the owning Profile is deleted. */
+    /** Removes all credential slots when the owning Profile is deleted. */
     fun delete(profileId: String)
 }
 
@@ -107,6 +112,15 @@ internal class KeystoreRelayCredentialStore(
 
     override fun read(profileId: String): String? = readRollbackCredential(profileId)
 
+    override fun putStandardCredential(profileId: String, credential: String): Boolean =
+        credential.isNotBlank() && writeSecret(standardKey(profileId), credential.trim())
+
+    override fun readStandardCredential(profileId: String): String? =
+        readSecret(standardKey(profileId))
+
+    override fun deleteStandardCredential(profileId: String): Boolean =
+        preferences.edit().remove(standardKey(profileId)).commit()
+
     override fun putHomeCredential(profileId: String, credential: String): Boolean {
         if (!HomeCredentialValidator.isValid(credential)) return false
         return writeSecret(homeKey(profileId), credential)
@@ -143,6 +157,7 @@ internal class KeystoreRelayCredentialStore(
         preferences.edit()
             .remove(homeKey(profileId))
             .remove(homeAdminKey(profileId))
+            .remove(standardKey(profileId))
             .remove(rollbackKey(profileId))
             // Keep deletion compatible with profiles written before the slot
             // split, where the old bearer lived under token:<profile>.
@@ -184,6 +199,8 @@ internal class KeystoreRelayCredentialStore(
 
     private fun homeAdminKey(profileId: String) = "home-admin:$profileId"
 
+    private fun standardKey(profileId: String) = "standard:$profileId"
+
     private fun rollbackKey(profileId: String) = "rollback:$profileId"
 
     private fun legacyTokenKey(profileId: String) = "token:$profileId"
@@ -221,10 +238,12 @@ internal class InMemoryRelayCredentialStore(
     initial: Map<String, String> = emptyMap(),
     homeCredentials: Map<String, String> = emptyMap(),
     homeAdminCredentials: Map<String, String> = emptyMap(),
+    standardCredentials: Map<String, String> = emptyMap(),
 ) : RelayCredentialStore {
     private val rollback = initial.toMutableMap()
     private val home = homeCredentials.toMutableMap()
     private val homeAdmin = homeAdminCredentials.toMutableMap()
+    private val standard = standardCredentials.toMutableMap()
 
     override fun put(profileId: String, token: String): Boolean =
         putRollbackCredential(profileId, token)
@@ -233,6 +252,19 @@ internal class InMemoryRelayCredentialStore(
         hasReadableRollbackCredential(profileId)
 
     override fun read(profileId: String): String? = readRollbackCredential(profileId)
+
+    override fun putStandardCredential(profileId: String, credential: String): Boolean {
+        if (credential.isBlank()) return false
+        standard[profileId] = credential.trim()
+        return true
+    }
+
+    override fun readStandardCredential(profileId: String): String? = standard[profileId]
+
+    override fun deleteStandardCredential(profileId: String): Boolean {
+        standard.remove(profileId)
+        return true
+    }
 
     override fun putHomeCredential(profileId: String, credential: String): Boolean {
         if (!HomeCredentialValidator.isValid(credential)) return false
@@ -274,6 +306,7 @@ internal class InMemoryRelayCredentialStore(
     override fun delete(profileId: String) {
         home.remove(profileId)
         homeAdmin.remove(profileId)
+        standard.remove(profileId)
         rollback.remove(profileId)
     }
 }

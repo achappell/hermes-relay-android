@@ -873,6 +873,7 @@ internal fun ColumnScope.ConnectionRecoveryZone(
     onEditRelay: () -> Unit,
     onResend: () -> Unit,
     onDiscard: () -> Unit,
+    standardMode: Boolean = false,
 ) {
     val stateColors = LocalHermesStateColors.current
 
@@ -905,7 +906,7 @@ internal fun ColumnScope.ConnectionRecoveryZone(
         }
     }
 
-    if (recoveryState.hasUnconfirmedTurn) {
+    if (recoveryState.hasUnconfirmedTurn && !standardMode) {
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = HermesStateWashes.overlay(stateColors.unavailable, stateColors.panel),
@@ -938,7 +939,7 @@ internal fun ColumnScope.ConnectionRecoveryZone(
         }
     }
 
-    if (recoveryState.unresolvedHomeTurn && !recoveryState.hasUnconfirmedTurn) {
+    if (recoveryState.unresolvedHomeTurn && !recoveryState.hasUnconfirmedTurn && !standardMode) {
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = HermesStateWashes.overlay(stateColors.attention, stateColors.panel),

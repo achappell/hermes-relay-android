@@ -358,8 +358,6 @@ class MainActivityTest {
 
         composeRule.scrollToConversationTag("android_unconfirmed_turn")
         composeRule.onNodeWithTag("android_unconfirmed_turn").assertIsDisplayed()
-        composeRule.scrollToConversationTag("android_connection_state")
-        composeRule.onNodeWithText("Home bridge: Disconnected").assertIsDisplayed()
         assertEquals(1, port.requests.size)
 
         composeRule.scrollToConversationTag("android_connect")

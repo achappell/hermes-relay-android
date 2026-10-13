@@ -121,6 +121,15 @@ internal class AndroidRecoveryController(
             }
         }
 
+
+    /** Deliberate Standard session creation is the only safe uncertainty reset. */
+    fun acceptNewConversation(outcome: AndroidReconnectOutcome.Connected): AndroidRecoveryState {
+        state = AndroidRecoveryState(
+            connection = AndroidConnectionState.Connected,
+            connectionId = outcome.connectionId,
+        )
+        return state
+    }
     /**
      * Record an unexpected transport loss.
      *
@@ -311,6 +320,9 @@ internal class AndroidRecoveryController(
      * automatically.
      */
     fun resendUnconfirmedTurn(): AndroidResendResult {
+        if (clientPort.connectionMode() == RelayConnectionMode.Standard) {
+            return AndroidResendResult.NothingToResend
+        }
         val unconfirmed = state.unconfirmedTurn ?: return AndroidResendResult.NothingToResend
         if (state.connection != AndroidConnectionState.Connected) {
             return AndroidResendResult.NotConnected
@@ -330,6 +342,7 @@ internal class AndroidRecoveryController(
 
     /** Drop the retained turn without sending it. */
     fun discardUnconfirmedTurn(): AndroidRecoveryState {
+        if (clientPort.connectionMode() == RelayConnectionMode.Standard) return state
         clientPort.prepareForExplicitResend()
         state = state.copy(unconfirmedTurn = null)
         return state
