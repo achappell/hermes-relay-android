@@ -95,3 +95,21 @@ Already satisfied, and left unchanged:
 The Android doorway's disconnected behavior is honest and proven rather than
 assumed. Retained context stays available without pretending to be live, and a
 dead Session cannot speak into a recovered one.
+
+## Connection-guidance follow-up — 2026-10-13
+
+The original September implementation and evidence above remain historical.
+Current Android includes microphone capture and response audio. The completed
+[recovery-guidance fix](spec-recovery-guidance.md) distinguishes an offline,
+credential-present Standard snapshot (Verifying) from actual authorization
+failure. Doorway, typed-send and idle-capture guidance share that distinction;
+the underlying verified-and-connected admission checks are unchanged.
+
+Typed recovery failures retain their reason through retry exhaustion and a
+refused New conversation. Missing/rejected authorization directs users to
+configuration; non-auth session refusal retains its actual explanation and
+deliberate recovery path. Retry/success/reset clear obsolete failure evidence.
+Draft/response retention, explicit-only recovery and no replay remain intact.
+Standard's existing session.resume behavior is not changed into a fresh-session
+policy by this follow-up. See the dated validation addendum for emulator proof
+and its limits; broader Standard acceptance is unchanged.

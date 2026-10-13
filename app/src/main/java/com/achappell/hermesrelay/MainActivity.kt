@@ -208,11 +208,15 @@ internal fun AndroidClientScreen(
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
     val isConnected = recoveryState.connection == AndroidConnectionState.Connected
+    val availabilityBlock = resolveAndroidAvailabilityBlock(snapshot, recoveryState.connection)
     val hasUnresolvedTurn = recoveryState.hasUnconfirmedTurn ||
         recoveryState.unresolvedHomeTurn || clientPort.hasUncertainTurn()
     val hasAcceptedTurn = runtime.hasAcceptedTurn || clientPort.hasActiveTurn()
+    val unavailableReason = (recoveryState.connection as? AndroidConnectionState.Failed)?.reasonCode
+        ?: snapshot.unavailableReason
     val canAttemptConnection = snapshot.selectedProfile != null &&
-        snapshot.unavailableReason !in setOf(
+        availabilityBlock != AndroidAvailabilityBlock.Authorization &&
+        when (unavailableReason) {
             AndroidHomeUnavailableReason.MissingBinding,
             AndroidHomeUnavailableReason.InvalidBinding,
             AndroidHomeUnavailableReason.InvalidCredential,
@@ -225,7 +229,9 @@ internal fun AndroidClientScreen(
             AndroidHomeUnavailableReason.ProtocolError,
             AndroidHomeUnavailableReason.CapabilityUnavailable,
             AndroidHomeUnavailableReason.ClaimLimit,
-        )
+            -> false
+            else -> true
+        }
 
 
     val microphone = rememberRuntimePermission(
@@ -263,8 +269,8 @@ internal fun AndroidClientScreen(
         captureState,
     ) { captureController?.blockingReason() }
     val doorwayState = resolveAndroidDoorwayState(
-        snapshot = snapshot,
-        isConnected = isConnected,
+        hasProfile = snapshot.selectedProfile != null,
+        availabilityBlock = availabilityBlock,
         hasAcceptedTurn = hasAcceptedTurn,
         isCapturing = captureController?.isCapturing == true,
         hasUnconfirmedTurn = hasUnresolvedTurn,
@@ -272,8 +278,7 @@ internal fun AndroidClientScreen(
     )
     val composerBlock = resolveAndroidComposerBlock(
         hasProfile = snapshot.selectedProfile != null,
-        isAuthorized = isAuthorized,
-        isConnected = isConnected,
+        availabilityBlock = availabilityBlock,
         hasAcceptedTurn = hasAcceptedTurn,
         prompt = prompt,
         hasUnconfirmedTurn = hasUnresolvedTurn,
@@ -616,6 +621,10 @@ internal fun AndroidClientScreen(
             header = {
                 DoorwayHeaderZone(
                     snapshot = snapshot,
+                    authorizationState = if (
+                        snapshot.authorizationState == AndroidAuthorizationState.Verifying &&
+                        availabilityBlock == AndroidAvailabilityBlock.Authorization
+                    ) AndroidAuthorizationState.Unavailable else snapshot.authorizationState,
                     canConfigure = configuration != null,
                     canShowHistory = recorder != null && snapshot.selectedProfile != null,
                     onConfigure = {
@@ -708,6 +717,7 @@ internal fun AndroidClientScreen(
                                     hasUnconfirmedTurn = hasUnresolvedTurn,
                                     isAuthorized = isAuthorized,
                                     isConnected = isConnected,
+                                    availabilityBlock = availabilityBlock,
                                     permissionRevision = permissionRevision,
                                     microphoneState = microphone.state,
                                     onRequestMicrophone = microphone::request,

@@ -14,22 +14,21 @@ internal enum class AndroidComposerBlock {
  * Resolves the composer boundary without hiding it in button opacity.
  *
  * A disconnected composer remains useful: its draft can be edited and kept
- * locally, but sending waits for the Session. A missing Profile and an
- * unverified Profile are separate failures because they have different fixes.
+ * locally, but sending waits for the Session. Authorization repair is distinct
+ * from ordinary connection recovery; neither presentation grants admission.
  */
 internal fun resolveAndroidComposerBlock(
     hasProfile: Boolean,
-    isAuthorized: Boolean,
-    isConnected: Boolean,
+    availabilityBlock: AndroidAvailabilityBlock?,
     hasAcceptedTurn: Boolean,
     prompt: String,
     hasUnconfirmedTurn: Boolean = false,
 ): AndroidComposerBlock? = when {
     !hasProfile -> AndroidComposerBlock.NoProfile
-    !isAuthorized -> AndroidComposerBlock.Authorization
+    availabilityBlock == AndroidAvailabilityBlock.Authorization -> AndroidComposerBlock.Authorization
     hasAcceptedTurn -> AndroidComposerBlock.ActiveTurn
     hasUnconfirmedTurn -> AndroidComposerBlock.UnconfirmedTurn
-    !isConnected -> AndroidComposerBlock.Disconnected
+    availabilityBlock == AndroidAvailabilityBlock.Connection -> AndroidComposerBlock.Disconnected
     prompt.isBlank() -> AndroidComposerBlock.EmptyPrompt
     else -> null
 }

@@ -112,6 +112,61 @@ class OkHttpStandardSessionClientTest {
             .put("params", JSONObject().put("session_id", session).put("seq", 1).put("type", type).put("payload", payload)).toString()))
     }
 
+    @Test fun http_401_and_403_remain_nonretryable_authorization_failures_until_manual_recovery() {
+        listOf(401, 403).forEach { status ->
+            server.enqueue(MockResponse().setResponseCode(status).setBody("standard-secret"))
+            val client = client()
+            val controller = AndroidRecoveryController(client, policy = ReconnectPolicy.unpaced(3))
+            val before = server.requestCount
+
+            val failed = controller.recover()
+
+            assertEquals(before + 1, server.requestCount)
+            assertEquals(AndroidHomeUnavailableReason.Unauthorized, (failed.connection as AndroidConnectionState.Failed).reasonCode)
+            assertEquals(AndroidAuthorizationState.Verifying, client.snapshot().authorizationState)
+            assertEquals(AndroidAvailabilityBlock.Authorization, resolveAndroidAvailabilityBlock(client.snapshot(), failed.connection))
+            assertFalse(client.hasLiveTransport())
+            assertTrue(requests.isEmpty())
+            assertFalse(failed.connection.reason.contains("standard-secret"))
+
+            enqueueSession()
+            val recovered = controller.recover()
+
+            nextMethod("session.create")
+            assertEquals(AndroidConnectionState.Connected, recovered.connection)
+            assertNull(resolveAndroidAvailabilityBlock(client.snapshot(), recovered.connection))
+            assertTrue(requests.isEmpty())
+            client.close()
+        }
+    }
+
+    @Test fun session_rpc_refusal_is_connection_guidance_not_credential_repair_and_does_not_replay() {
+        rejectCreate.set(true)
+        enqueueSession()
+        val client = client()
+        val controller = AndroidRecoveryController(client, policy = ReconnectPolicy.unpaced(3))
+
+        val failed = controller.recover()
+
+        nextMethod("session.create")
+        assertEquals(1, server.requestCount)
+        assertEquals(AndroidHomeUnavailableReason.RequestRejected, (failed.connection as AndroidConnectionState.Failed).reasonCode)
+        assertEquals(AndroidAuthorizationState.Verifying, client.snapshot().authorizationState)
+        assertEquals(AndroidAvailabilityBlock.Connection, resolveAndroidAvailabilityBlock(client.snapshot(), failed.connection))
+        assertTrue(requests.isEmpty())
+        assertFalse(failed.connection.reason.contains("standard-secret"))
+
+        rejectCreate.set(false)
+        enqueueSession()
+        val recovered = controller.recover()
+
+        nextMethod("session.create")
+        assertEquals(AndroidConnectionState.Connected, recovered.connection)
+        assertNull(resolveAndroidAvailabilityBlock(client.snapshot(), recovered.connection))
+        assertTrue(requests.isEmpty())
+        assertFalse(journalLines.joinToString().contains("standard-secret"))
+    }
+
     @Test fun direct_handshake_uses_only_standard_slot_and_has_no_home_capabilities() {
         enqueueSession()
         val client = client()

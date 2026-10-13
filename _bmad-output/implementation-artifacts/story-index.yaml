@@ -137,6 +137,7 @@ stories:
     kind: surface
     spec: _bmad-output/implementation-artifacts/spec-2-a-2-disconnected-state.md
     validation: _bmad-output/implementation-artifacts/validation-2-a-2-disconnected-state.md
+    scope_note: 2026-10-13 follow-up distinguishes connection recovery from authorization repair across doorway, composer and capture; typed refusal evidence, no-replay guards and emulator proof are recorded in spec-recovery-guidance.md and the dated validation addendum. Broader Standard acceptance remains unchanged.
     tracker_key: 2-a-2
     historical_product_epic: 2
     owner: hermes-relay-android

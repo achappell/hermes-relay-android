@@ -42,7 +42,10 @@ class StandardRuntimeTest {
         runtime.newStandardConversation { result = it }
         assertEquals(false, result)
         assertTrue(runtime.recoveryState.hasUnconfirmedTurn)
-        assertEquals(AndroidConnectionState.Disconnected, runtime.recoveryState.connection)
+        assertEquals(
+            AndroidConnectionState.Failed("New session failed", AndroidHomeUnavailableReason.RequestRejected),
+            runtime.recoveryState.connection,
+        )
         assertFalse(runtime.canReconfigure)
         assertEquals(2, recorder.history.entries.size)
 
@@ -114,7 +117,7 @@ class StandardRuntimeTest {
         override fun newConversation(): AndroidReconnectOutcome {
             if (!newSessionSucceeds) {
                 live = false
-                return AndroidReconnectOutcome.Unrecoverable("New session failed")
+                return AndroidReconnectOutcome.Unrecoverable("New session failed", AndroidHomeUnavailableReason.RequestRejected)
             }
             live = true
             uncertain = false

@@ -26,6 +26,7 @@ class OverflowMenuSemanticsTest {
             HermesRelayTheme {
                 DoorwayHeaderZone(
                     snapshot = ConnectedFakeSnapshot.value,
+                    authorizationState = ConnectedFakeSnapshot.value.authorizationState,
                     canShowHistory = true,
                     onShowHistory = {},
                 )

@@ -11,8 +11,7 @@ class AndroidComposerStateTest {
             AndroidComposerBlock.Disconnected,
             resolveAndroidComposerBlock(
                 hasProfile = true,
-                isAuthorized = true,
-                isConnected = false,
+                availabilityBlock = AndroidAvailabilityBlock.Connection,
                 hasAcceptedTurn = false,
                 prompt = "check the weather",
             ),
@@ -25,8 +24,7 @@ class AndroidComposerStateTest {
             AndroidComposerBlock.EmptyPrompt,
             resolveAndroidComposerBlock(
                 hasProfile = true,
-                isAuthorized = true,
-                isConnected = true,
+                availabilityBlock = null,
                 hasAcceptedTurn = false,
                 prompt = "   ",
             ),
@@ -39,8 +37,7 @@ class AndroidComposerStateTest {
             AndroidComposerBlock.ActiveTurn,
             resolveAndroidComposerBlock(
                 hasProfile = true,
-                isAuthorized = true,
-                isConnected = true,
+                availabilityBlock = AndroidAvailabilityBlock.Connection,
                 hasAcceptedTurn = true,
                 prompt = "another prompt",
             ),
@@ -53,8 +50,7 @@ class AndroidComposerStateTest {
             AndroidComposerBlock.UnconfirmedTurn,
             resolveAndroidComposerBlock(
                 hasProfile = true,
-                isAuthorized = true,
-                isConnected = true,
+                availabilityBlock = AndroidAvailabilityBlock.Connection,
                 hasAcceptedTurn = false,
                 prompt = "send again",
                 hasUnconfirmedTurn = true,
@@ -68,8 +64,7 @@ class AndroidComposerStateTest {
             AndroidComposerBlock.NoProfile,
             resolveAndroidComposerBlock(
                 hasProfile = false,
-                isAuthorized = false,
-                isConnected = false,
+                availabilityBlock = AndroidAvailabilityBlock.Authorization,
                 hasAcceptedTurn = false,
                 prompt = "",
             ),
@@ -82,8 +77,7 @@ class AndroidComposerStateTest {
             AndroidComposerBlock.Authorization,
             resolveAndroidComposerBlock(
                 hasProfile = true,
-                isAuthorized = false,
-                isConnected = false,
+                availabilityBlock = AndroidAvailabilityBlock.Authorization,
                 hasAcceptedTurn = false,
                 prompt = "",
             ),
@@ -95,11 +89,40 @@ class AndroidComposerStateTest {
         assertNull(
             resolveAndroidComposerBlock(
                 hasProfile = true,
-                isAuthorized = true,
-                isConnected = true,
+                availabilityBlock = null,
                 hasAcceptedTurn = false,
                 prompt = "check the weather",
             ),
         )
+    }
+
+    @Test
+    fun explicit_authorization_failure_precedes_active_and_uncertain_turns() {
+        assertEquals(
+            AndroidComposerBlock.Authorization,
+            resolveAndroidComposerBlock(
+                hasProfile = true,
+                availabilityBlock = AndroidAvailabilityBlock.Authorization,
+                hasAcceptedTurn = true,
+                hasUnconfirmedTurn = true,
+                prompt = "",
+            ),
+        )
+    }
+
+    @Test
+    fun active_turn_precedes_uncertainty_and_connection_while_no_profile_precedes_all() {
+        for (hasProfile in listOf(true, false)) {
+            assertEquals(
+                if (hasProfile) AndroidComposerBlock.ActiveTurn else AndroidComposerBlock.NoProfile,
+                resolveAndroidComposerBlock(
+                    hasProfile = hasProfile,
+                    availabilityBlock = AndroidAvailabilityBlock.Connection,
+                    hasAcceptedTurn = true,
+                    hasUnconfirmedTurn = true,
+                    prompt = "",
+                ),
+            )
+        }
     }
 }

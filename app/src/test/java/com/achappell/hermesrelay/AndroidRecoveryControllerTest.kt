@@ -96,6 +96,108 @@ class AndroidRecoveryControllerTest {
     }
 
     @Test
+    fun typed_refusals_remain_distinct_and_manual_recovery_clears_them_without_replay() {
+        listOf(
+            AndroidHomeUnavailableReason.Unauthorized to AndroidAvailabilityBlock.Authorization,
+            AndroidHomeUnavailableReason.RequestRejected to AndroidAvailabilityBlock.Connection,
+        ).forEach { (reasonCode, block) ->
+            val port = FakeRecoveryPort(
+                outcomes = listOf(
+                    AndroidReconnectOutcome.Unrecoverable("Declined.", reasonCode),
+                    AndroidReconnectOutcome.Connected("session-2"),
+                ),
+            )
+            val shown = mutableListOf<AndroidConnectionState>()
+            val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3)) {
+                shown += it.connection
+            }
+            val verifying = port.snapshot().copy(authorizationState = AndroidAuthorizationState.Verifying)
+            controller.transportLost("Transport closed.", unconfirmed)
+
+            val failed = controller.recover()
+
+            assertEquals(AndroidConnectionState.Failed("Declined.", reasonCode), failed.connection)
+            assertEquals(block, resolveAndroidAvailabilityBlock(verifying, failed.connection))
+            assertEquals(1, port.reconnectAttempts)
+            assertEquals(unconfirmed, failed.unconfirmedTurn)
+            assertEquals(failed, controller.disconnectForLifecycle())
+
+            shown.clear()
+            val recovered = controller.recover()
+
+            assertEquals(
+                listOf(AndroidConnectionState.Reconnecting(1, 3), AndroidConnectionState.Connected),
+                shown,
+            )
+            assertEquals(
+                AndroidAvailabilityBlock.Connection,
+                resolveAndroidAvailabilityBlock(
+                    verifying,
+                    shown.first(),
+                ),
+            )
+            assertNull(resolveAndroidAvailabilityBlock(port.snapshot(), recovered.connection))
+            assertEquals(unconfirmed, recovered.unconfirmedTurn)
+            assertEquals(2, port.reconnectAttempts)
+            assertTrue(port.requests.isEmpty())
+        }
+    }
+
+    @Test
+    fun deliberate_disconnect_and_new_conversation_replace_failure_evidence_without_replay() {
+        val port = FakeRecoveryPort(emptyList())
+        val controller = AndroidRecoveryController(port)
+        controller.acceptNewConversation(AndroidReconnectOutcome.Connected("old-session"))
+        controller.transportLost("Transport closed.", unconfirmed)
+        val failures = listOf(
+            AndroidReconnectOutcome.Unrecoverable("Rejected.", AndroidHomeUnavailableReason.Unauthorized),
+            AndroidReconnectOutcome.Retryable("Timed out.", AndroidHomeUnavailableReason.TransportTimeout),
+        )
+
+        failures.forEach { outcome ->
+            val failed = controller.acceptNewConversation(outcome)
+            val expected = when (outcome) {
+                is AndroidReconnectOutcome.Unrecoverable -> AndroidConnectionState.Failed(outcome.reason, outcome.reasonCode)
+                is AndroidReconnectOutcome.Retryable -> AndroidConnectionState.Failed(outcome.reason, outcome.reasonCode)
+                is AndroidReconnectOutcome.Connected -> error("Expected failure")
+            }
+            assertEquals(expected, failed.connection)
+            assertEquals(unconfirmed, failed.unconfirmedTurn)
+            assertNull(failed.connectionId)
+            assertEquals(false, failed.isRecovering)
+
+            val reset = controller.disconnectDeliberately()
+            assertEquals(AndroidConnectionState.Disconnected, reset.connection)
+            assertEquals(unconfirmed, reset.unconfirmedTurn)
+        }
+        controller.acceptNewConversation(failures.first())
+
+        val fresh = controller.acceptNewConversation(AndroidReconnectOutcome.Connected("new-session"))
+
+        assertEquals(AndroidRecoveryState(AndroidConnectionState.Connected, "new-session"), fresh)
+        assertEquals(0, port.reconnectAttempts)
+        assertTrue(port.requests.isEmpty())
+    }
+
+    @Test
+    fun a_later_untyped_failure_does_not_retain_a_previous_authorization_reason() {
+        val port = FakeRecoveryPort(
+            listOf(
+                AndroidReconnectOutcome.Unrecoverable("Rejected.", AndroidHomeUnavailableReason.Unauthorized),
+                AndroidReconnectOutcome.Retryable("Offline."),
+            ),
+        )
+        val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(1))
+        controller.recover()
+
+        val failed = controller.recover()
+
+        assertEquals(AndroidConnectionState.Failed("Offline."), failed.connection)
+        assertEquals(2, port.reconnectAttempts)
+        assertTrue(port.requests.isEmpty())
+    }
+
+    @Test
     fun reconnect_does_not_replay_an_uncertain_turn() {
         val port = FakeRecoveryPort(outcomes = listOf(AndroidReconnectOutcome.Connected("session-2")))
         val controller = AndroidRecoveryController(port, policy = ReconnectPolicy.unpaced(3))

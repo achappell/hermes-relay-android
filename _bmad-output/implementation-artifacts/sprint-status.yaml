@@ -18,7 +18,7 @@ development_status:
   1-a-8: done
   1-a-9: done
   2-a-1: done
-  2-a-2: done
+  2-a-2: done # 2026-10-13 connection-versus-authorization guidance follow-up verified on API 36; typed refusal/no-replay guards retained. No physical-device or broader Standard acceptance claimed.
   5-a-1: done
   5-a-2: done # 2026-10-13 emulator focus reveal and owner-approved on-focus recovery status verified; no TalkBack queue repair or physical-device acceptance claimed.
   5-a-3: done

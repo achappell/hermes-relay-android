@@ -593,7 +593,7 @@ internal class HomeRuntime(
                     historyRevision += 1
                 }
                 if (outcome !is AndroidReconnectOutcome.Connected && !clientPort.hasLiveTransport()) {
-                    recoveryState = recoveryController.transportLost("Standard could not create a new conversation.")
+                    recoveryState = recoveryController.acceptNewConversation(outcome)
                 }
                 onResult(outcome is AndroidReconnectOutcome.Connected)
             }

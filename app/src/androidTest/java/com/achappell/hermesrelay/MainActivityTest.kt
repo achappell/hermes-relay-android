@@ -192,6 +192,10 @@ class MainActivityTest {
             .assertIsDisplayed()
         composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
         assertEquals("written while offline", store.load("amanda").draft)
+        composeRule.scrollToConversationTag("android_edit_relay")
+        composeRule.onNodeWithTag("android_connect").assertDoesNotExist()
+        composeRule.onNodeWithTag("android_edit_relay").performClick()
+        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
     }
 
     @Test
