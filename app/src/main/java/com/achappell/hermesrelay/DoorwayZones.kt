@@ -164,7 +164,7 @@ internal fun DoorwayHeaderZone(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        modifier = Modifier.a11yOrder(A11yOrder.PROFILE, LiveRegionMode.Polite),
+                        modifier = Modifier.a11yOrder(A11yOrder.PROFILE),
                         text = stringResource(
                             R.string.android_authorization_label,
                             stringResource(snapshot.authorizationState.labelRes()),
@@ -373,10 +373,11 @@ internal fun DoorwayStateZone(
                     .padding(HermesSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(HermesSpacing.xs),
             ) {
+                // Availability and retry details are read on focus, not queued as live speech.
                 Text(
                     modifier = Modifier
                         .testTag("android_doorway_state")
-                        .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                        .a11yOrder(A11yOrder.STATE),
                     text = label,
                     color = stateColor,
                     style = MaterialTheme.typography.headlineSmall,
@@ -387,7 +388,7 @@ internal fun DoorwayStateZone(
                     Text(
                         modifier = Modifier
                             .testTag("android_connection_state")
-                            .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                            .a11yOrder(A11yOrder.STATE),
                         text = stringResource(
                             R.string.android_connection_label,
                             connectionState.label(),
@@ -520,7 +521,14 @@ internal fun ColumnScope.TypedComposerZone(
         Text(
             modifier = Modifier
                 .testTag("android_send_blocked")
-                .a11yOrder(A11yOrder.ACTION, LiveRegionMode.Polite),
+                .a11yOrder(A11yOrder.ACTION)
+                .semantics {
+                    if (block != AndroidComposerBlock.Disconnected &&
+                        block != AndroidComposerBlock.Authorization
+                    ) {
+                        liveRegion = LiveRegionMode.Polite
+                    }
+                },
             text = stringResource(block.messageRes()),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -789,7 +797,14 @@ internal fun ColumnScope.IdleCaptureZone(
         Text(
             modifier = Modifier
                 .testTag("android_capture_block")
-                .a11yOrder(A11yOrder.STATE, LiveRegionMode.Polite),
+                .a11yOrder(A11yOrder.STATE)
+                .semantics {
+                    if (reason != AndroidCaptureBlock.NotConnected &&
+                        reason != AndroidCaptureBlock.ProfileUnavailable
+                    ) {
+                        liveRegion = LiveRegionMode.Polite
+                    }
+                },
             text = stringResource(
                 if (reason == AndroidCaptureBlock.PermissionRequired) {
                     microphoneState.microphoneMessageRes()

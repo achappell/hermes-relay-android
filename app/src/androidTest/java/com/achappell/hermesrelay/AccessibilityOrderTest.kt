@@ -4,6 +4,7 @@ import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -20,6 +21,7 @@ import org.junit.Assert.assertFalse
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -267,9 +269,10 @@ class AccessibilityOrderTest {
     }
 
     @Test
-    fun changing_state_is_announced_and_errors_are_announced_assertively() {
+    fun connection_status_is_on_demand_and_errors_remain_assertive() {
         val port = ConnectedFakePort()
         val speech = FakeSpeechInput()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
 
         composeRule.setContent {
             HermesRelayTheme {
@@ -277,12 +280,18 @@ class AccessibilityOrderTest {
             }
         }
 
-        // Connection state is a polite live region so a change is spoken
-        // without interrupting whatever is being read.
-        assertEquals(
-            LiveRegionMode.Polite,
-            liveRegionOf("android_connection_state"),
-        )
+        assertNull(liveRegionOf("android_doorway_state"))
+        assertNull(liveRegionOf("android_connection_state"))
+        assertNull(liveRegionOf("android_send_blocked"))
+        assertNull(liveRegionOf("android_capture_block"))
+        composeRule.onNodeWithTag("android_action_surface").performScrollTo()
+        composeRule.onNodeWithTag("android_send_blocked")
+            .performScrollTo().assertIsDisplayed()
+            .assertTextEquals(context.getString(R.string.android_composer_block_disconnected))
+        composeRule.onNodeWithTag("android_capture_block")
+            .performScrollTo().assertIsDisplayed()
+            .assertTextEquals(context.getString(R.string.android_capture_block_not_connected))
+        composeRule.onNodeWithTag("android_conversation_rail").performScrollTo()
 
         composeRule.scrollToConversationTag("android_connect")
         composeRule.onNodeWithTag("android_connect").performClick()
@@ -305,6 +314,93 @@ class AccessibilityOrderTest {
             liveRegionOf("android_audio_unavailable"),
         )
         assertNull(liveRegionOf("android_response_text"))
+    }
+
+    @Test
+    fun verification_during_recovery_keeps_profile_guidance_readable_but_not_live() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(
+                    clientPort = ConnectedFakePort(authorizationState = AndroidAuthorizationState.Verifying),
+                    speechInput = FakeSpeechInput(),
+                )
+            }
+        }
+        val authorization = composeRule.onNodeWithText(
+            context.getString(
+                R.string.android_authorization_label,
+                context.getString(R.string.android_authorization_verifying),
+            ),
+        )
+        authorization.assertIsDisplayed()
+        assertFalse(authorization.fetchSemanticsNode().config.contains(SemanticsProperties.LiveRegion))
+        composeRule.onNodeWithTag("android_send_blocked")
+            .assertTextEquals(context.getString(R.string.android_composer_block_authorization))
+        assertNull(liveRegionOf("android_send_blocked"))
+        composeRule.onNodeWithTag("android_capture_block")
+            .assertTextEquals(context.getString(R.string.android_capture_block_profile))
+        assertNull(liveRegionOf("android_capture_block"))
+    }
+
+    @Test
+    fun recovery_details_update_without_automatic_availability_announcements() {
+        val state = mutableStateOf<AndroidDoorwayState>(AndroidDoorwayState.Ready)
+        val connection = mutableStateOf<AndroidConnectionState>(AndroidConnectionState.Connected)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        composeRule.setContent {
+            HermesRelayTheme {
+                DoorwayStateZone(
+                    state = state.value,
+                    connectionState = connection.value,
+                    canConfigure = false,
+                    canEditRelay = false,
+                    onConfigure = {},
+                    onEditRelay = {},
+                )
+            }
+        }
+        val status = composeRule.onNodeWithTag("android_doorway_state")
+        val description = composeRule.onNodeWithTag("android_doorway_state_description")
+        status.assertTextEquals(context.getString(R.string.android_state_ready))
+        assertNull(liveRegionOf("android_doorway_state"))
+
+        composeRule.runOnIdle {
+            state.value = AndroidDoorwayState.Unavailable(AndroidDoorwayUnavailableReason.Authorization)
+            connection.value = AndroidConnectionState.Disconnected
+        }
+        status.assertTextEquals(context.getString(R.string.android_state_unavailable))
+        description.assertTextEquals(context.getString(R.string.android_state_unavailable_authorization))
+        assertNull(liveRegionOf("android_doorway_state"))
+
+        composeRule.runOnIdle {
+            state.value = AndroidDoorwayState.Unavailable(AndroidDoorwayUnavailableReason.Connection)
+            connection.value = AndroidConnectionState.Reconnecting(attempt = 1, of = 3)
+        }
+        description.assertTextEquals(context.getString(R.string.android_state_unavailable_connection_reconnecting))
+        // Retry progress must remain readable without reintroducing a live region.
+        composeRule.runOnIdle {
+            connection.value = AndroidConnectionState.Reconnecting(attempt = 2, of = 3)
+        }
+        val retry = composeRule.onNodeWithTag("android_connection_state")
+        retry.assertTextEquals(
+            context.getString(
+                R.string.android_connection_label,
+                context.getString(R.string.android_connection_reconnecting, 2, 3),
+            ),
+        ).assertIsDisplayed()
+        assertFalse(retry.fetchSemanticsNode().config.contains(SemanticsProperties.LiveRegion))
+        assertEquals(A11yOrder.STATE, retry.fetchSemanticsNode().config[SemanticsProperties.TraversalIndex])
+        assertNull(liveRegionOf("android_doorway_state"))
+
+        composeRule.runOnIdle {
+            state.value = AndroidDoorwayState.Ready
+            connection.value = AndroidConnectionState.Connected
+        }
+        status.assertTextEquals(context.getString(R.string.android_state_ready)).assertIsDisplayed()
+        description.assertTextEquals(context.getString(R.string.android_state_ready_description))
+        assertNull(liveRegionOf("android_doorway_state"))
+        retry.assertDoesNotExist()
     }
 
     @Test
@@ -427,6 +523,7 @@ class AccessibilityOrderTest {
 
     private class ConnectedFakePort(
         private val interruptSupported: Boolean = false,
+        private val authorizationState: AndroidAuthorizationState = AndroidAuthorizationState.Verified,
     ) : AndroidClientPort {
         var endSessions = 0
             private set
@@ -448,7 +545,7 @@ class AccessibilityOrderTest {
             descriptionRes = BootstrapState.descriptionRes,
             boundaryRes = BootstrapState.boundaryRes,
             selectedProfile = profile,
-            authorizationState = AndroidAuthorizationState.Verified,
+            authorizationState = authorizationState,
         )
 
         override fun beginTurn(request: AndroidTurnRequest): AndroidInitiationResult {

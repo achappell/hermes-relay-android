@@ -136,8 +136,13 @@ accessibility gates that remain unverified.
 TalkBack focus now reveals clipped conversation labels above the composer
 without moving keyboard focus. Native API 36 emulator traversal and Activity
 recreation were exercised; see the [accessibility follow-up](_bmad-output/implementation-artifacts/validation-5-a-2-accessibility.md#2026-10-13--clipped-talkback-focus-follow-up).
-This does not resolve queued stale status speech or establish physical-device
-accessibility acceptance.
+Ordinary availability, connection/retry and Profile-verification status are now
+read on focus rather than announced automatically, avoiding queued stale
+recovery claims. Capture/turn feedback, microphone-permission guidance and urgent
+errors retain their existing announcements. Native idle and immediate post-reply
+recovery checks passed; see the [on-focus policy evidence](_bmad-output/implementation-artifacts/validation-5-a-2-accessibility.md#2026-10-13--recovery-status-on-focus).
+This changes app announcement policy, not TalkBack's queue; it does not establish
+physical-device accessibility acceptance.
 
 ### Which build is installed
 
