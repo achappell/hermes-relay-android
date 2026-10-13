@@ -89,7 +89,7 @@ class HomeVoiceService : Service() {
                 this,
                 NOTIFICATION_ID,
                 // A control tap must not replace the card with a bare notification.
-                if (cardPublished && card != null) mediaNotification(state, card) else plainNotification(state),
+                if (cardPublished && card != null) mediaNotification(state, card) else baseNotification().build(),
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
                 } else {
@@ -145,7 +145,7 @@ class HomeVoiceService : Service() {
             cardPublished -> publishCard(state)
             // A quick peek at the lock screen never registers a card.
             state.appStopped -> worker.postDelayed(publishCard, CARD_DEFER_MILLIS)
-            else -> notify(plainNotification(state))
+            else -> notify(baseNotification().build())
         }
     }
 
@@ -226,14 +226,12 @@ class HomeVoiceService : Service() {
         getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun baseNotification(state: VoiceServiceState): Notification.Builder =
+    private fun baseNotification(): Notification.Builder =
         Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_hermes)
             // Content-free: never the prompt, the reply or a conversation title.
             .setContentTitle(getString(R.string.android_voice_card_title))
-            .setContentText(
-                getString(if (state.paused) R.string.android_voice_paused else R.string.android_voice_replying),
-            )
+            .setContentText(getString(R.string.android_voice_playback_controls))
             .setContentIntent(
                 PendingIntent.getActivity(
                     this,
@@ -252,16 +250,13 @@ class HomeVoiceService : Service() {
                 }
             }
 
-    private fun plainNotification(state: VoiceServiceState): Notification =
-        baseNotification(state).build()
-
     private fun mediaNotification(state: VoiceServiceState, session: MediaSession): Notification {
         val toggle = if (state.paused) {
             action(ACTION_PLAY, android.R.drawable.ic_media_play, R.string.android_voice_action_play)
         } else {
             action(ACTION_PAUSE, android.R.drawable.ic_media_pause, R.string.android_voice_action_pause)
         }
-        return baseNotification(state)
+        return baseNotification()
             .addAction(toggle)
             .addAction(
                 action(ACTION_STOP, android.R.drawable.ic_menu_close_clear_cancel, R.string.android_voice_action_stop),

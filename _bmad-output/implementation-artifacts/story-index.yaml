@@ -443,6 +443,7 @@ stories:
     parity_stream: S2
     spec: _bmad-output/implementation-artifacts/spec-android-home-08-background-voice.md
     validation: _bmad-output/implementation-artifacts/validation-android-home-08.md
+    scope_note: '2026-10-13: independent phase-neutral reply-notification follow-up verified with real-service instrumentation, 30 consecutive lifecycle runs and actual Standard background playback on the API 36 emulator. Physical checklist and 08b remain open; no merge or broad story acceptance implied. See spec-neutral-reply-notification.md and validation.'
     depends_on:
       - android:ANDROID-HOME-04
       - android:ANDROID-HOME-06
