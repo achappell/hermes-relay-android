@@ -73,3 +73,18 @@ Do not count this as a manual Stop interaction. Emulator media volume was
 already 0 and stayed 0: no human-heard or acoustic acceptance is claimed.
 The original no-device checklist above records the earlier run, not this
 follow-up. Physical lock-screen, calls/routes and 08b remain unverified.
+
+## 2026-10-13 — shared audio pause-deadline race
+
+Independent bounded bugfix: `spec-audio-pause-deadline.md`, baseline
+`a192e0cb25d8024eaadde314f2a2e9ebc8c10686`. This affects the shared AudioTrack sink
+used by both connection modes; actual live playback below used Standard.
+
+- **Confirmed red:** block the drain worker's second head read, after its pause check; Pause and advance a manual clock by 5 s before releasing that read. The unchanged sink settles as failed instead of returning to its held poll. One selected test failed before the production fix. The earlier intermittently failing regression used wall-clock sleeps; its diagnostic history remains in `deferred-work.md`.
+- **Fix:** a private pause-aware elapsed clock excludes exact held intervals from write-stall, drain-stall and overall drain deadlines. Pauses entirely between worker polls are included. Resume preserves the remaining unpaused budget; genuine stalls/timeouts still fail. No threshold, buffering, transport or notification-policy changes.
+- **Host verification:** final full JVM suite passed; debug app/test APK assembly and lint passed. Final four-class audio/lifecycle repetition gate passed 30 consecutive runs of 58 tests (1,740 executions). Ten pause tests use worker barriers and manual time, not scheduling sleeps. Metadata passed min SDK 26, version 0.3.1 (301), backup/extraction rules and 16 KB alignment; expected signer comparison remained unset/skipped.
+- **Native instrumentation:** 18 tests passed in 35.489 s across `HomeVoiceNotificationTest`, `MainActivityTest`, `HomeRuntimeRecreationTest` and `AudioOutputPreflightTest` (explicit `AUDIO_PREFLIGHT=PASS`). Direct installation/instrumentation retained the configured main app and data. The silent preflight does not establish human audibility or physical-speaker acceptance.
+- **Actual API 36 emulator:** controlled typed turn accepted at 21:04:48.622Z; background retention/media session established and audio focus granted. Native notification Pause at 21:05:10.701Z put AudioTrack 809/session 6593 in P state. Its server frame position stayed `00045FE0` over a measured 32.036 s hold; Play was tapped at 21:05:45.953Z (35.252 s total journaled pause). The same track returned to A, advancing to `0006D4E0` with zero underruns in the observed snapshots. Native paused notification screenshot inspected.
+- **Completion:** `standard audio result=drained` at 21:06:19.758Z; background retention ended, transport closed with uncertain=false, foreground service stopped and wake lock released. Foreground return showed Ready/Verified. Final wake-lock count zero, no Hermes media session, original draft/settings restored. Only test APK and owned captures removed.
+- **Limits:** output was already port-muted and remained so; this is AudioTrack control/drain evidence, not an audible-playback claim. No Pixel, unattended microphone, app reset or server change. Physical checklist and 08b remain open; story stays in-progress.
+- **Review:** independent production review found no supported defect; coverage review found a removed playing-driver Pause assertion, restored with a stable worker barrier and repeated-Pause check before final full/repetition gates. No new deferred code finding.

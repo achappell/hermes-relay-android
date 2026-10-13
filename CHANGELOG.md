@@ -24,6 +24,7 @@
 - Exclude all app data from cloud backup and device transfer with Android 12+ extraction rules.
 
 ### Fixes
+- Freeze audio write/drain deadlines across concurrent Pause/Play transitions, including holds between worker polls, without extending the unpaused failure budgets.
 - Preserve Standard interrupted-turn safety across process death with an opaque write-ahead marker; block silent replacement sessions/replay until deliberate New conversation, while retaining completed history, credentials and drafts.
 - Reveal clipped TalkBack focus targets above the conversation composer using Compose's native scrolling action, without moving keyboard focus.
 - Make ordinary availability, connection/retry and Profile-verification status readable on focus instead of automatically announced, so recovery does not enqueue stale status claims. Preserve microphone-permission guidance, capture/turn feedback and urgent errors.

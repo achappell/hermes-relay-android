@@ -16,6 +16,9 @@ separately in the local story specifications and validation records.
 Reply notifications use the phase-neutral caption **Reply audio**. Actual media
 state and Pause/Play/Stop actions remain authoritative; the caption does not
 claim playback is still running when Android delivers an announcement late.
+Paused output freezes write-stall, drain-stall and overall drain deadlines at
+the pause transition, including holds between worker polls. Play resumes the
+remaining active-time budget; it does not disable real stalled-output failures.
 
 ## Toolchain
 

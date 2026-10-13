@@ -261,6 +261,11 @@ internal class AudioTrackAudioSink(
     private val drained = AtomicBoolean(false)
     private val failed = AtomicBoolean(false)
     private val paused = AtomicBoolean(false)
+    private val deadlineLock = Any()
+    // A monotonic elapsed clock excluding every hold, even between worker polls.
+    // Keep the offset across streams so a cancelled worker cannot observe time going backwards.
+    private var heldNanos = 0L
+    private var heldSince = 0L
     private val underrunCount = AtomicInteger(0)
     private val underrunBaseline = AtomicInteger(0)
     private val failureKind = AtomicReference<AudioSinkFailureKind?>(null)
@@ -387,20 +392,35 @@ internal class AudioTrackAudioSink(
     override fun cancel() {
         generation.incrementAndGet()
         active.set(false)
-        paused.set(false)
+        endHold()
         releaseDriver(stop = true)
     }
 
     override fun pause() {
-        if (!active.get() || !paused.compareAndSet(false, true)) return
+        synchronized(deadlineLock) {
+            if (!active.get() || paused.get()) return
+            heldSince = clock.nanoTime()
+            paused.set(true)
+        }
         // Before playback starts there is nothing to hold; startPlayback waits for resume.
         if (started.get()) runCatching { driver.get()?.pause() }
     }
 
     override fun resume() {
-        if (!paused.compareAndSet(true, false)) return
+        if (!endHold()) return
         // Before playback started, the write and drain loops start it themselves.
         if (started.get()) runCatching { driver.get()?.play() }
+    }
+
+    private fun endHold(): Boolean = synchronized(deadlineLock) {
+        if (!paused.get()) return@synchronized false
+        heldNanos += clock.nanoTime() - heldSince
+        paused.set(false)
+        true
+    }
+
+    private fun playbackTimeNanos(): Long = synchronized(deadlineLock) {
+        (if (paused.get()) heldSince else clock.nanoTime()) - heldNanos
     }
 
     override fun close() {
@@ -419,12 +439,10 @@ internal class AudioTrackAudioSink(
             return
         }
         var offset = 0
-        var lastProgress = clock.nanoTime()
+        var lastProgress = playbackTimeNanos()
         while (offset < bytes.size) {
             if (generation.get() != expectedGeneration || !active.get() || failed.get()) return
             if (paused.get()) {
-                // A held reply is not a stalled write.
-                lastProgress = clock.nanoTime()
                 sleepForPoll(expectedGeneration)
                 continue
             }
@@ -468,7 +486,7 @@ internal class AudioTrackAudioSink(
                         acceptedFrames.get()
                     }
                     if (frames >= startupFrames && !startPlayback(activeDriver, expectedGeneration)) return
-                    lastProgress = clock.nanoTime()
+                    lastProgress = playbackTimeNanos()
                 }
             }
         }
@@ -511,8 +529,7 @@ internal class AudioTrackAudioSink(
         if (failed.get()) return
         // Short replies can end before the startup threshold is filled.
         if (!startPlayback(activeDriver, expectedGeneration)) return
-        var startedAt = clock.nanoTime()
-        var lastTick = startedAt
+        val startedAt = playbackTimeNanos()
         var lastPosition = runCatching { activeDriver.playbackHeadFrames() }
             .getOrElse {
                 fail(AudioSinkFailureKind.PlaybackStalled, expectedGeneration)
@@ -522,16 +539,11 @@ internal class AudioTrackAudioSink(
         while (true) {
             if (generation.get() != expectedGeneration || !active.get()) return
             if (failed.get()) return
-            val tick = clock.nanoTime()
             if (paused.get()) {
-                // Neither the stall nor the overall deadline runs while held.
-                startedAt += tick - lastTick
-                lastTick = tick
-                lastProgress = tick
+                // Freeze deadlines at the actual transition, not the last observed poll.
                 sleepForPoll(expectedGeneration)
                 continue
             }
-            lastTick = tick
             if (!started.get() && !startPlayback(activeDriver, expectedGeneration)) return
             if (!observeUnderruns(activeDriver, expectedGeneration)) return
             val position = runCatching { activeDriver.playbackHeadFrames() }
@@ -542,7 +554,7 @@ internal class AudioTrackAudioSink(
             if (position >= targetFrames) return
             if (position > lastPosition) {
                 lastPosition = position
-                lastProgress = clock.nanoTime()
+                lastProgress = playbackTimeNanos()
             }
             if (elapsedMillis(lastProgress) >= drainStallDeadlineMillis) {
                 fail(AudioSinkFailureKind.PlaybackStalled, expectedGeneration)
@@ -589,7 +601,7 @@ internal class AudioTrackAudioSink(
     }
 
     private fun elapsedMillis(startNanos: Long): Long =
-        TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - startNanos)
+        TimeUnit.NANOSECONDS.toMillis(playbackTimeNanos() - startNanos)
 
     private fun sleepForPoll(expectedGeneration: Long? = null) {
         try {
