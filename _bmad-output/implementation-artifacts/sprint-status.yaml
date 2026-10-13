@@ -30,7 +30,7 @@ development_status:
   android-home-05: done # Amanda explicitly waived live >30/60s delayed-start checks; 19.214s actual start is not a delayed-gate pass.
   android-home-06: review
   android-home-07: done
-  android-home-08: in-progress # 08a reply retention in review; 08b hands-free voice not started.
+  android-home-08: in-progress # 08a reply retention in review; neutral notification follow-up emulator-verified 2026-10-13; 08b hands-free voice not started.
   android-home-09: backlog
   android-home-10: backlog
   android-home-11: backlog

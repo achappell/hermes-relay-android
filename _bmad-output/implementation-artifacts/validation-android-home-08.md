@@ -4,7 +4,7 @@ spec: spec-android-home-08-background-voice.md
 build_spec: spec-android-home-08-background-voice-2.md
 status: partial
 story_status: in-progress
-updated: 2026-10-11
+updated: 2026-10-13
 ---
 
 # ANDROID-HOME-08 validation record
@@ -48,3 +48,28 @@ No device was attached. Before any install: read-only signature comparison (`dum
 8. Whether the wake lock is needed (screen-off slow reply); drop it if the journal shows none.
 9. Whether `startForegroundService` ever fails from a visible Activity (deferred item).
 10. 08b's gate (D1: `SpeechRecognizer` under a `microphone` service while stopped) is its own first step.
+
+## 2026-10-13 — phase-neutral notification follow-up (emulator only)
+
+Independent bugfix: `spec-neutral-reply-notification.md`, based on
+`fa96838a0e924a1b95f52fe80cb39880e998c247`. The app caption is now **Reply audio**
+for plain and media notifications. Real playback state and Pause/Play/Stop
+actions remain unchanged. This is not a fix for Android's own media narration
+or the separately blocked in-app TalkBack polite-speech queue.
+
+| Gate | Observed evidence |
+| --- | --- |
+| Red-first platform regression | Real notification test failed before the fix: `Hermes is replying` changed to `Paused`. |
+| Build and lint | Full JVM tests, debug app/test APK assembly and `lintDebug` passed; rerun after the reviewed caption refinement also passed. |
+| Focused emulator suite | 35 tests passed in 52.001 s: notification lifecycle, accessibility order, main screen, microphone capture/permission and runtime recreation. |
+| Native repetition gate | 30 consecutive runs of the real-service notification test, zero failures. This gate preceded the resource-only refinement from “Reply playback controls” to “Reply audio”; the same test passed again on the final APK in 3.426 s. |
+| APK metadata | Final debug APK: min SDK 26, version 0.3.1 (301), backup disabled with extraction rules, 16 KB alignment passed. Signing skipped because no expected signer was configured. |
+| Actual app smoke | Existing authenticated Standard connection, API 36 emulator. Synthetic story accepted at 02:48:15.316; Home key backgrounded the app; real media session registered at 02:48:16.468. Notification-shade Pause and Play changed the actual session from Playing(3) to Paused(2) to Playing(3), with the same **Reply audio** caption. Screenshot inspected on the resumed card. A redundant shell Play followed the actual Play tap as cleanup protection. |
+| Actual completion | Audio drained at 02:49:14.843; retention ended as `workFinished`; foreground service stopped and wake lock released at 02:49:14.849. No Hermes media session remained. Reopening showed Ready, the original selected Standard profile, and an empty draft. |
+
+The actual shade exposed Pause/Play, not a Stop button; the real-service
+regression checked that the posted Stop action and session identity persisted.
+Do not count this as a manual Stop interaction. Emulator media volume was
+already 0 and stayed 0: no human-heard or acoustic acceptance is claimed.
+The original no-device checklist above records the earlier run, not this
+follow-up. Physical lock-screen, calls/routes and 08b remain unverified.

@@ -13,6 +13,10 @@ identity-scoped Local History, and no-replay recovery; it never falls back to
 Home. Implementation, merge, emulator and physical-device acceptance are recorded
 separately in the local story specifications and validation records.
 
+Reply notifications use the phase-neutral caption **Reply audio**. Actual media
+state and Pause/Play/Stop actions remain authoritative; the caption does not
+claim playback is still running when Android delivers an announcement late.
+
 ## Toolchain
 
 - JDK 21 (Gradle/Kotlin runtime; Java 17-compatible Android bytecode)
