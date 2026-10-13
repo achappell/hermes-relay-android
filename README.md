@@ -103,12 +103,19 @@ The token is stored in its own Android Keystore-backed slot, not Profile JSON,
 Local History, diagnostics, or Home credentials. Endpoint changes require
 fresh token entry. Existing unlinked Profiles remain **Legacy — needs setup**;
 they are not silently migrated.
+Saving or deleting a connection, or reselecting the current Standard Profile,
+automatically reconnects the selected Standard connection after its settings
+reset. No manual New conversation is needed just to restore connectivity.
 
 Standard offers typed streaming, on-device speech capture, and response audio
 through `/api/audio/speak-stream`. Audio starts after the text response
 completes, so this is not low-latency incremental speech. An audio failure
 leaves the text reply available. Stop sends the verified remote interrupt and
 always stops local playback.
+Response audio requires a usable streaming TTS provider and credentials in
+the selected server-side Hermes profile. A server `fallback` response means
+streaming is unavailable; Android retains the text and does not switch voices
+or synthesize it locally.
 
 Reconnect restores the in-process session without sending the prompt again;
 it does not erase uncertain delivery. Only a successful deliberate **New

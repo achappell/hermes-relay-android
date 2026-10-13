@@ -147,6 +147,7 @@ internal fun AndroidClientScreen(
     val claimsRefreshedMessage = stringResource(R.string.android_home_claims_refreshed)
     val resources = androidx.compose.ui.platform.LocalResources.current
     var configurationRevision by remember { mutableStateOf(0) }
+    var connectionRevision by remember { mutableStateOf(0) }
     val recoveryState = runtime.recoveryState
     val snapshot = remember(
         clientPort,
@@ -473,7 +474,7 @@ internal fun AndroidClientScreen(
     // is no single-use handle to protect: connect it as soon as it is selected.
     // Operator-handle Profiles keep the deliberate connect action.
     val selectedIsPaired = configuration?.collection?.selected?.homeClientGrant != null
-    LaunchedEffect(selectedProfileId, selectedIsPaired, standardMode) {
+    LaunchedEffect(selectedProfileId, selectedIsPaired, standardMode, connectionRevision) {
         // A ladder retrying the previous Profile stops before this one connects.
         runtime.profileSelected(selectedProfileId)
         if (
@@ -923,6 +924,7 @@ internal fun AndroidClientScreen(
                             onHomeAdministrationChanged = { configurationRevision += 1 },
                             onHomeCredentialChanged = {
                                 runtime.configurationChanged()
+                                connectionRevision += 1
                                 configurationRevision += 1
                             },
                             homePairing = homePairing,
@@ -937,6 +939,7 @@ internal fun AndroidClientScreen(
                             onChanged = {
                                 if (standardMode || configurationController.collection.selectedId != selectedProfileId) {
                                     runtime.configurationChanged()
+                                    connectionRevision += 1
                                 }
                                 configurationRevision += 1
                             },
