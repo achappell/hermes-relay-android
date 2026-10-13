@@ -138,6 +138,7 @@ internal fun AndroidClientScreen(
     microphonePermissionSource: RuntimePermissionSource? = null,
     openApplicationSettings: ((android.content.Intent) -> Unit)? = null,
 ) {
+    RevealAccessibilityFocus()
     val clientPort = runtime.clientPort
     val context = androidx.compose.ui.platform.LocalContext.current
     // Computed once from the installed package (ANDROID-REL-01).

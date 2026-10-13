@@ -129,6 +129,12 @@ See [ANDROID-STD-01 validation](_bmad-output/implementation-artifacts/validation
 for the verified upstream baseline, emulator evidence, and physical voice and
 accessibility gates that remain unverified.
 
+TalkBack focus now reveals clipped conversation labels above the composer
+without moving keyboard focus. Native API 36 emulator traversal and Activity
+recreation were exercised; see the [accessibility follow-up](_bmad-output/implementation-artifacts/validation-5-a-2-accessibility.md#2026-10-13--clipped-talkback-focus-follow-up).
+This does not resolve queued stale status speech or establish physical-device
+accessibility acceptance.
+
 ### Which build is installed
 
 Configure Relay -> Troubleshooting shows a read-only, copyable row such as

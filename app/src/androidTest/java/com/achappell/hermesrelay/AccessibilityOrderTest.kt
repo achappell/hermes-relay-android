@@ -1,5 +1,21 @@
 package com.achappell.hermesrelay
 
+import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.ViewCompat
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.unit.dp
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.After
+import org.junit.Assert.assertFalse
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
@@ -29,6 +45,107 @@ import org.junit.runner.RunWith
 class AccessibilityOrderTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    private var originalAccessibilityFlags: Int? = null
+
+    @After
+    fun restoreAccessibilityServiceFlags() {
+        originalAccessibilityFlags?.let { original ->
+            val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+            automation.serviceInfo = automation.serviceInfo.apply { flags = original }
+        }
+    }
+
+    private fun enableTouchExploration() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val automation = instrumentation.uiAutomation
+        originalAccessibilityFlags = automation.serviceInfo.flags
+        automation.serviceInfo = automation.serviceInfo.apply {
+            flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
+        }
+        val manager = instrumentation.targetContext
+            .getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+        composeRule.waitUntil { manager.isTouchExplorationEnabled }
+    }
+
+    @Test
+    fun accessibility_focus_reveals_a_clipped_turn_without_moving_keyboard_focus() {
+        enableTouchExploration()
+        var composeHost: View? = null
+        val port = ConnectedFakePort()
+        var density = 1f
+        composeRule.setContent {
+            density = LocalDensity.current.density
+            composeHost = LocalView.current
+            HermesRelayTheme {
+                Box(Modifier.height(560.dp)) {
+                    AndroidClientScreen(clientPort = port, speechInput = FakeSpeechInput())
+                }
+            }
+        }
+        composeRule.scrollToConversationTag("android_connect")
+        composeRule.onNodeWithTag("android_connect").performClick()
+        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Read the completed turn")
+        composeRule.onNodeWithText(
+            InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.android_start_typed_turn),
+        ).performScrollTo().performClick()
+        closeSoftKeyboard()
+        composeRule.runOnIdle {
+            val binding = port.lastBinding!!
+            port.emit(AndroidNormalizedEvent.ResponseTextDelta(binding, "A retained response for reading."))
+            port.emit(AndroidNormalizedEvent.TurnCompleted(binding))
+        }
+        composeRule.waitForIdle()
+        composeRule.scrollToConversationTag("android_turn_phase")
+        val phase = composeRule.onNodeWithTag("android_turn_phase")
+        val rail = composeRule.onNodeWithTag("android_conversation_rail")
+        val phaseBefore = phase.getUnclippedBoundsInRoot()
+        val railBefore = rail.getUnclippedBoundsInRoot()
+        val desiredTop = railBefore.bottom.value - (phaseBefore.bottom - phaseBefore.top).value / 3f
+        rail.performSemanticsAction(SemanticsActions.ScrollBy) { scroll ->
+            scroll(0f, (phaseBefore.top.value - desiredTop) * density)
+        }
+        composeRule.waitForIdle()
+        val clipped = phase.getUnclippedBoundsInRoot()
+        assertTrue("fixture must expose only part of the turn label", clipped.top < railBefore.bottom)
+        assertTrue("fixture must clip the bottom of the turn label", clipped.bottom > railBefore.bottom)
+        composeRule.onNodeWithTag("android_typed_prompt").assertIsFocused()
+
+        val virtualId = phase.fetchSemanticsNode().id
+        val promptId = composeRule.onNodeWithTag("android_typed_prompt").fetchSemanticsNode().id
+        val provider = composeRule.runOnIdle {
+            val host = checkNotNull(composeHost)
+            checkNotNull(ViewCompat.getAccessibilityDelegate(host)?.getAccessibilityNodeProvider(host))
+        }
+        composeRule.runOnIdle {
+            assertFalse(provider.performAction(Int.MAX_VALUE, AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null))
+        }
+        composeRule.waitForIdle()
+        assertEquals("declined focus must not scroll the rail", clipped, phase.getUnclippedBoundsInRoot())
+        composeRule.runOnIdle {
+            assertTrue(provider.performAction(virtualId, AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null))
+        }
+        composeRule.waitForIdle()
+
+        val revealed = phase.getUnclippedBoundsInRoot()
+        val viewport = rail.getUnclippedBoundsInRoot()
+        assertTrue("focused label top must be visible: $revealed in $viewport", revealed.top >= viewport.top)
+        assertTrue("focused label bottom must be visible: $revealed in $viewport", revealed.bottom <= viewport.bottom)
+        composeRule.runOnIdle {
+            assertTrue(
+                "accessibility focus must remain on the revealed label",
+                provider.createAccessibilityNodeInfo(virtualId)?.isAccessibilityFocused == true,
+            )
+            assertTrue(provider.performAction(promptId, AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null))
+        }
+        composeRule.waitForIdle()
+        composeRule.runOnIdle {
+            assertTrue(provider.performAction(virtualId, AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null))
+        }
+        composeRule.waitForIdle()
+        assertEquals("an already visible label must not jump", revealed, phase.getUnclippedBoundsInRoot())
+        composeRule.onNodeWithTag("android_typed_prompt").assertIsFocused()
+    }
 
     private fun traversalIndexOf(tag: String): Float {
         scrollToRailTagIfNeeded(tag)
