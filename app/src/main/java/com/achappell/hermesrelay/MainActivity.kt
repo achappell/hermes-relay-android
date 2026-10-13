@@ -258,6 +258,8 @@ internal fun AndroidClientScreen(
         captureController,
         isAuthorized,
         isConnected,
+        hasUnresolvedTurn,
+        hasAcceptedTurn,
         permissionRevision,
         captureState,
     ) { captureController?.blockingReason() }

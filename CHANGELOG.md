@@ -24,6 +24,7 @@
 - Exclude all app data from cloud backup and device transfer with Android 12+ extraction rules.
 
 ### Fixes
+- Refresh Standard microphone admission and idle status after uncertain or active turns clear, so successful New conversation and completed replies restore Ready and Tap to speak. Keep shared recovery messages transport-neutral.
 - Retry transport failures on a bounded backoff without discarding held claims.
 - Await Home's `conversation.close` acknowledgement before recording a claim released; report unacknowledged close truthfully.
 - Reflow the conversation header title and Profile block to preserve the accessible overflow action at large font scales.

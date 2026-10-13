@@ -700,8 +700,11 @@ internal fun ColumnScope.IdleCaptureZone(
     showBlockMessage: Boolean = true,
 ) {
     val block = remember(
+        captureController,
         isAuthorized,
         isConnected,
+        hasAcceptedTurn,
+        hasUnconfirmedTurn,
         permissionRevision,
         captureState,
     ) { captureController.blockingReason() }
@@ -996,7 +999,7 @@ internal fun ColumnScope.TurnZone(
     when (initiationState) {
         AndroidInitiationState.Idle -> Unit
         is AndroidInitiationState.Accepted -> {
-            // "Waiting for Home events" is only true until this turn ends.
+            // The accepted/waiting notice is only true until this turn ends.
             val turnEnded = turnState.binding == initiationState.binding && turnState.isTerminal
             if (!turnEnded) {
                 Text(

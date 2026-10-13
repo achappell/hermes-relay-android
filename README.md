@@ -70,7 +70,7 @@ scripts/check-apk-metadata.sh
 scripts/check-missing-sdk.sh
 ```
 
-With an Android emulator or device available, also run:
+On a disposable Android test emulator, run:
 
 ```bash
 ./gradlew connectedDebugAndroidTest
@@ -85,6 +85,14 @@ To install the debug app on a connected device or emulator:
 There is no live Hermes endpoint requirement for unit tests or builds.
 `RelayConfigurationTest` clears the app's credential preferences; run it only
 on an isolated test emulator, not an already paired personal device.
+Gradle's connected-test cleanup can also uninstall the app and remove profiles,
+credentials and local history even when the selected tests do not clear them.
+Do not use `connectedDebugAndroidTest` on an emulator holding a user's setup.
+For scoped tests on an existing installation, build both APKs, install with
+`adb install -r`, then invoke `adb shell am instrument -w -e class <test-class>`
+with `com.achappell.hermesrelay.test/androidx.test.runner.AndroidJUnitRunner`.
+Direct instrumentation avoids Gradle's uninstall cleanup; it does not make a
+destructive test safe. Keep setup/storage-reset tests on a disposable AVD.
 
 ### Direct Standard setup
 
