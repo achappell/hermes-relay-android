@@ -161,6 +161,7 @@ stories:
     kind: surface
     spec: _bmad-output/implementation-artifacts/spec-5-a-2-accessibility.md
     validation: _bmad-output/implementation-artifacts/validation-5-a-2-accessibility.md
+    scope_note: '2026-10-13 focus-only follow-up: native API 36 TalkBack reveals clipped completion labels without moving keyboard focus; see spec-talkback-focus-visibility.md and the existing validation record. Queued stale speech and physical-device acceptance remain open.'
     tracker_key: 5-a-2
     historical_product_epic: 5
     owner: hermes-relay-android

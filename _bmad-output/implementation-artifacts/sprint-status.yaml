@@ -1,7 +1,7 @@
 # Active epic parents are in story-index.yaml; numeric story prefixes remain historical.
 schema_version: 1
 generated: 2026-09-12
-last_updated: '2026-10-12'
+last_updated: '2026-10-13'
 project: hermes-relay-android
 tracking_system: file-system
 status_authority: local
@@ -20,7 +20,7 @@ development_status:
   2-a-1: done
   2-a-2: done
   5-a-1: done
-  5-a-2: done
+  5-a-2: done # 2026-10-13 emulator focus-reveal follow-up verified; queued stale speech and physical-device gates remain open.
   5-a-3: done
   5-a-4: done
   5-a-4-live-home-gate: done

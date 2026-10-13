@@ -24,6 +24,7 @@
 - Exclude all app data from cloud backup and device transfer with Android 12+ extraction rules.
 
 ### Fixes
+- Reveal clipped TalkBack focus targets above the conversation composer using Compose's native scrolling action, without moving keyboard focus.
 - Reconnect the selected Standard connection after configuration changes even when its Profile ID is unchanged, including saving/deleting another connection and reselecting the current one.
 - Refresh Standard microphone admission and idle status after uncertain or active turns clear, so successful New conversation and completed replies restore Ready and Tap to speak. Keep shared recovery messages transport-neutral.
 - Retry transport failures on a bounded backoff without discarding held claims.

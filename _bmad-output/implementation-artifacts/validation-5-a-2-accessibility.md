@@ -59,3 +59,57 @@ closed.
 - WCAG 2.2 AA contrast verification and any palette work it requires.
 - A TalkBack navigation pass on a physical device.
 - Reduced-motion handling, once the surface has motion.
+
+## 2026-10-13 — Clipped TalkBack focus follow-up
+
+The historical September record above remains unchanged. This follow-up fixes
+the separate defect where native TalkBack focused a completed-turn label
+partially hidden beneath the composer. The focus-only implementation is in
+[spec-talkback-focus-visibility.md](spec-talkback-focus-visibility.md); it does
+not include the blocked status-speech or notification changes.
+
+- The original regression failed before the bridge: label bottom
+  `274.66666 dp` exceeded viewport bottom `256 dp`. That earlier reproduction
+  was not rerun merely to reconfirm it.
+- On the isolated focus-only build, JVM tests, debug/test APK assembly and
+  lint passed. `AccessibilityOrderTest`, `MainActivityTest`,
+  `MicrophoneCaptureTest`, `MicrophonePermissionTest` and
+  `HomeRuntimeRecreationTest` passed **35 instrumentation tests** in
+  **51.469 seconds** on the existing API 36 emulator.
+- The new regression uses the actual Compose accessibility provider and
+  asserts full short-label visibility, retained accessibility focus, unchanged
+  composer keyboard focus, no scrolling after declined focus, and no jump
+  when refocusing an already visible label.
+- Actual TalkBack `16.0.0.738667889 (60149341)` activated a synthetic Standard
+  turn at `01:56:07.927`; the content-free journal recorded audio drained at
+  `01:56:12.158`. The reply text was visible. Native Alt-arrow traversal
+  revealed the initially clipped Complete label entirely above the composer;
+  its green focus bounds remained on that label while the composer retained
+  its caret. The next navigation revealed the response heading/text.
+- Two actual Activity recreations were observed at `01:59:01.747` and
+  `01:59:02.253` with `config_change=true`, the same app process, retained
+  response and working native traversal after returning to portrait.
+- APK metadata passed: minimum SDK 26, `0.3.1 (301)`, backups off with
+  extraction rules, 16 KB alignment. Signing verification was skipped because
+  `EXPECTED_SIGNER_SHA256` was unset. The first metadata invocation selected
+  the host's non-SDK-bound analyzer and could not locate build tools; explicitly
+  selecting the installed SDK's `cmdline-tools/latest/bin` resolved it.
+- TalkBack was disabled again, its notification permission remained denied
+  with only the original `USER_SENSITIVE_WHEN_GRANTED` flag, rotation returned
+  to accelerometer enabled/user rotation zero, and Wi-Fi/data remained enabled.
+  The selected profile was Verified/Ready with the response retained and an
+  empty draft. Only the test APK and test-owned temporary captures were removed;
+  the authenticated emulator keyboard channel was closed. No main-app data,
+  credentials or history were cleared.
+
+The same unchanged bridge had an earlier actual 40-line response traversal
+check in the combined attempt; that oversized-response check was not rerun on
+the isolated APK. Failed-reveal return preservation and replacement-delegate
+ownership were inspected directly, not claimed as separately executed tests.
+Physical Pixel, human-audibility, gesture-only navigation, contrast and full
+landscape layout acceptance are not established by this follow-up.
+
+**Still open:** immediate post-reply network recovery can leave obsolete polite
+speech queued in TalkBack. The combined attempt remains blocked and unpublished
+in the separate `fix/talkback-focus-announcements` worktree. Do not treat this
+focus fix as speech acceptance or a waiver of any broader story gate.
