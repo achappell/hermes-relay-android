@@ -2662,6 +2662,179 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun replacing_observer_during_audio_drain_does_not_strand_successful_turn() {
+        observerReplacementDuringDrain(succeeded = true)
+    }
+
+    @Test
+    fun replacing_observer_during_audio_drain_does_not_strand_failed_turn() {
+        observerReplacementDuringDrain(succeeded = false)
+    }
+
+    private fun observerReplacementDuringDrain(succeeded: Boolean) {
+        val completion = java.util.concurrent.LinkedBlockingQueue<() -> Unit>()
+        val recording = RecordingAudioSink()
+        val sink = object : AndroidAudioSink by recording {
+            override fun finish(onDrained: () -> Unit, onFailure: (String) -> Unit) {
+                completion.put(if (succeeded) onDrained else { { onFailure("fixture drain failure") } })
+            }
+        }
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val request = JSONObject(text)
+                when (request.optString("method")) {
+                    "conversation.open" -> webSocket.send(readyResponse(request.getString("id"), audio = true))
+                    "prompt.submit" -> {
+                        val turnId = "observer-replaced"
+                        webSocket.send(rpcResult(request.getString("id"), JSONObject()
+                            .put("schema", 1).put("conversation_handle", CONVERSATION_HANDLE)
+                            .put("turn_id", turnId).put("status", "submitted")))
+                        webSocket.send(audioStartFrame(turnId))
+                        webSocket.send(ByteString.of(*ByteArray(320)))
+                        webSocket.send(audioEndFrame(turnId))
+                        webSocket.send(eventFrame(turnId, "message.complete",
+                            JSONObject().put("rendered", "done").put("status", "complete")))
+                    }
+                }
+            }
+        }))
+        val client = client(audioSink = sink)
+        try {
+            assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+            val accepted = client.beginTurn(AndroidTurnRequest(
+                AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("observer")))
+                as AndroidInitiationResult.Accepted
+            val textComplete = CountDownLatch(1)
+            val observation = client.observeTurn(accepted.binding) {
+                if (it is AndroidNormalizedEvent.TurnCompleted) textComplete.countDown()
+            }
+            val finish = checkNotNull(completion.poll(5, TimeUnit.SECONDS))
+            assertTrue(textComplete.await(5, TimeUnit.SECONDS))
+            assertTrue(client.hasActiveTurn())
+            observation.cancel()
+            client.observeTurn(accepted.binding) {}
+            finish()
+            assertFalse("terminal stream cleanup must not belong to a replaced observer", client.hasActiveTurn())
+        } finally { client.close() }
+    }
+
+    @Test
+    fun late_home_playback_callback_cannot_follow_audio_ended() {
+        val peer = AtomicReference<WebSocket>()
+        val turnId = "late-start"
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val request = JSONObject(text)
+                when (request.optString("method")) {
+                    "conversation.open" -> webSocket.send(readyResponse(request.getString("id"), audio = true))
+                    "prompt.submit" -> {
+                        peer.set(webSocket)
+                        webSocket.send(rpcResult(request.getString("id"), JSONObject()
+                            .put("schema", 1).put("conversation_handle", CONVERSATION_HANDLE)
+                            .put("turn_id", turnId).put("status", "submitted")))
+                        webSocket.send(audioStartFrame(turnId))
+                        webSocket.send(ByteString.of(*ByteArray(320)))
+                    }
+                }
+            }
+        }))
+        val sink = DelayedStartAudioSink()
+        val client = client(audioSink = sink)
+        try {
+            assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+            val accepted = client.beginTurn(AndroidTurnRequest(
+                AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("late")))
+                as AndroidInitiationResult.Accepted
+            val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+            val ended = CountDownLatch(1)
+            client.observeTurn(accepted.binding) {
+                events += it
+                if (it is AndroidNormalizedEvent.AudioEnded) ended.countDown()
+            }
+            val late = sink.awaitStart()
+            peer.get().send(audioEndFrame(turnId))
+            assertTrue(ended.await(5, TimeUnit.SECONDS))
+            late()
+            assertFalse(events.any { it is AndroidNormalizedEvent.AudioStarted })
+            assertEquals(1, events.count { it is AndroidNormalizedEvent.AudioEnded })
+        } finally { client.close() }
+    }
+
+    @Test
+    fun slow_home_pcm_reports_buffering_until_actual_cap_play_then_ends_in_order() {
+        slowHomeBuffering(heldPastCap = false)
+    }
+
+    @Test
+    fun held_home_pcm_stays_buffering_past_cap_then_resumes_actual_playback() {
+        slowHomeBuffering(heldPastCap = true)
+    }
+
+    private fun slowHomeBuffering(heldPastCap: Boolean) {
+        val audioPeer = AtomicReference<WebSocket>()
+        val turnId = "slow-buffering"
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val request = JSONObject(text)
+                when (request.optString("method")) {
+                    "conversation.open" -> webSocket.send(readyResponse(request.getString("id"), audio = true))
+                    "prompt.submit" -> {
+                        audioPeer.set(webSocket)
+                        webSocket.send(rpcResult(request.getString("id"), JSONObject()
+                            .put("schema", 1).put("conversation_handle", CONVERSATION_HANDLE)
+                            .put("turn_id", turnId).put("status", "submitted")))
+                        webSocket.send(audioStartFrame(turnId))
+                        webSocket.send(ByteString.of(*ByteArray(320)))
+                    }
+                }
+            }
+        }))
+        BufferedAudioFixture().use { audio ->
+            val client = client(audioSink = audio.sink)
+            try {
+                assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+                val accepted = client.beginTurn(AndroidTurnRequest(
+                    AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("slow")))
+                    as AndroidInitiationResult.Accepted
+                val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+                val started = CountDownLatch(1)
+                val ended = CountDownLatch(1)
+                client.observeTurn(accepted.binding) {
+                    events += it
+                    if (it is AndroidNormalizedEvent.AudioStarted) started.countDown()
+                    if (it is AndroidNormalizedEvent.AudioEnded) ended.countDown()
+                }
+                audio.timer.awaitScheduled()
+                if (heldPastCap) client.pauseOutput()
+                assertTrue(events.any { it is AndroidNormalizedEvent.AudioBuffering })
+                assertFalse(events.any { it is AndroidNormalizedEvent.AudioStarted })
+                assertEquals(0, audio.plays.get())
+                audio.timer.advanceMillis(1_499)
+                assertFalse(events.any { it is AndroidNormalizedEvent.AudioStarted })
+                audio.timer.advanceMillis(1)
+                if (heldPastCap) {
+                    assertEquals(0, audio.plays.get())
+                    assertFalse(events.any { it is AndroidNormalizedEvent.AudioStarted })
+                    client.resumeOutput()
+                }
+                assertTrue(started.await(5, TimeUnit.SECONDS))
+                assertEquals(1, audio.plays.get())
+                audioPeer.get().send(audioEndFrame(turnId))
+                assertTrue(ended.await(5, TimeUnit.SECONDS))
+                val states = events.filter {
+                    it is AndroidNormalizedEvent.AudioBuffering || it is AndroidNormalizedEvent.AudioStarted ||
+                        it is AndroidNormalizedEvent.AudioEnded
+                }
+                assertEquals(listOf(
+                    AndroidNormalizedEvent.AudioBuffering(accepted.binding),
+                    AndroidNormalizedEvent.AudioStarted(accepted.binding, RELAY_FORMAT),
+                    AndroidNormalizedEvent.AudioEnded(accepted.binding),
+                ), states)
+            } finally { client.close() }
+        }
+    }
+
+    @Test
     fun admission_preserves_preaudio_hold_and_duck_through_first_home_pcm() {
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -2692,14 +2865,19 @@ class OkHttpRelaySessionClientTest {
                     AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("held")))
                 assertTrue(accepted is AndroidInitiationResult.Accepted)
                 val ended = CountDownLatch(1)
+                val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
                 client.observeTurn((accepted as AndroidInitiationResult.Accepted).binding) {
+                    events += it
                     if (it is AndroidNormalizedEvent.AudioEnded) ended.countDown()
                 }
                 audio.assertHeldBeforeFirstPlayback()
+                assertTrue(events.any { it is AndroidNormalizedEvent.AudioBuffering })
+                assertFalse(events.any { it is AndroidNormalizedEvent.AudioStarted })
                 client.resumeOutput()
                 audio.releaseWorker()
                 assertTrue(ended.await(5, TimeUnit.SECONDS))
                 audio.assertPlayed()
+                assertEquals(1, events.count { it is AndroidNormalizedEvent.AudioStarted })
             } finally { client.close() }
         }
     }

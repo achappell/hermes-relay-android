@@ -127,6 +127,111 @@ class OkHttpStandardSessionClientTest {
         return (result as AndroidInitiationResult.Accepted).binding
     }
 
+    @Test fun late_standard_playback_callback_cannot_follow_audio_ended_or_revive_next_turn() {
+        enqueueSession()
+        val audioPeer = AtomicReference<WebSocket>()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                if (JSONObject(text).optBoolean("done")) {
+                    audioPeer.set(webSocket)
+                    webSocket.send(JSONObject().put("type", "start").put("sample_rate", 24000).put("channels", 1).toString())
+                    webSocket.send(ByteArray(320).toByteString())
+                }
+            }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
+        }))
+        val sink = DelayedStartAudioSink()
+        val client = client(sink)
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        nextMethod("session.create")
+        val binding = submit(client)
+        val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+        val ended = CountDownLatch(1)
+        client.observeTurn(binding) {
+            events += it
+            if (it is AndroidNormalizedEvent.TurnCompleted) ended.countDown()
+        }
+        event("message.delta", JSONObject().put("text", "done"))
+        event("message.complete", JSONObject().put("text", "done"))
+        val late = sink.awaitStart()
+        audioPeer.get().send(JSONObject().put("type", "end").toString())
+        assertTrue(ended.await(5, TimeUnit.SECONDS))
+        late()
+        assertFalse(events.any { it is AndroidNormalizedEvent.AudioStarted })
+        val next = submit(client)
+        val nextEvents = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+        client.observeTurn(next) { nextEvents += it }
+        late()
+        assertFalse(nextEvents.any { it is AndroidNormalizedEvent.AudioStarted })
+        client.close()
+    }
+
+    @Test fun slow_standard_pcm_reports_buffering_until_actual_cap_play_then_ends_in_order() {
+        slowStandardBuffering(heldPastCap = false)
+    }
+
+    @Test fun held_standard_pcm_stays_buffering_past_cap_then_resumes_actual_playback() {
+        slowStandardBuffering(heldPastCap = true)
+    }
+
+    private fun slowStandardBuffering(heldPastCap: Boolean) {
+        enqueueSession()
+        val audioPeer = AtomicReference<WebSocket>()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                if (JSONObject(text).optBoolean("done")) {
+                    audioPeer.set(webSocket)
+                    webSocket.send(JSONObject().put("type", "start").put("sample_rate", 24000).put("channels", 1).toString())
+                    webSocket.send(ByteArray(320).toByteString())
+                }
+            }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
+        }))
+        BufferedAudioFixture().use { audio ->
+            val client = client(audio.sink)
+            assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+            nextMethod("session.create")
+            val binding = submit(client)
+            val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+            val started = CountDownLatch(1)
+            val ended = CountDownLatch(1)
+            client.observeTurn(binding) {
+                events += it
+                if (it is AndroidNormalizedEvent.AudioStarted) started.countDown()
+                if (it is AndroidNormalizedEvent.AudioEnded) ended.countDown()
+            }
+            event("message.delta", JSONObject().put("text", "done"))
+            event("message.complete", JSONObject().put("text", "done"))
+            audio.timer.awaitScheduled()
+            if (heldPastCap) client.pauseOutput()
+            assertTrue(events.any { it is AndroidNormalizedEvent.AudioBuffering })
+            assertFalse(events.any { it is AndroidNormalizedEvent.AudioStarted })
+            assertEquals(0, audio.plays.get())
+            audio.timer.advanceMillis(1_499)
+            assertFalse(events.any { it is AndroidNormalizedEvent.AudioStarted })
+            audio.timer.advanceMillis(1)
+            if (heldPastCap) {
+                assertEquals(0, audio.plays.get())
+                assertFalse(events.any { it is AndroidNormalizedEvent.AudioStarted })
+                client.resumeOutput()
+            }
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            assertEquals(1, audio.plays.get())
+            audioPeer.get().send(JSONObject().put("type", "end").toString())
+            assertTrue(ended.await(5, TimeUnit.SECONDS))
+            assertEquals(listOf(
+                AndroidNormalizedEvent.AudioBuffering(binding),
+                AndroidNormalizedEvent.AudioStarted(binding, AndroidAudioFormat(24000, 1, 2, "pcm_s16le")),
+                AndroidNormalizedEvent.AudioEnded(binding),
+            ), events.filter {
+                it is AndroidNormalizedEvent.AudioBuffering || it is AndroidNormalizedEvent.AudioStarted ||
+                    it is AndroidNormalizedEvent.AudioEnded
+            })
+            client.close()
+        }
+    }
+
+
     @Test fun admission_preserves_preaudio_hold_and_duck_through_first_standard_pcm() {
         enqueueSession()
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
@@ -147,14 +252,21 @@ class OkHttpStandardSessionClientTest {
             client.setOutputDucked(true)
             val binding = submit(client)
             val ended = CountDownLatch(1)
-            client.observeTurn(binding) { if (it is AndroidNormalizedEvent.AudioEnded) ended.countDown() }
+            val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+            client.observeTurn(binding) {
+                events += it
+                if (it is AndroidNormalizedEvent.AudioEnded) ended.countDown()
+            }
             event("message.delta", JSONObject().put("text", "done"))
             event("message.complete", JSONObject().put("text", "done"))
             audio.assertHeldBeforeFirstPlayback()
+            assertTrue(events.any { it is AndroidNormalizedEvent.AudioBuffering })
+            assertFalse(events.any { it is AndroidNormalizedEvent.AudioStarted })
             client.resumeOutput()
             audio.releaseWorker()
             assertTrue(ended.await(5, TimeUnit.SECONDS))
             audio.assertPlayed()
+            assertEquals(1, events.count { it is AndroidNormalizedEvent.AudioStarted })
             client.close()
         }
     }
@@ -798,8 +910,16 @@ class OkHttpStandardSessionClientTest {
         @Volatile var format: AndroidAudioFormat? = null
         @Volatile var bytes = 0
         @Volatile var cancels = 0
-        override fun start(format: AndroidAudioFormat): Boolean { this.format = format; return true }
-        override fun write(bytes: ByteArray) { this.bytes += bytes.size }
+        private var playbackStarted: (() -> Unit)? = null
+        override fun start(format: AndroidAudioFormat, onPlaybackStarted: () -> Unit): Boolean {
+            this.format = format
+            playbackStarted = onPlaybackStarted
+            return true
+        }
+        override fun write(bytes: ByteArray) {
+            this.bytes += bytes.size
+            playbackStarted?.also { playbackStarted = null }?.invoke()
+        }
         override fun finish(onDrained: () -> Unit, onFailure: (String) -> Unit) { drained = onDrained; finishCalled.countDown() }
         override fun cancel() { cancels++ }
     }

@@ -44,3 +44,38 @@ internal class HeldAudioAdmissionFixture : AutoCloseable {
     fun assertPlayed() { assertTrue(plays.get() > 0) }
     override fun close() { release.countDown(); sink.close() }
 }
+
+/** Real sink + manual cap for transport contract tests; the fake driver consumes no PCM. */
+internal class BufferedAudioFixture : AutoCloseable {
+    val timer = ManualAudioScheduler()
+    val plays = AtomicInteger()
+    val sink = AudioTrackAudioSink(
+        driverFactory = AudioTrackDriverFactory { _, _ -> object : AudioTrackDriver {
+            override fun state() = android.media.AudioTrack.STATE_INITIALIZED
+            override fun play() { plays.incrementAndGet() }
+            override fun write(buffer: ByteArray, offset: Int, size: Int) = size
+            override fun playbackHeadFrames() = 1_000_000L
+            override fun underrunCount() = 0
+            override fun stop() = Unit
+            override fun release() = Unit
+        } },
+        clock = timer.clock,
+        controlExecutor = java.util.concurrent.Executor { it.run() },
+        startupScheduler = timer,
+        minBufferSizeProvider = { 4 },
+    )
+    override fun close() { sink.close(); timer.shutdownNow() }
+}
+
+/** Retains a deliberately late callback to exercise adapter ownership independently of the sink. */
+internal class DelayedStartAudioSink(
+    private val recording: RecordingAudioSink = RecordingAudioSink(),
+) : AndroidAudioSink by recording {
+    val callbacks = LinkedBlockingQueue<() -> Unit>()
+    override fun start(format: AndroidAudioFormat, onPlaybackStarted: () -> Unit): Boolean {
+        val accepted = recording.start(format)
+        if (accepted) callbacks.put(onPlaybackStarted)
+        return accepted
+    }
+    fun awaitStart(): () -> Unit = checkNotNull(callbacks.poll(5, TimeUnit.SECONDS))
+}

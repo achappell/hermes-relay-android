@@ -177,6 +177,7 @@ internal class OkHttpRelaySessionClient(
     private val lastUnavailableProfileId = AtomicReference<String?>(null)
     private val ready = AtomicBoolean(false)
     private val audioActive = AtomicBoolean(false)
+    private val audioStreamGeneration = AtomicLong(0)
     private val interruptRequested = AtomicBoolean(false)
     private val terminalObserved = AtomicBoolean(false)
     private val audioDrainPending = AtomicBoolean(false)
@@ -1796,11 +1797,20 @@ internal class OkHttpRelaySessionClient(
                     return
                 }
                 val format = event.format
+                val streamGeneration = audioStreamGeneration.incrementAndGet()
                 if (
                     !capabilities.get().audio ||
                     format == null ||
                     !format.isSupported ||
-                    !audioSink.start(format)
+                    !audioSink.start(format) {
+                        synchronized(inboundLock) {
+                            if (audioStreamGeneration.get() == streamGeneration &&
+                                !interruptRequested.get() && (audioActive.get() || audioDrainPending.get())
+                            ) {
+                                deliverIfCurrent(currentObserver, event)
+                            }
+                        }
+                    }
                 ) {
                     audioActive.set(false)
                     audioBytesRemainder = 0
@@ -1824,7 +1834,7 @@ internal class OkHttpRelaySessionClient(
                                 TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - textCompletedAtNanos),
                         )
                     }
-                    deliver(currentObserver, event)
+                    deliver(currentObserver, AndroidNormalizedEvent.AudioBuffering(event.binding))
                 }
             }
             is AndroidNormalizedEvent.AudioEnded -> {
@@ -1858,8 +1868,13 @@ internal class OkHttpRelaySessionClient(
                     clearTurnIfTerminal(event.binding)
                 } else {
                     audioDrainPending.set(true)
+                    val streamGeneration = audioStreamGeneration.get()
                     audioSink.finish(
-                        onDrained = {
+                        onDrained = { synchronized(inboundLock) {
+                            if (audioStreamGeneration.get() != streamGeneration ||
+                                activeTurn.get() != event.binding ||
+                                !audioDrainPending.get()
+                            ) return@synchronized
                             audioDrainPending.set(false)
                             audioBytesRemainder = 0
                             audioRemainder = ByteArray(0)
@@ -1869,8 +1884,12 @@ internal class OkHttpRelaySessionClient(
                             journal.record("home audio completed")
                             settleAwaitedAudio()
                             clearTurnIfTerminal(event.binding)
-                        },
-                        onFailure = { reason ->
+                        } },
+                        onFailure = { reason -> synchronized(inboundLock) {
+                            if (audioStreamGeneration.get() != streamGeneration ||
+                                activeTurn.get() != event.binding ||
+                                !audioDrainPending.get()
+                            ) return@synchronized
                             audioDrainPending.set(false)
                             audioBytesRemainder = 0
                             audioRemainder = ByteArray(0)
@@ -1883,7 +1902,7 @@ internal class OkHttpRelaySessionClient(
                             journal.record("home audio failed phase=drain")
                             settleAwaitedAudio()
                             clearTurnIfTerminal(event.binding)
-                        },
+                        } },
                     )
                 }
             }
