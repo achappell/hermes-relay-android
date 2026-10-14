@@ -19,8 +19,55 @@ class AndroidTurnStateTest {
 
         assertEquals(AndroidTurnPhase.Interrupted, state.phase)
         assertEquals("Half an ans", state.responseText)
-        assertEquals(AndroidAudioDelivery.Unavailable, state.audio)
         assertTrue(state.isTerminal)
+    }
+
+    @Test
+    fun interruption_does_not_report_audio_failure_or_leave_playback_active() {
+        val phases = listOf(
+            AndroidNormalizedEvent.Thinking(binding),
+            AndroidNormalizedEvent.AudioBuffering(binding),
+            AndroidNormalizedEvent.AudioStarted(binding),
+        )
+        for (event in phases) {
+            val stopped = AndroidTurnState.awaitingEvents(binding)
+                .reduce(event)
+                .reduce(AndroidNormalizedEvent.TurnInterrupted(binding, "user interrupted"))
+
+            assertEquals(AndroidTurnPhase.Interrupted, stopped.phase)
+            assertFalse(stopped.audio == AndroidAudioDelivery.Unavailable)
+            assertFalse(stopped.audio == AndroidAudioDelivery.Buffering)
+            assertFalse(stopped.audio == AndroidAudioDelivery.Speaking)
+            assertEquals(null, stopped.unavailableReason)
+        }
+    }
+
+    @Test
+    fun interruption_preserves_a_real_audio_failure_and_its_reason() {
+        val stopped = AndroidTurnState.awaitingEvents(binding)
+            .reduce(AndroidNormalizedEvent.Thinking(binding))
+            .reduce(AndroidNormalizedEvent.AudioFailed(binding, "speaker failed"))
+            .reduce(AndroidNormalizedEvent.TurnInterrupted(binding, "user interrupted"))
+
+        assertEquals(AndroidTurnPhase.Interrupted, stopped.phase)
+        assertEquals(AndroidAudioDelivery.Unavailable, stopped.audio)
+        assertEquals("speaker failed", stopped.unavailableReason)
+    }
+
+    @Test
+    fun late_audio_events_cannot_relabel_a_deliberately_stopped_turn() {
+        val stopped = AndroidTurnState.awaitingEvents(binding)
+            .reduce(AndroidNormalizedEvent.AudioStarted(binding))
+            .reduce(AndroidNormalizedEvent.TurnInterrupted(binding, "user interrupted"))
+
+        listOf(
+            AndroidNormalizedEvent.AudioStarted(binding),
+            AndroidNormalizedEvent.AudioChunkReceived(binding),
+            AndroidNormalizedEvent.AudioEnded(binding),
+            AndroidNormalizedEvent.AudioFailed(binding, "late audio failure"),
+        ).forEach { event ->
+            assertEquals(stopped, stopped.reduce(event))
+        }
     }
 
     @Test
@@ -41,19 +88,15 @@ class AndroidTurnStateTest {
     }
 
     @Test
-    fun interrupt_acknowledgement_is_not_terminal() {
-        val thinking = AndroidTurnState.awaitingEvents(binding)
-            .reduce(AndroidNormalizedEvent.Thinking(binding))
-        val acknowledgement = AndroidInterruptTelemetry(
-            sentCount = 1,
-            acknowledgementObserved = true,
-            terminalObserved = false,
-        )
+    fun interruption_after_playback_preserves_delivered_audio() {
+        val stopped = AndroidTurnState.awaitingEvents(binding)
+            .reduce(AndroidNormalizedEvent.AudioStarted(binding))
+            .reduce(AndroidNormalizedEvent.AudioEnded(binding))
+            .reduce(AndroidNormalizedEvent.TurnInterrupted(binding, "user interrupted"))
 
-        assertTrue(acknowledgement.acknowledgementObserved)
-        assertFalse(acknowledgement.terminalObserved)
-        assertFalse(thinking.isTerminal)
-        assertEquals(AndroidTurnPhase.Thinking, thinking.phase)
+        assertEquals(AndroidTurnPhase.Interrupted, stopped.phase)
+        assertEquals(AndroidAudioDelivery.Delivered, stopped.audio)
+        assertEquals(null, stopped.unavailableReason)
     }
 
     private val binding = AndroidTurnBinding(
