@@ -4,6 +4,8 @@ title: Keep reply audio playing through route changes, focus changes and output 
 status: in-progress
 baseline_commit: 12c298139c11f2bf5032e0612fdf514999eb0176
 route: dispatch
+buffering_slice_baseline: 613e740511bd0f166347388b4475074afea2e2b2
+buffering_slice_status: software-verified
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -239,3 +241,178 @@ were cleared by the parent after the final ownership/admission/privacy repairs.
   untouched. Physical headset/Bluetooth/acoustic acceptance, API 26–32
   unknown-route automatic return and the remaining HOME-09 requirements stay
   open; the parent story remains **in-progress**.
+
+## Approved bounded-startup slice — 2026-10-14
+
+The user approved requirement **5**, after PR163 merged. This is a bounded
+startup and truthful-state slice, not completion of HOME-09. Requirements 1,
+6 and remaining physical/API-specific route acceptance are unchanged and open.
+The earlier 300–500 ms tuning proposal is not approved without Pixel evidence.
+
+### Timing and ownership contract
+
+- Defaults are an injectable **1000 ms queued PCM lead** and **1500 ms maximum
+  hold**. The cap begins with the first successfully accepted response PCM,
+  not format admission, synthesis initiation, or an empty packet.
+- Start on lead threshold, stream finish, or cap, whichever occurs first.
+  Expiry must work without another packet or a call to `finish()`.
+- Cap time is **monotonic elapsed time**, including pauses. A pause never
+  permits playback, even after expiry. Explicit resume releases the current
+  stream's startup cushion, including PCM already submitted but awaiting native
+  acceptance behind the hold. It starts that PCM as soon as accepted, without
+  another chunk, finish, or fresh cap grant. Resume intent and its generation
+  are captured together; an old resume cannot release a replacement stream.
+- Cancel, terminal completion/failure, replacement and close cancel the timer.
+  An already-dispatched old timer cannot play a replacement. Track recreation
+  remains out of scope; a replacement stream owns a new first-buffer deadline.
+- Format admission reports `AudioBuffering`. Only the sink's successful first
+  native play delivers `AudioStarted`, once and before the terminal callback.
+  Both real adapters reject stale binding/stream callbacks; callbacks execute
+  outside native and deadline locks. A callback cannot revive ended/cancelled
+  audio. Audio admission acquires focus while audio is Buffering, not merely
+  because text completion has put the turn phase in Buffering.
+- Preserve PR163 route/focus/user holds, pre-audio gain, same-track duck/restore,
+  native-control work, atomic terminal ownership and off-main PCM feed.
+  No extra per-chunk PCM copies, allocations, UI dispatch, or periodic telemetry.
+
+### Code map and tasks
+
+- [x] `app/src/main/java/com/achappell/hermesrelay/AndroidAudioSink.kt`: injectable
+  cushion/cap, shared scheduled native-control worker, cancellation and callback
+  ownership. Serialize accepted-frame publication with generation validation
+  after native queries so old writes cannot prevent a new first-buffer timer.
+- [x] `OkHttpRelaySessionClient.kt` and `OkHttpStandardSessionClient.kt` in that
+  directory: preserve format validation, emit Buffering at admission and actual
+  Started from the per-stream callback, serialize start/end ownership.
+- [x] `HomeRuntime.kt`: request focus for audio Buffering or Speaking; synthesis
+  waiting alone does not acquire focus. Reapply owned controls at admission.
+- [x] Tests in `app/src/test/java/com/achappell/hermesrelay/`:
+  `AudioSinkBufferingTest`, `ManualAudioScheduler`, `HeldAudioAdmissionFixture`,
+  both actual protocol-client suites and `HomeRuntimeVoiceRetentionTest`.
+- [x] Update changelog and local identity/sprint records without closing parent.
+
+### Acceptance and evidence
+
+| Given | When | Then | Regression |
+| --- | --- | --- | --- |
+| Less than 1000 ms queued | 1500 ms cap expires with no further PCM/end | Exactly one native play and Started | `cap_starts_short_queued_audio_without_more_pcm_or_finish` |
+| Subthreshold queued PCM | Lead arrives first | Start immediately; cancelled timer cannot replay | `threshold_starts_before_cap_and_cancels_pending_timer` |
+| Zero lead | First nonempty buffer arrives | Start then, not at format admission | `zero_lead_starts_first_buffer_not_format_admission` |
+| Paused queued PCM | Cap expires, then explicit resume | No paused play; resume starts without another cap | `pause_keeps_audio_held_past_cap_and_resume_starts_it_without_a_new_cap` |
+| Short stream | Finish before threshold/cap | Started precedes drained Ended; no hang | `short_finish_starts_and_drains_before_cap_without_late_started_event` |
+| Cancel/replacement | Old timer or native play returns | No old callback or new-track play | Cancel/replacement/native-play tests in `AudioSinkBufferingTest` |
+| Old postwrite query blocked | Cancel/new start, then old query returns | Only new PCM is counted; new cap still arms | `old_postwrite_query_cannot_pollute_replacement_first_buffer_or_strand_its_cap` |
+| Started delivery blocked | Pause/resume and finish race | Controls remain callable; Ended cannot overtake Started | `blocked_started_delivery_holds_terminal_order_but_not_native_pause` |
+| Real Home/Standard adapters | Slow PCM then cap; late callback after end | Buffering → actual Started → Ended; stale callback ignored | Both `slow_*_pcm_reports_buffering_until_actual_cap_play_then_ends_in_order` and late-callback tests |
+| Text completed but synthesis pending | Audio admission then actual play | Focus only at audio admission, no re-request on play | `audio_admission_acquires_focus_while_buffering_not_while_waiting_for_synthesis` |
+
+Failing-before evidence:
+
+- On untouched PR163 production code, the explicit-resume regression failed
+  (`expected play=1, actual=0`): tool receipt `artifact://1476`.
+- Before the generation-publication fix, a latch held the old postwrite native
+  underrun query across cancel/new start. The new stream never armed its cap:
+  `artifact://1482`; preserved JUnit XML
+  `/var/folders/cb/3pkc1ncx58j1xq63ktd8xftw0000gn/T/home09-buffering-proof-zs2kprmz/generation-cap-starvation-before.xml`.
+- Targeted green after the fixes: `artifact://1485`, covering
+  `AudioSinkBufferingTest`, `AudioSinkPauseTest`, `AndroidAudioSinkFramesTest`,
+  `OkHttpRelaySessionClientTest`, `OkHttpStandardSessionClientTest`, and
+  `HomeRuntimeVoiceRetentionTest`.
+
+Final formal review and software/device-runtime gates are recorded below.
+Hardware acoustic and Pixel cushion calibration remain open regardless of
+those software results; HOME-09 remains **in-progress**.
+
+### Bounded-startup review triage
+
+All three independent review lenses completed before this repair pass. Findings
+are retained individually, including duplicates and the withdrawn edge claim.
+
+| Source | Verdict / disposition | Evidence and action |
+| --- | --- | --- |
+| Blind F1: admission with no first PCM can wait | Outside approved scope | The cap is explicitly measured from first accepted PCM. No pre-first-PCM timeout is approved; adding a transport/synthesis timeout would broaden scope. |
+| Blind F2: no pre-first-PCM timeout test | Outside approved scope | Same contract boundary as F1, retained separately. Zero-lead test already proves format admission alone does not start playback. |
+| Blind F3: Recording sink terminal retains callback | Low / fixed | No actual play means `finish()` must not invent Started. However the stored callback survived terminal delivery and a late write invoked it. Clear it on finish; failing-before `terminal_recording_stream_cannot_deliver_a_late_started_callback` proves the repair. Runtime composition injects AudioTrack sinks; Recording remains a client-constructor/test default. |
+| Blind F4: optional callback permits omission | False / rejected | Low-level driver tests may omit observations. Both actual adapters supply callbacks and direct socket integration tests assert Buffering → Started → Ended. No unmigrated production consumer was identified. |
+| Blind F5: duplicate late Buffering | False for this change / rejected | Suggested live path uses legacy normalization disabled in production Relay. The changed adapters serialize admission before callback delivery. No newly reachable late Buffering path was shown; do not alter unrelated reducer semantics. |
+| Blind F6: adapter held-past-cap gap | Medium / fixed | Both real protocol adapters now have manual-cap integration cases: accepted subthreshold PCM, Pause, cap expiry without play/Started, Resume, actual sink play/Started and ordered Ended. |
+| Blind F7: observer replacement strands drain | Medium / fixed | `observeTurn` publicly supports same-binding replacement independently of current HomeRuntime usage. Cleanup now belongs to stream generation/binding/drain ownership, not observer identity. Both success and failure completion tests failed before the fix; notifications still use current-observer guards. |
+| Blind F8: sink invokes Started synchronously in start | False / rejected | A conforming sink only admits format in start; no PCM has played. Both supplied sinks invoke after PCM/actual play, so the hypothetical path is not a supported contract. |
+| Blind F9: playback-state fixture models old sequence | Low / fixed | `ResponseAudioPlaybackTest` now translates format admission into Buffering and emits Started through the sink callback, asserting the actual public event sequence and final delivered state. |
+| Verification-gap: runtime holds at Buffering admission | Medium / fixed | Added real sink/driver runtime test: retained User hold survives sink-local cleanup through Buffering admission, stays inaudible beyond cap time, then explicit resume starts at ducked gain. Assertions inspect actual play and gain, not forwarding counts. |
+| Edge finding: no Started at zero-PCM finish | False / withdrawn by reviewer | No native play occurred, so fabricating Started would be wrong. Real AudioTrack sink fails zero-PCM finish. Callback retention is separately handled in Blind F3. |
+| Self review: observer-owned terminal cleanup | Medium / fixed | Duplicate of F7 retained individually. Stream cleanup must occur even when the original observer is replaced. |
+| Self review: resume generation captured too late | Medium / fixed | A latch held resume control dispatch while cancel/new start admitted replacement PCM. Old resume then skipped the new cushion. Capture generation atomically with hold release and pass it to both control tasks. |
+| Parent/self review: pending-PCM resume intent | Medium / fixed | Resume could run before held worker accepted its submitted PCM, see zero accepted frames and lose the release. Persist a generation-owned startup-release intent consumed by acceptance. Corrected the implementer-authored narrower appendix sentence above. |
+| Parent review: old postwrite native query publishes new counters | High / fixed before formal snapshot | Genuine failing-before latch test stranded replacement cap. Generation-check and accepted-counter/timer publication now share the existing deadline lock after native work. |
+
+Review repair red receipt: `artifact://1569` — **5 tests failed** for pending-PCM
+resume, stale-resume generation, observer replacement after successful and failed
+drain, and retained Recording callback. Original JUnit XML is preserved under
+`/var/folders/cb/3pkc1ncx58j1xq63ktd8xftw0000gn/T/home09-buffering-proof-zs2kprmz/review-before/`.
+
+### Final bounded-startup verification — 2026-10-14
+
+- **Formal review closed:** blind, edge-case and verification-gap lenses all
+  completed independent follow-up review with no actionable finding remaining.
+  The final runtime coverage case raises Duck before sink-local cleanup and
+  Buffering admission, then captures **0.2 gain at first native play**, before
+  Started can reapply controls. It proves restoration of already-owned gain,
+  not merely a later focus callback.
+- **Full JVM:** **680 tests in 49 suites**, zero failures/errors/skips.
+  Final full `testDebugUnitTest assembleDebug lintDebug assembleDebugAndroidTest`
+  passed (`artifact://1593`). Full XML was copied before the repetition gate
+  overwrote Gradle reports.
+- **Repetition:** **30 × 216 = 6480 test executions**, zero failed iterations.
+  The eight suites were `AudioSinkBufferingTest`, `AudioSinkPauseTest`,
+  `AndroidAudioSinkFramesTest`, `OkHttpRelaySessionClientTest`,
+  `OkHttpStandardSessionClientTest`, `HomeRuntimeRetentionTest`,
+  `HomeRuntimeVoiceRetentionTest`, and `ResponseAudioPlaybackTest`.
+- **APK metadata:** pass, min SDK 26, version 0.3.1 (301), backup disabled with
+  extraction rules, 16 KB aligned. Signer comparison was **not exercised**:
+  `EXPECTED_SIGNER_SHA256` was unset.
+- **Actual Android runtime:** direct serial-targeted instrumentation passed
+  **4 tests** on a newly created empty API 36 ARM64 AVD. Production AudioTrack
+  factory/sink and real HomeRuntime were used, not native play counters alone:
+  750 ms PCM stayed Buffering with playback head 0, then started at **1504 ms**
+  with no further PCM or finish and head **544**. AudioFlinger track 56/session
+  217 went inactive/server `00000000` → active/server `00000220`.
+  A paused stream stayed inactive beyond cap, then resumed in **4 ms** with
+  advancing frames on the same track 55/session 209. A 100 ms short stream
+  started in **2 ms** at finish and drained. Stop before cap remained Stopped
+  with zero starts after **1703 ms**.
+- **Rendered existing Home UI:** an additional direct instrumentation test
+  passed on the production `AndroidClientScreen` surface backed by that runtime
+  and real sink. It asserted displayed **“Turn phase: Buffering”** at head 0
+  and **“Turn phase: Speaking”** after the cap (**1503 ms**, head **4896**);
+  both screenshots are retained. The first attempt found no visible Compose
+  hierarchy because the fresh install's notification permission dialog covered
+  the Activity. The logcat identified the permission Activity; granting
+  `POST_NOTIFICATIONS` on the disposable emulator only resolved the obstruction.
+  This failed attempt is retained, not hidden as an application defect.
+- **Cleanup:** temporary instrumentation source was removed; final debug and
+  Android-test APKs were rebuilt fixture-free. Scanning all APK DEX entries
+  confirmed `Home09BufferingSmokeTest` absent. The owned `emulator-5556` exited
+  cleanly and AVD `hermes-home09-buffering-20261014` plus its owned empty userdata
+  directory were deleted. No Gradle `connected*` task ran. Emulator 5554,
+  its original AVD/userdata and every owner recovery copy were untouched.
+- **Scope remains partial:** no dead-track recreation, periodic lead telemetry,
+  300–500 ms tuning, physical headset/Bluetooth routing or acoustic/Pixel
+  acceptance was claimed. No remote issue hook, push or PR was run.
+
+Private evidence root:
+`/var/folders/cb/3pkc1ncx58j1xq63ktd8xftw0000gn/T/home09-buffering-proof-zs2kprmz/`
+
+- `full-jvm-final/counts.json` and `TEST-*.xml`: complete suite evidence.
+- `flake-final-summary.txt`, `flake-gate-final/iteration-{1..30}.log` and
+  `flake-final-junit/`: repetition receipts.
+- `android-smoke-initial.log`: four native/runtime scenarios.
+- `home09-precap.audio_flinger:69`, `home09-postcap.audio_flinger:67`,
+  `home09-paused-cap.audio_flinger:65`, `home09-resumed.audio_flinger:65`:
+  exact native track/state/frame evidence.
+- `android-ui-smoke.log`, `home09-ui-buffering.png`, `home09-ui-speaking.png`:
+  rendered UI assertions and screenshots. `android-ui-permission-obstructed.log`
+  and `ui-first-attempt-logcat.txt` retain the initial obstruction.
+- `metadata-final.txt`, `fixture-free-apks.json`: metadata, final APK hashes and
+  temporary-class absence. `Home09BufferingSmokeTest.kt` is the off-tree proof
+  fixture only, not shipped source.

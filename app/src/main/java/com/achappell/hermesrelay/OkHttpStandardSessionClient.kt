@@ -69,6 +69,7 @@ internal class OkHttpStandardSessionClient(
     private var audioDeadline: ScheduledFuture<*>? = null
     private var audioStarted = false
     private var audioEnding = false
+    private var audioGeneration = 0L
     private var audioFrameBytes = 2
     private var audioRemainder = ByteArray(0)
 
@@ -448,6 +449,7 @@ internal class OkHttpStandardSessionClient(
         val token = runCatching { credentials.readStandardCredential(profile.id) }.getOrNull()
             ?: return audioFailed(binding)
         val request = privateRequest(profile, token, audio = true) ?: return audioFailed(binding)
+        val streamGeneration = ++audioGeneration
         emit(AndroidNormalizedEvent.AudioBuffering(binding))
         audioStarted = false
         audioEnding = false
@@ -466,12 +468,19 @@ internal class OkHttpStandardSessionClient(
                     when (frame.optString("type").ifBlank { frame.optString("kind") }) {
                         "start" -> {
                             val format = AndroidAudioFormat(frame.optInt("sample_rate"), frame.optInt("channels"), 2, "pcm_s16le")
-                            if (audioStarted || audioEnding || !format.isSupported || !runCatching { audioSink.start(format) }.getOrDefault(false)) {
+                            if (audioStarted || audioEnding || !format.isSupported || !runCatching {
+                                audioSink.start(format) {
+                                    synchronized(state) {
+                                        if (turn == binding && !stopped && audioGeneration == streamGeneration &&
+                                            (audioStarted || audioEnding)
+                                        ) emit(AndroidNormalizedEvent.AudioStarted(binding, format))
+                                    }
+                                }
+                            }.getOrDefault(false)) {
                                 audioFailed(binding)
                             } else {
                                 audioStarted = true
                                 audioFrameBytes = bytesPerFrame(format.channels)
-                                emit(AndroidNormalizedEvent.AudioStarted(binding, format))
                             }
                         }
                         "end" -> {
@@ -482,7 +491,7 @@ internal class OkHttpStandardSessionClient(
                             try {
                                 audioSink.finish(
                                     onDrained = { synchronized(state) {
-                                        if (turn == binding && !stopped) {
+                                        if (turn == binding && !stopped && audioGeneration == streamGeneration) {
                                             audioDeadline?.cancel(false)
                                             audioDeadline = null
                                             emit(AndroidNormalizedEvent.AudioEnded(binding))
@@ -490,7 +499,9 @@ internal class OkHttpStandardSessionClient(
                                             journal.record("standard audio result=drained")
                                         }
                                     } },
-                                    onFailure = { synchronized(state) { if (turn == binding) audioFailed(binding) } },
+                                    onFailure = { synchronized(state) {
+                                        if (turn == binding && audioGeneration == streamGeneration) audioFailed(binding)
+                                    } },
                                 )
                             } catch (_: Exception) { audioFailed(binding) }
                         }
@@ -531,6 +542,7 @@ internal class OkHttpStandardSessionClient(
     }
 
     private fun stopAudio(preservePendingControls: Boolean = false) {
+        audioGeneration++
         audioDeadline?.cancel(false)
         audioDeadline = null
         audioSocket?.cancel()

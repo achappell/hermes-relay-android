@@ -714,7 +714,8 @@ internal class HomeRuntime(
         if (turnState.isTerminal && !voice) {
             abandonFocus()
         } else if (
-            (voice || turnState.phase == AndroidTurnPhase.Speaking) &&
+            (voice || turnState.audio == AndroidAudioDelivery.Buffering ||
+                turnState.audio == AndroidAudioDelivery.Speaking) &&
             !focusAsked &&
             appliedRetention != BackgroundRetention.None
         ) {
@@ -858,10 +859,12 @@ internal class HomeRuntime(
     }
 
     private fun onTurnEvent(event: AndroidNormalizedEvent) {
-        val phaseBefore = turnState.phase
+        val audioBefore = turnState.audio
         updateTurn(AndroidTurnStateReducer.reduce(turnState, event))
-        // New streams reset sink-local holds/gain; the live session still owns its causes.
-        if (turnState.phase == AndroidTurnPhase.Speaking && phaseBefore != AndroidTurnPhase.Speaking) {
+        // Apply session controls at audio admission, before the startup cushion is released.
+        if (turnState.audio != audioBefore &&
+            (turnState.audio == AndroidAudioDelivery.Buffering || turnState.audio == AndroidAudioDelivery.Speaking)
+        ) {
             if (pauseReasons.isNotEmpty()) clientPort.pauseOutput()
             if (outputDucked) clientPort.setOutputDucked(true)
         }

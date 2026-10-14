@@ -48,7 +48,7 @@ class ResponseAudioPlaybackTest {
         val sink = RecordingAudioSink()
         val events = mutableListOf<AndroidNormalizedEvent>()
 
-        // The exact frame order observed from the relay.
+        // Wire format admission is distinct from the sink's actual playback callback.
         val incoming = listOf(
             AndroidNormalizedEvent.Thinking(binding),
             AndroidNormalizedEvent.AudioStarted(binding, relayFormat),
@@ -60,8 +60,8 @@ class ResponseAudioPlaybackTest {
         incoming.forEach { event ->
             when (event) {
                 is AndroidNormalizedEvent.AudioStarted -> {
-                    assertTrue(sink.start(event.format!!))
-                    events += event
+                    assertTrue(sink.start(event.format!!) { events += event })
+                    events += AndroidNormalizedEvent.AudioBuffering(binding)
                 }
                 is AndroidNormalizedEvent.AudioChunkReceived -> {
                     sink.write(ByteArray(8192))
@@ -72,6 +72,14 @@ class ResponseAudioPlaybackTest {
                 else -> events += event
             }
         }
+        assertEquals(listOf(
+            AndroidNormalizedEvent.AudioBuffering(binding),
+            AndroidNormalizedEvent.AudioStarted(binding, relayFormat),
+            AndroidNormalizedEvent.AudioEnded(binding),
+        ), events.filter {
+            it is AndroidNormalizedEvent.AudioBuffering || it is AndroidNormalizedEvent.AudioStarted ||
+                it is AndroidNormalizedEvent.AudioEnded
+        })
 
         var state = AndroidTurnState.awaitingEvents(binding)
         events.forEach { state = AndroidTurnStateReducer.reduce(state, it) }
@@ -113,5 +121,15 @@ class ResponseAudioPlaybackTest {
 
         assertTrue(!drained)
         assertTrue(failure != null)
+    }
+
+    @Test
+    fun terminal_recording_stream_cannot_deliver_a_late_started_callback() {
+        val sink = RecordingAudioSink()
+        val events = mutableListOf<String>()
+        assertTrue(sink.start(relayFormat) { events += "started" })
+        sink.finish({ events += "ended" }) { events += "failed" }
+        sink.write(ByteArray(2))
+        assertEquals(listOf("ended"), events)
     }
 }

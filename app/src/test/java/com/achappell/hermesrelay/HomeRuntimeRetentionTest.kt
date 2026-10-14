@@ -164,9 +164,13 @@ class HomeRuntimeRetentionTest {
         }
     }
 
-    private fun runtime(home: Home, routeEvents: AudioRouteEvents = routes): HomeRuntime = HomeRuntime(
+    private fun runtime(
+        home: Home,
+        routeEvents: AudioRouteEvents = routes,
+        speechInput: AndroidSpeechInput? = null,
+    ): HomeRuntime = HomeRuntime(
         clientPort = home,
-        speechInput = null,
+        speechInput = speechInput,
         historyStore = InMemoryAndroidHistoryStore(),
         postToMain = { if (deferMain) mainQueue.addLast(it) else it.run() },
         workExecutor = work,
@@ -174,6 +178,7 @@ class HomeRuntimeRetentionTest {
         recoveryPacer = pacer,
         clock = timers,
         foregroundService = service,
+        voiceTimers = timers,
         audioFocus = focus,
         audioRoutes = routeEvents,
         retentionTimers = timers,
@@ -197,6 +202,78 @@ class HomeRuntimeRetentionTest {
         home.emit(AndroidNormalizedEvent.AudioEnded(binding))
         home.activeTurn = false
         home.emit(AndroidNormalizedEvent.TurnCompleted(binding, "done"))
+    }
+
+    @Test
+    fun buffering_admission_restores_runtime_hold_and_gain_before_real_sink_can_play() {
+        val timer = ManualAudioScheduler()
+        val boundary = java.util.concurrent.LinkedBlockingQueue<String>()
+        val release = java.util.concurrent.CountDownLatch(1)
+        val started = java.util.concurrent.CountDownLatch(1)
+        val plays = java.util.concurrent.atomic.AtomicInteger()
+        var currentVolume = 1f
+        var playingVolume = 1f
+        val driver = object : AudioTrackDriver {
+            override fun state() = android.media.AudioTrack.STATE_INITIALIZED
+            override fun setVolume(volume: Float): Int { currentVolume = volume; return android.media.AudioTrack.SUCCESS }
+            override fun play() { playingVolume = currentVolume; plays.incrementAndGet() }
+            override fun write(buffer: ByteArray, offset: Int, size: Int): Int {
+                boundary.put("accepted")
+                return size
+            }
+            override fun playbackHeadFrames() = 0L
+            override fun underrunCount() = 0
+            override fun stop() = Unit
+            override fun release() = Unit
+        }
+        val sink = AudioTrackAudioSink(
+            driverFactory = AudioTrackDriverFactory { _, _ -> driver },
+            clock = timer.clock,
+            startupScheduler = timer,
+            controlExecutor = java.util.concurrent.Executor { it.run() },
+            minBufferSizeProvider = { 4 },
+            sleeper = Sleeper {
+                boundary.put("held")
+                check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            },
+        )
+        try {
+            val home = Home(binding, sink)
+            val runtime = runtime(home, speechInput = FakeSpeechInput())
+            runtime.appStarted()
+            runtime.appForegrounded()
+            runtime.recover()
+            work.drain()
+            runtime.captureController!!.armHandsFree()
+            runtime.initiate(AndroidTurnInput.Typed("hello"))
+            work.drain()
+            runtime.pauseFromControl()
+            focus.emit(FocusChange.Duck)
+            // A previous stream's cleanup owns sink-local state, not the runtime's User hold.
+            sink.cancel()
+            val format = AndroidAudioFormat(16_000, 1, 2, "pcm_s16le")
+            assertTrue(sink.start(format) {
+                home.emit(AndroidNormalizedEvent.AudioStarted(binding, format))
+                started.countDown()
+            })
+            home.emit(AndroidNormalizedEvent.AudioBuffering(binding))
+            sink.write(ByteArray(320))
+            assertEquals("held", boundary.poll(5, java.util.concurrent.TimeUnit.SECONDS))
+            timer.advanceMillis(5_000)
+            assertEquals(AndroidAudioDelivery.Buffering, runtime.turnState.audio)
+            assertTrue(runtime.outputPaused)
+            assertEquals(0, plays.get())
+            runtime.playFromControl()
+            release.countDown()
+            assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(AndroidAudioDelivery.Speaking, runtime.turnState.audio)
+            assertEquals(1, plays.get())
+            assertEquals(0.2f, playingVolume)
+        } finally {
+            release.countDown()
+            sink.close()
+            timer.shutdownNow()
+        }
     }
 
     @Test

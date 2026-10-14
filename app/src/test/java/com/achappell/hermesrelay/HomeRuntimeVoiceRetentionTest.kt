@@ -44,7 +44,9 @@ class HomeRuntimeVoiceRetentionTest {
 
     private class Focus : AudioFocusController {
         var listener: ((FocusChange) -> Unit)? = null
+        val requests = mutableListOf<Boolean>()
         override fun request(allowDuck: Boolean, onChange: (FocusChange) -> Unit): Boolean {
+            requests += allowDuck
             listener = onChange
             return true
         }
@@ -106,6 +108,27 @@ class HomeRuntimeVoiceRetentionTest {
         home.emit(AndroidNormalizedEvent.AudioEnded(home.binding))
         home.complete()
         timers.advanceBy(1_000) // terminal callback and client active flag may be ordered either way
+    }
+
+    @Test fun audio_admission_acquires_focus_while_buffering_not_while_waiting_for_synthesis() {
+        connect()
+        runtime.initiate(AndroidTurnInput.Typed("fixture request"))
+        work.drain()
+        home.emit(AndroidNormalizedEvent.TextCompleted(home.binding, "text ready"))
+        assertEquals(AndroidTurnPhase.Buffering, runtime.turnState.phase)
+        assertEquals(AndroidAudioDelivery.NotStarted, runtime.turnState.audio)
+        assertTrue(focus.requests.isEmpty())
+        home.emit(AndroidNormalizedEvent.AudioBuffering(home.binding))
+        assertEquals(AndroidAudioDelivery.Buffering, runtime.turnState.audio)
+        assertEquals(listOf(true), focus.requests)
+        runtime.appBackgrounded(false)
+        work.drain()
+        assertTrue(service.last.active)
+        assertEquals(0, home.closes)
+        home.emit(AndroidNormalizedEvent.AudioStarted(home.binding))
+        assertEquals(AndroidAudioDelivery.Speaking, runtime.turnState.audio)
+        assertEquals("playback never reconfigures the admitted focus", listOf(true), focus.requests)
+        assertFalse(capture.isCapturing)
     }
 
     @Test fun foreground_microphone_service_is_requested_and_acknowledged_before_capture() {
