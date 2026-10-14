@@ -206,7 +206,8 @@ internal class OkHttpStandardSessionClient(
                     if (generation != attempt) return@synchronized
                     failedStatus = response?.code
                     opened.countDown()
-                    lostTransport()
+                    // A failed upgrade belongs to connect(), not live-transport recovery.
+                    if (ready) lostTransport() else detachTransport()
                 }
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) = synchronized(state) {
                     if (generation != attempt) return@synchronized
@@ -227,6 +228,7 @@ internal class OkHttpStandardSessionClient(
                 synchronized(state) { detachTransport() }
                 journal.record("standard connect result=failed")
                 return if (failedStatus == 401 || failedStatus == 403) {
+                    journal.record("standard authorization result=rejected")
                     unavailable("Standard authentication was rejected.", AndroidHomeUnavailableReason.Unauthorized)
                 } else retryable()
             }

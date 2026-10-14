@@ -120,3 +120,9 @@
 - source_spec: `spec-standard-isolation.md`
   summary: Correct failed-authentication status and recovery presentation for a saved Standard connection.
   evidence: Deliberately invalidating only the owned probe credential produced four failed connection attempts at 23:37:30–31Z and left Authorization Verifying alongside Disconnected/Unavailable and retry guidance. No fallback to the original credential or seeded Home/rollback slots occurred; selecting the original restored Verified/Ready. Source inspection suggests handshake failure invokes lostTransport/connectionObserver before the typed Unauthorized outcome is delivered; this is a candidate race, not a confirmed diagnosis. Preserve isolation and no-replay guards while reproducing the ordering deterministically.
+
+## Resolved: Standard saved-credential failure presentation (2026-10-13)
+
+- source_spec: `spec-standard-auth-recovery.md`
+  summary: Preserve the authoritative typed authorization rejection instead of overwriting it with a failed-upgrade transport-loss event.
+  evidence: Baseline MockWebServer regression proved that HTTP401/403 initial failure emitted Disconnected despite never establishing a transport. The minimal callback-ownership fix passes that regression; existing presentation already converts typed Unauthorized to unavailable authorization and configuration repair. On the configured API 36 emulator, the owned invalid credential produced one rejection at 2026-10-14T00:16:59.584Z, no loss callback or prompt/replay, no Retry action, and a working Edit relay action. Repairing only the owned credential restored Verified/Ready at 00:18:09.258Z. Original configuration and history checksums were unchanged after cleanup. The earlier duplicate client-state candidate was removed as unnecessary; default-profile audio is not fixed by this change.

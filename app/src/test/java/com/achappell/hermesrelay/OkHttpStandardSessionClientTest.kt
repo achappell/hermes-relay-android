@@ -392,6 +392,38 @@ class OkHttpStandardSessionClientTest {
         }
         override fun deleteProfile(profileId: String) = delegate.deleteProfile(profileId)
     }
+    @Test fun rejected_initial_handshake_returns_unauthorized_without_transport_loss_or_fallback() {
+        listOf(401, 403).forEach { status ->
+            server.enqueue(MockResponse().setResponseCode(status).setBody("standard-secret"))
+            val client = client()
+            val disconnected = LinkedBlockingQueue<AndroidNormalizedEvent.Disconnected>()
+            client.observeConnection { disconnected.add(it) }
+            val before = server.requestCount
+
+            val outcome = client.reconnect()
+
+            assertTrue("HTTP $status must be nonretryable", outcome is AndroidReconnectOutcome.Unrecoverable)
+            assertEquals(AndroidHomeUnavailableReason.Unauthorized,
+                (outcome as AndroidReconnectOutcome.Unrecoverable).reasonCode)
+            // This state-locked read also waits for the failure callback to finish.
+            assertFalse(client.hasLiveTransport())
+            assertTrue("HTTP $status never established a transport to lose", disconnected.isEmpty())
+            assertEquals(AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable),
+                client.beginTurn(AndroidTurnRequest(
+                    AndroidProfile(profile.id, profile.displayName), AndroidTurnInput.Typed("not sent"),
+                )))
+            assertEquals(before + 1, server.requestCount)
+            val upgrade = server.takeRequest(5, TimeUnit.SECONDS)!!
+            assertEquals("/api/ws", upgrade.requestUrl!!.encodedPath)
+            assertEquals("standard-secret", upgrade.requestUrl!!.queryParameter("token"))
+            assertNull(upgrade.getHeader("Authorization"))
+            assertTrue(requests.isEmpty())
+            assertTrue(journalLines.contains("standard authorization result=rejected"))
+            assertFalse(journalLines.joinToString().contains("secret"))
+            client.close()
+        }
+    }
+
     @Test fun http_401_and_403_remain_nonretryable_authorization_failures_until_manual_recovery() {
         listOf(401, 403).forEach { status ->
             server.enqueue(MockResponse().setResponseCode(status).setBody("standard-secret"))
@@ -403,7 +435,6 @@ class OkHttpStandardSessionClientTest {
 
             assertEquals(before + 1, server.requestCount)
             assertEquals(AndroidHomeUnavailableReason.Unauthorized, (failed.connection as AndroidConnectionState.Failed).reasonCode)
-            assertEquals(AndroidAuthorizationState.Verifying, client.snapshot().authorizationState)
             assertEquals(AndroidAvailabilityBlock.Authorization, resolveAndroidAvailabilityBlock(client.snapshot(), failed.connection))
             assertFalse(client.hasLiveTransport())
             assertTrue(requests.isEmpty())
@@ -414,6 +445,7 @@ class OkHttpStandardSessionClientTest {
 
             nextMethod("session.create")
             assertEquals(AndroidConnectionState.Connected, recovered.connection)
+            assertEquals(AndroidAuthorizationState.Verified, client.snapshot().authorizationState)
             assertNull(resolveAndroidAvailabilityBlock(client.snapshot(), recovered.connection))
             assertTrue(requests.isEmpty())
             client.close()

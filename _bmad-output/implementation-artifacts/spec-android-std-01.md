@@ -157,3 +157,14 @@ The dated validation addendum records an audio failure on the disposable default
 profile and misleading failed-authentication status as separate unresolved findings.
 Cross-endpoint/Home live isolation and remaining physical/voice acceptance are not
 waived; the broader Standard story stays in review.
+
+## Failed-authentication recovery follow-up — 2026-10-13
+
+`spec-standard-auth-recovery.md` resolves the preceding failed-auth status finding.
+A rejected WebSocket upgrade now returns its typed authentication failure without
+emitting loss of a live transport. Existing presentation shows Unavailable and
+Edit relay guidance, with no futile Retry or automatic retry cascade. The real
+API 36 emulator rejected a disposable saved credential once, then returned to
+Verified/Ready after that credential was repaired. Original configuration and
+history checksums matched after deleting the probe. The separate default-profile
+audio observation remains unresolved; broader Standard acceptance is unchanged.
