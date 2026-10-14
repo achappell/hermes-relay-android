@@ -100,6 +100,20 @@ Instrumentation tests need a device or emulator. Live-relay tests are excluded
 by the `@LiveRelay` annotation; overriding `notAnnotation` with an empty value
 does not clear the default and silently runs zero tests.
 
+**Configured-emulator preservation is mandatory.** NEVER run Gradle `connected*`
+instrumentation tasks on an emulator/device containing owner configuration or
+history, even with a single-class filter: AGP's host-side cleanup can uninstall
+the target APK **and its data**. A class filter does not limit that cleanup.
+Use a separate owned AVD clone and direct, explicitly serial-targeted
+`adb shell am instrument -w -e class <class> <test-package>/<runner>` instead.
+Before any instrumentation on configured state, preserve a full private raw
+app-data backup, permission state, matching signed APK, and a consistent
+whole-AVD recovery snapshot/copy including userdata, encryption-key images and
+snapshot RAM. File hashes and an APK alone are not a backup; encrypted
+credential preferences cannot replace a deleted Android Keystore key. Never
+uninstall/reset the owner package, expose backup contents, or delete recovery
+copies until the owner has been informed and preservation is explicitly settled.
+
 Lifecycle, reconnect and voice tests follow `ANDROID-TEST-01`: no wall-clock
 waits (inject `MonotonicClock`/`Sleeper`; wait on latches signalled by the code
 under test), and no hidden platform defaults (pass `AndroidPlatform` explicitly).
@@ -115,9 +129,10 @@ JVM tests only; say in the validation record which tests did not run in CI.
 
 ## What only a real device finds
 
-The emulator has no microphone and runs `-no-audio`. Deterministic fakes cannot
-exercise the microphone, the speaker, real network permissions, or real
-recogniser timing. Every defect found on 2026-09-12 — a missing `INTERNET`
+Emulator microphone/audio capabilities depend on its actual launch flags and
+routes; inspect them rather than assuming `-no-audio` or no microphone.
+Deterministic fakes cannot prove physical speaker/microphone echo rejection or
+real recognizer timing. Every defect found on 2026-09-12 — a missing `INTERNET`
 permission, a silent debug-key signing fallback, an underrun-stranded audio
 drain, and a terminal phase displayed over a live microphone — passed both the
 unit suite and the live gate first. Treat a green suite as necessary, not

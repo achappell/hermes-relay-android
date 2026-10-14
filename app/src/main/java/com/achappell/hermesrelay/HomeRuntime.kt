@@ -36,7 +36,7 @@ internal class HomeRuntime(
     private val voiceTimers: VoiceTimers = MainLooperVoiceTimers,
     reconnectPolicy: ReconnectPolicy = ReconnectPolicy.default,
     recoveryPacer: RecoveryPacer = LockRecoveryPacer(),
-    clock: MonotonicClock = MonotonicClock.Real,
+    private val clock: MonotonicClock = MonotonicClock.Real,
     /** Default-network events: a returning network skips the rest of a backoff wait. */
     networkEvents: NetworkEvents = NetworkEvents.None,
     /** Keeps a reply alive after the app stops (`ANDROID-HOME-08`). */
@@ -114,10 +114,24 @@ internal class HomeRuntime(
     private var appliedRetention = BackgroundRetention.None
     private val pauseReasons = mutableSetOf<PauseReason>()
     private var pausedHold: VoiceTimer? = null
+    private var pausedDeadline: Long? = null
+    private var pausedGeneration = 0L
     private var retentionWatchdog: VoiceTimer? = null
     private var lastServiceState: VoiceServiceState? = null
     private var focusAsked = false
     private var inBackgroundRetention = false
+    private var voiceIdle: VoiceTimer? = null
+    private var voiceIdleDeadline: Long? = null
+    private var idleGeneration = 0L
+    private var tailTimer: VoiceTimer? = null
+    private var tailDeadline: Long? = null
+    private var outputWasActive = false
+    private var syncingRetention = false
+    private var endingVoice = false
+
+    private val wakeSuppressed: Boolean
+        get() = initiationInFlight || resendInFlight || hasAcceptedTurn ||
+            tailDeadline?.let { clock.nanoTime() < it } == true
 
     /** The turn a stop was applied to; it never re-enters retention, whatever events follow. */
     private var stoppedBinding: AndroidTurnBinding? = null
@@ -148,6 +162,15 @@ internal class HomeRuntime(
             speech = input,
             timers = voiceTimers,
             initiation = initiationController,
+            isForeground = { lifecycle.isForeground && !tornDown && !endingVoice },
+            wakeSuppressed = { wakeSuppressed },
+            prepareMicrophone = { ready ->
+                syncRetention()
+                foregroundService.awaitMicrophone { allowed ->
+                    postToMain { ready(allowed && lastServiceState?.microphone == true) }
+                }
+            },
+            onVoiceActivity = { postToMain { refreshVoiceIdle() } },
             isConnected = {
                 recoveryState.connection == AndroidConnectionState.Connected &&
                     (clientPort.connectionMode() != RelayConnectionMode.Standard ||
@@ -186,11 +209,19 @@ internal class HomeRuntime(
                         changed == AndroidCaptureState.Listening ||
                         changed is AndroidCaptureState.Transcribing
                     if (handsFree && capturing && turnState.isTerminal) {
+                        updateInitiation(AndroidInitiationState.Idle)
                         updateTurn(AndroidTurnState(phase = AndroidTurnPhase.Listening))
                     }
+                    syncRetention()
                 }
             },
-            onHandsFreeChange = { armed -> postToMain { handsFree = armed } },
+            onHandsFreeChange = { armed ->
+                postToMain {
+                    handsFree = armed
+                    journal.record("voice hands_free armed=$armed")
+                    syncRetention()
+                }
+            },
             onInitiation = { result ->
                 postToMain {
                     applyInitiationState(state = result, recordAcceptedInput = true)
@@ -291,9 +322,10 @@ internal class HomeRuntime(
         recoveryController.cancelRecovery()
         // A reply in flight stays alive under the foreground service until its
         // audio has drained (`ANDROID-HOME-08`).
-        if (appliedRetention == BackgroundRetention.Reply) {
+        if (appliedRetention != BackgroundRetention.None) {
             inBackgroundRetention = true
-            journal.record("voice background enter retention=reply")
+            val kind = if (appliedRetention == BackgroundRetention.Reply) "reply" else "voiceSession"
+            journal.record("voice background enter retention=$kind")
             pushServiceState()
             refreshPausedHold()
             return
@@ -336,20 +368,99 @@ internal class HomeRuntime(
             recoveryState.connection != AndroidConnectionState.Connected -> BackgroundRetention.None
             initiationInFlight || resendInFlight -> BackgroundRetention.Reply
             hasAcceptedTurn && acceptedBinding != stoppedBinding -> BackgroundRetention.Reply
+            !endingVoice && (captureController?.isHandsFree == true ||
+                captureController?.isCapturing == true) -> BackgroundRetention.VoiceSession
             else -> BackgroundRetention.None
         }
 
     /** Applies a change of [retention]; safe to call after any input that can change it. */
     private fun syncRetention() {
-        if (tornDown) return
-        val now = retention
-        if (now == appliedRetention) return
-        appliedRetention = now
-        if (now == BackgroundRetention.Reply) {
-            scheduleRetentionWatchdog()
-            pushServiceState()
-        } else {
-            leaveRetention(RetentionEnd.WorkFinished, interrupting = null)
+        if (tornDown || syncingRetention || endingVoice) return
+        syncingRetention = true
+        try {
+            syncWakeSuppression()
+            val now = retention
+            val changed = now != appliedRetention
+            appliedRetention = now
+            if (now != BackgroundRetention.None) {
+                if (retentionWatchdog == null) scheduleRetentionWatchdog()
+                pushServiceState()
+                if (now == BackgroundRetention.VoiceSession) syncFocus()
+            } else if (changed) {
+                captureController?.disarmHandsFree(AndroidHandsFreeExit.SessionEnded)
+                captureController?.cancelCapture()
+                leaveRetention(RetentionEnd.WorkFinished, interrupting = null)
+            }
+            refreshVoiceIdle()
+        } finally {
+            syncingRetention = false
+        }
+    }
+
+    /** The terminal event includes the sink drain; all wake paths share the same tail. */
+    private fun syncWakeSuppression() {
+        val active = initiationInFlight || resendInFlight || hasAcceptedTurn
+        if (active) {
+            tailTimer?.cancel()
+            tailTimer = null
+            tailDeadline = null
+            outputWasActive = true
+            captureController?.suppressWake()
+        } else if (outputWasActive) {
+            outputWasActive = false
+            tailDeadline = clock.nanoTime() + retentionTimings.outputTailMillis * 1_000_000
+            scheduleTail()
+        }
+    }
+
+    private fun scheduleTail() {
+        val deadline = tailDeadline ?: return
+        val remaining = deadline - clock.nanoTime()
+        if (remaining <= 0) {
+            tailDeadline = null
+            tailTimer = null
+            captureController?.continueHandsFree()
+            return
+        }
+        tailTimer = retentionTimers.after((remaining + 999_999) / 1_000_000) {
+            if (tailDeadline == deadline) scheduleTail()
+        }
+    }
+
+    /** Listening for a wake is idle; an actual speech activity/partial is not. */
+    private val voiceIdleWanted: Boolean
+        get() = !endingVoice && captureController?.isHandsFree == true &&
+            retention == BackgroundRetention.VoiceSession &&
+            captureController.hasVoiceActivity.not() && !clientPort.hasActiveTurn()
+
+    private fun refreshVoiceIdle() {
+        if (!voiceIdleWanted) {
+            voiceIdle?.cancel()
+            voiceIdle = null
+            voiceIdleDeadline = null
+            idleGeneration++
+        } else if (voiceIdleDeadline == null) {
+            voiceIdleDeadline = clock.nanoTime() + retentionTimings.voiceIdleMillis * 1_000_000
+            scheduleVoiceIdle(++idleGeneration)
+        }
+    }
+
+    private fun scheduleVoiceIdle(generation: Long) {
+        // Speech updates the controller before its queued runtime notification.
+        // Recheck the source of truth, not just the timer's generation.
+        if (!voiceIdleWanted) {
+            refreshVoiceIdle()
+            return
+        }
+        val deadline = voiceIdleDeadline ?: return
+        val remaining = deadline - clock.nanoTime()
+        if (remaining <= 0) {
+            journal.record("voice idle expired")
+            stopReply(RetentionEnd.IdleTimeout)
+            return
+        }
+        voiceIdle = retentionTimers.after((remaining + 999_999) / 1_000_000) {
+            if (generation == idleGeneration && voiceIdleDeadline == deadline) scheduleVoiceIdle(generation)
         }
     }
 
@@ -390,6 +501,12 @@ internal class HomeRuntime(
         retentionWatchdog = null
         pausedHold?.cancel()
         pausedHold = null
+        pausedDeadline = null
+        pausedGeneration++
+        voiceIdle?.cancel()
+        voiceIdle = null
+        voiceIdleDeadline = null
+        idleGeneration++
         pauseReasons.clear()
         outputPaused = false
         abandonFocus()
@@ -402,12 +519,16 @@ internal class HomeRuntime(
      * the app stopped the transport is parked. Idempotent.
      */
     private fun stopReply(reason: RetentionEnd) {
-        if (appliedRetention != BackgroundRetention.Reply) return
+        if (appliedRetention == BackgroundRetention.None) return
+        endingVoice = true
+        captureController?.disarmHandsFree()
+        captureController?.cancelCapture()
         val interrupting = if (hasAcceptedTurn) acceptedBinding else null
         appliedRetention = BackgroundRetention.None
         stoppedBinding = acceptedBinding
         interruptCoordinator.reset()
         leaveRetention(reason, interrupting)
+        endingVoice = false
     }
 
     /** The notification's Pause. */
@@ -450,18 +571,29 @@ internal class HomeRuntime(
         pushServiceState()
     }
 
-    /** A reply held paused while stopped ends after [RetentionTimings.pausedHoldMillis]. */
+    /** A held reply expires on monotonic time; stale timer callbacks cannot end a later hold. */
     private fun refreshPausedHold() {
-        val wanted = pauseReasons.isNotEmpty() && !lifecycle.isForeground &&
-            appliedRetention == BackgroundRetention.Reply
-        if (wanted && pausedHold == null) {
-            pausedHold = retentionTimers.after(retentionTimings.pausedHoldMillis) {
-                pausedHold = null
-                stopReply(RetentionEnd.IdleTimeout)
-            }
+        val wanted = pauseReasons.isNotEmpty() && appliedRetention == BackgroundRetention.Reply
+        if (wanted && pausedDeadline == null) {
+            pausedDeadline = clock.nanoTime() + retentionTimings.pausedHoldMillis * 1_000_000
+            schedulePausedHold(++pausedGeneration)
         } else if (!wanted) {
             pausedHold?.cancel()
             pausedHold = null
+            pausedDeadline = null
+            pausedGeneration++
+        }
+    }
+
+    private fun schedulePausedHold(generation: Long) {
+        val deadline = pausedDeadline ?: return
+        val remaining = deadline - clock.nanoTime()
+        if (remaining <= 0) {
+            stopReply(RetentionEnd.IdleTimeout)
+            return
+        }
+        pausedHold = retentionTimers.after((remaining + 999_999) / 1_000_000) {
+            if (generation == pausedGeneration && pausedDeadline == deadline) schedulePausedHold(generation)
         }
     }
 
@@ -470,7 +602,7 @@ internal class HomeRuntime(
         retentionWatchdog = retentionTimers.after(retentionTimings.recheckMillis) {
             retentionWatchdog = null
             syncRetention()
-            if (appliedRetention == BackgroundRetention.Reply) scheduleRetentionWatchdog()
+            if (appliedRetention != BackgroundRetention.None) scheduleRetentionWatchdog()
         }
     }
 
@@ -481,9 +613,12 @@ internal class HomeRuntime(
      */
     private fun pushServiceState() {
         val state = VoiceServiceState(
-            active = appliedRetention == BackgroundRetention.Reply,
+            active = appliedRetention != BackgroundRetention.None,
             paused = outputPaused,
             appStopped = !lifecycle.isForeground,
+            microphone = appliedRetention != BackgroundRetention.None &&
+                (captureController?.isHandsFree == true || captureController?.isCapturing == true),
+            listening = appliedRetention == BackgroundRetention.VoiceSession,
         )
         val last = lastServiceState
         if (state == last) return
@@ -500,15 +635,15 @@ internal class HomeRuntime(
         foregroundService.sync(state)
     }
 
-    /** One focus request per reply, at the first audio; the gain type is chosen then and never changed. */
+    /** One request for the active voice session; never reconfigure focus while output is live. */
     private fun syncFocus() {
-        if (turnState.isTerminal) {
-            focusAsked = false
+        val voice = captureController?.isHandsFree == true || captureController?.isCapturing == true
+        if (turnState.isTerminal && !voice) {
             abandonFocus()
         } else if (
-            turnState.phase == AndroidTurnPhase.Speaking &&
+            (voice || turnState.phase == AndroidTurnPhase.Speaking) &&
             !focusAsked &&
-            appliedRetention == BackgroundRetention.Reply
+            appliedRetention != BackgroundRetention.None
         ) {
             focusAsked = true
             val granted = audioFocus.request(allowDuck = lifecycle.isForeground) { change ->
@@ -526,6 +661,10 @@ internal class HomeRuntime(
 
     private fun onFocusChange(change: FocusChange) {
         journal.record("audio focus event change=${change.name}")
+        if (change == FocusChange.LossTransient || change == FocusChange.LossPermanent) {
+            captureController?.disarmHandsFree()
+            captureController?.cancelCapture()
+        }
         when (change) {
             FocusChange.LossTransient -> holdOutput(PauseReason.Focus)
             FocusChange.LossPermanent -> stopReply(RetentionEnd.FocusLost)
@@ -548,7 +687,12 @@ internal class HomeRuntime(
     fun profileSelected(profileId: String?) {
         val previous = lastSelectedProfileId
         lastSelectedProfileId = profileId
-        if (previous != null && previous != profileId) recoveryController.cancelRecovery()
+        if (previous != null && previous != profileId) {
+            recoveryController.cancelRecovery()
+            captureController?.disarmHandsFree(AndroidHandsFreeExit.SessionEnded)
+            captureController?.cancelCapture()
+            interruptCoordinator.reset()
+        }
     }
 
     /** Settings may never move pending input or an unresolved turn to another identity. */
@@ -840,6 +984,9 @@ internal class HomeRuntime(
     fun switchConversation(intent: HomeConversationIntent) {
         val conversations = homeConversations ?: return
         if (userDisconnected) return
+        captureController?.disarmHandsFree()
+        captureController?.cancelCapture()
+        interruptCoordinator.reset()
         updateInitiation(AndroidInitiationState.Idle)
         updateTurn(AndroidTurnState())
         runOnWork {
@@ -925,6 +1072,9 @@ internal class HomeRuntime(
         recoveryController.cancelRecovery()
         appliedRetention = BackgroundRetention.None
         releaseRetentionResources()
+        tailTimer?.cancel()
+        tailTimer = null
+        tailDeadline = null
         turnObservation?.cancel()
         turnObservation = null
         captureController?.let { capture ->

@@ -90,24 +90,29 @@ class AndroidWatchF1Test {
     private fun armedRig(): Rig {
         val port = Port()
         val speech = FakeSpeechInput()
+        val timers = ManualVoiceTimers()
         val runtime = HomeRuntime(
             clientPort = port,
             speechInput = speech,
             historyStore = null,
             postToMain = { it.run() },
             workExecutor = InlineExecutor(),
-            voiceTimers = ManualVoiceTimers(),
+            voiceTimers = timers,
+            retentionTimers = timers,
+            clock = timers,
         )
         runtime.activityCreated()
+        runtime.appStarted()
         runtime.recover()
-        // Begin from an already completed Home turn. The old Accepted state is
-        // intentionally retained while hands-free starts the next capture.
+        // Begin from a completed Home turn, then cross its output tail before
+        // asserting the independently actionable unbound listening window.
         runtime.applyInitiationState(
             AndroidInitiationState.Accepted(binding),
             recordAcceptedInput = false,
         )
         port.emit(AndroidNormalizedEvent.TurnCompleted(binding, "done"))
         runtime.captureController!!.armHandsFree()
+        timers.advanceBy(RetentionTimings.Default.outputTailMillis)
         return Rig(runtime, port, speech)
     }
 

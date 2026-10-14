@@ -69,6 +69,10 @@ internal class AndroidCaptureController(
     private val onHandsFreeChange: (Boolean) -> Unit = {},
     private val timers: VoiceTimers,
     private val timings: VoiceTimings = VoiceTimings.Default,
+    private val isForeground: () -> Boolean = { true },
+    private val wakeSuppressed: () -> Boolean = { false },
+    private val prepareMicrophone: ((Boolean) -> Unit) -> Unit = { it(true) },
+    private val onVoiceActivity: (Boolean) -> Unit = {},
 ) {
     /** True from the moment capture starts until it submits, fails or is cancelled. */
     private var captureOpen = false
@@ -77,6 +81,15 @@ internal class AndroidCaptureController(
     private var silenceTimer: VoiceTimer? = null
     private var finalWaitTimer: VoiceTimer? = null
     private var endingCapture = false
+    private var retryTimer: VoiceTimer? = null
+    var hasVoiceActivity = false
+        private set
+
+    private fun voiceActivity(active: Boolean) {
+        if (hasVoiceActivity == active) return
+        hasVoiceActivity = active
+        onVoiceActivity(active)
+    }
 
     /**
      * The Session capture began in.
@@ -141,19 +154,31 @@ internal class AndroidCaptureController(
     }
 
     fun armHandsFree() {
-        if (isHandsFree) return
+        if (isHandsFree || !isForeground()) return
+        blockingReason()?.let {
+            state = AndroidCaptureState.Unavailable(it)
+            lastHandsFreeExit = if (it == AndroidCaptureBlock.NotConnected) {
+                AndroidHandsFreeExit.SessionEnded
+            } else {
+                AndroidHandsFreeExit.Failure
+            }
+            return
+        }
         lastHandsFreeExit = null
         isHandsFree = true
         onHandsFreeChange(true)
-        beginCapture()
+        continueHandsFree()
     }
 
     fun disarmHandsFree(reason: AndroidHandsFreeExit = AndroidHandsFreeExit.Disarmed) {
         if (!isHandsFree) return
         isHandsFree = false
+        voiceActivity(false)
         lastHandsFreeExit = reason
+        retryTimer?.cancel()
+        retryTimer = null
+        cancelCapture()
         onHandsFreeChange(false)
-        if (reason == AndroidHandsFreeExit.Disarmed) cancelCapture()
     }
 
     /**
@@ -171,7 +196,7 @@ internal class AndroidCaptureController(
         when (phase) {
             AndroidTurnPhase.Complete -> {
                 if (isConnected()) {
-                    beginCapture()
+                    continueHandsFree()
                 } else {
                     disarmHandsFree(AndroidHandsFreeExit.SessionEnded)
                 }
@@ -183,8 +208,25 @@ internal class AndroidCaptureController(
         }
     }
 
+    /** Explicit/tapped capture is foreground-only, even if a permission result arrives late. */
     fun beginCapture() {
-        if (isCapturing) return
+        if (!isForeground() || isHandsFree) return
+        startCapture()
+    }
+
+    fun continueHandsFree() {
+        if (isHandsFree && !wakeSuppressed()) startCapture()
+    }
+
+    /** Retire the entire recognizer generation, including delayed results and activity callbacks. */
+    fun suppressWake() {
+        retryTimer?.cancel()
+        retryTimer = null
+        if (isHandsFree) cancelCapture()
+    }
+
+    private fun startCapture() {
+        if (isCapturing || (isHandsFree && wakeSuppressed())) return
 
         blockingReason()?.let { reason ->
             // Fail closed: the microphone is never opened to discover this.
@@ -205,7 +247,20 @@ internal class AndroidCaptureController(
         lastPartial = null
         endingCapture = false
         state = AndroidCaptureState.Starting
-        speech.start { event -> handle(generation, event) }
+        prepareMicrophone { ready ->
+            if (!captureOpen || generation != captureGeneration) return@prepareMicrophone
+            if (!ready) {
+                closeCapture()
+                state = AndroidCaptureState.Failed(AndroidSpeechFailure.AudioUnavailable)
+                disarmHandsFree(AndroidHandsFreeExit.Failure)
+            } else if (!isForeground() && !isHandsFree) {
+                cancelCapture()
+            } else if (isHandsFree && wakeSuppressed()) {
+                cancelCapture()
+            } else {
+                speech.start { event -> handle(generation, event) }
+            }
+        }
     }
 
     /** Ends capture and waits for the recognizer's final transcript. */
@@ -237,8 +292,7 @@ internal class AndroidCaptureController(
         closeCapture()
         speech.cancel()
         captureSessionId = null
-        state = AndroidCaptureState.Failed(AndroidSpeechFailure.NoSpeechHeard)
-        disarmHandsFree(AndroidHandsFreeExit.Silence)
+        noSpeech()
     }
 
     private fun cancelTimers() {
@@ -248,11 +302,27 @@ internal class AndroidCaptureController(
         finalWaitTimer = null
     }
 
+    private fun noSpeech() {
+        if (isHandsFree) {
+            state = AndroidCaptureState.Idle
+            // Do not spin on a recognizer which immediately reports silence.
+            retryTimer?.cancel()
+            retryTimer = timers.after(250) {
+                retryTimer = null
+                continueHandsFree()
+            }
+        } else {
+            state = AndroidCaptureState.Failed(AndroidSpeechFailure.NoSpeechHeard)
+            disarmHandsFree(AndroidHandsFreeExit.Silence)
+        }
+    }
+
     private fun closeCapture() {
         captureOpen = false
         endingCapture = false
         lastPartial = null
         cancelTimers()
+        voiceActivity(false)
     }
 
     fun cancelCapture() {
@@ -268,10 +338,16 @@ internal class AndroidCaptureController(
     private fun handle(generation: Long, event: AndroidSpeechEvent) {
         // A displaced recognizer must stay retired even after a new capture opens.
         if (!captureOpen || generation != captureGeneration) return
+        if (isHandsFree && wakeSuppressed()) {
+            suppressWake()
+            return
+        }
         when (event) {
             AndroidSpeechEvent.Started -> state = AndroidCaptureState.Listening
+            AndroidSpeechEvent.SpeechActivity -> voiceActivity(true)
 
             is AndroidSpeechEvent.Partial -> {
+                if (event.text.isNotBlank()) voiceActivity(true)
                 state = AndroidCaptureState.Transcribing(event.text)
                 // Silence is measured from the last change in the transcript: a
                 // repeated partial is the recognizer talking, not the person.
@@ -292,14 +368,12 @@ internal class AndroidCaptureController(
 
             is AndroidSpeechEvent.Failed -> {
                 closeCapture()
-                state = AndroidCaptureState.Failed(event.reason)
-                disarmHandsFree(
-                    if (event.reason == AndroidSpeechFailure.NoSpeechHeard) {
-                        AndroidHandsFreeExit.Silence
-                    } else {
-                        AndroidHandsFreeExit.Failure
-                    },
-                )
+                if (event.reason == AndroidSpeechFailure.NoSpeechHeard) {
+                    noSpeech()
+                } else {
+                    state = AndroidCaptureState.Failed(event.reason)
+                    disarmHandsFree(AndroidHandsFreeExit.Failure)
+                }
             }
 
             AndroidSpeechEvent.Cancelled -> {
@@ -322,8 +396,7 @@ internal class AndroidCaptureController(
 
         if (text.isEmpty()) {
             captureSessionId = null
-            state = AndroidCaptureState.Failed(AndroidSpeechFailure.NoSpeechHeard)
-            disarmHandsFree(AndroidHandsFreeExit.Silence)
+            noSpeech()
             return
         }
 

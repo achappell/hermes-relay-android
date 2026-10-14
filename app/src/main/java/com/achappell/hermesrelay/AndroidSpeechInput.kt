@@ -42,6 +42,9 @@ internal sealed interface AndroidSpeechEvent {
     /** The recognizer is listening. Only now may the UI claim capture. */
     data object Started : AndroidSpeechEvent
 
+    /** Recognizer-detected speech, not a raw level threshold or a route exemption. */
+    data object SpeechActivity : AndroidSpeechEvent
+
     data class Partial(val text: String) : AndroidSpeechEvent
 
     data class Final(val text: String) : AndroidSpeechEvent

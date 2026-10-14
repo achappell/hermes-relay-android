@@ -123,6 +123,7 @@
     <string name="android_voice_channel_name">Hermes replies</string>
     <string name="android_voice_card_title">Hermes conversation</string>
     <string name="android_voice_playback_controls">Reply audio</string>
+    <string name="android_voice_listening">Listening</string>
     <string name="android_voice_action_pause">Pause</string>
     <string name="android_voice_action_play">Play</string>
     <string name="android_voice_action_stop">Stop</string>

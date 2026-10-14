@@ -56,6 +56,7 @@ class LiveSpeechRecognizerTest {
             val at = SystemClock.elapsedRealtime() - startedAt
             when (event) {
                 AndroidSpeechEvent.Started -> Log.i(TAG, "ready t=${at}ms")
+                AndroidSpeechEvent.SpeechActivity -> Log.i(TAG, "speech t=${at}ms")
                 is AndroidSpeechEvent.Partial -> Log.i(TAG, "partial t=${at}ms")
                 is AndroidSpeechEvent.Final -> {
                     val words = event.text.trim().split(Regex("\\s+")).size

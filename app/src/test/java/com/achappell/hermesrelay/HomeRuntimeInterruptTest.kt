@@ -108,6 +108,8 @@ class HomeRuntimeInterruptTest {
             postToMain = { it.run() },
             workExecutor = Inline(),
             voiceTimers = timers,
+            retentionTimers = timers,
+            clock = timers,
             journal = journal,
         ).also {
             it.activityCreated()
@@ -290,6 +292,10 @@ class HomeRuntimeInterruptTest {
     fun typed_send_cancels_capture_without_disarming_hands_free_continuation() {
         val port = Port()
         val rig = Rig(port)
+        port.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        port.emit(AndroidNormalizedEvent.AudioEnded(binding))
+        port.emit(AndroidNormalizedEvent.TurnCompleted(binding))
+        rig.timers.advanceBy(RetentionTimings.Default.outputTailMillis)
         rig.runtime.captureController!!.armHandsFree()
         rig.speech.emit(AndroidSpeechEvent.Started)
 
@@ -303,6 +309,9 @@ class HomeRuntimeInterruptTest {
         port.emit(AndroidNormalizedEvent.AudioStarted(nextBinding))
         port.emit(AndroidNormalizedEvent.AudioEnded(nextBinding))
         port.emit(AndroidNormalizedEvent.TurnCompleted(nextBinding))
+        rig.timers.advanceBy(RetentionTimings.Default.outputTailMillis - 1)
+        assertEquals("the completed typed reply still suppresses capture during its tail", 1, rig.speech.startCount)
+        rig.timers.advanceBy(1)
         assertEquals(2, rig.speech.startCount)
         assertEquals(AndroidCaptureState.Starting, rig.runtime.captureState)
         assertEquals(2, port.requests.size)

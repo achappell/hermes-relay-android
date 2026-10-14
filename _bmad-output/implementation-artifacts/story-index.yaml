@@ -446,7 +446,7 @@ stories:
     parity_stream: S2
     spec: _bmad-output/implementation-artifacts/spec-android-home-08-background-voice.md
     validation: _bmad-output/implementation-artifacts/validation-android-home-08.md
-    scope_note: '2026-10-13: neutral reply-notification and shared audio pause-deadline follow-ups verified on the API 36 emulator. Pause accounting has deterministic red/green coverage and 30 consecutive audio/lifecycle runs; actual notification Pause held an AudioTrack over 35 s, Play resumed the same track and the reply drained. Physical checklist and 08b remain open; no broad story acceptance implied. See spec-neutral-reply-notification.md, spec-audio-pause-deadline.md and validation.'
+    scope_note: '2026-10-14: HOME-08b software implemented and reviewed; 623 JVM tests, debug/lint/APK metadata, 30x120 lifecycle gate and isolated real-service emulator smoke passed. Foreground-armed microphone FGS, 60 s idle, drain-plus-tail suppression and exactly-once teardown covered. The 1500 ms tail is provisional; physical microphone/locked recognizer/speaker-echo acceptance remains open. Verification runner incident restored profiles/auth but not exact newer history; see validation for evidence and recovery limits.'
     depends_on:
       - android:ANDROID-HOME-04
       - android:ANDROID-HOME-06
