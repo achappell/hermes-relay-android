@@ -42,7 +42,12 @@ class HomeVoiceService : Service() {
     @Volatile
     private var session: MediaSession? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    /** Snapshot the injectable lease when this service instance is created. */
+    private val wakeLeaseMillis = wakeLockLeaseMillis
     private var shown: VoiceServiceState? = null
+    private var foregroundInstalled = false
+    internal var microphoneInstalled = false
+        private set
 
     @Volatile
     private var cardPublished = false
@@ -59,6 +64,14 @@ class HomeVoiceService : Service() {
 
     private val publishCard = Runnable {
         if (!ended) shown?.takeIf { it.active && it.appStopped }?.let { publishCard(it) }
+    }
+
+    private val renewWakeLease = Runnable {
+        if (!ended && latest.active && shown?.active == true) {
+            acquireWakeLock()
+        } else {
+            releaseWakeLock()
+        }
     }
 
     override fun onCreate() {
@@ -78,34 +91,28 @@ class HomeVoiceService : Service() {
             ACTION_STOP -> main.post { runtime()?.stopFromControl() }
         }
         val state = latest
+        if (!state.active) {
+            resolveMicrophone(false)
+            end("inactiveCommand")
+            return START_NOT_STICKY
+        }
         if (state.active && ended) {
             // A new reply arrived while the last one was shutting down: stay up.
             ended = false
             shown = null
         }
-        val card = session
-        val started = runCatching {
-            ServiceCompat.startForeground(
-                this,
-                NOTIFICATION_ID,
-                // A control tap must not replace the card with a bare notification.
-                if (cardPublished && card != null) mediaNotification(state, card) else baseNotification().build(),
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                } else {
-                    0
-                },
-            )
-        }
+        val wasForeground = foregroundInstalled
+        val started = installForeground(state)
         if (started.isFailure) {
             journal.record("fgs start failed class=${started.exceptionOrNull()?.javaClass?.simpleName}")
+            resolveMicrophone(false)
             end("startFailed")
             return START_NOT_STICKY
         }
-        if (wakeLock == null) {
-            journal.record("fgs started type=mediaPlayback")
-            acquireWakeLock()
+        if (!wasForeground) {
+            journal.record("fgs started type=${if (state.microphone) "mediaPlayback_microphone" else "mediaPlayback"}")
         }
+        resolveMicrophone(state.microphone)
         worker.post { applyOnThread(state) }
         return START_NOT_STICKY
     }
@@ -118,11 +125,15 @@ class HomeVoiceService : Service() {
 
     override fun onDestroy() {
         ended = true
+        foregroundInstalled = false
+        microphoneInstalled = false
+        resolveMicrophone(false)
         instance = null
         worker.removeCallbacksAndMessages(null)
         session?.release()
         session = null
-        releaseWakeLock()
+        // Serialize against an in-flight renewal: destruction must be the final release.
+        worker.post { releaseWakeLock() }
         thread.quitSafely()
         journal.record("fgs stopped")
         super.onDestroy()
@@ -130,28 +141,65 @@ class HomeVoiceService : Service() {
 
     /** Called by the controller when the runtime's state changed; written only on change. */
     internal fun apply(state: VoiceServiceState) {
+        if (state.active && (!foregroundInstalled || microphoneInstalled != state.microphone)) {
+            if (state.microphone && state.appStopped && !microphoneInstalled) {
+                resolveMicrophone(false)
+                return
+            }
+            if (installForeground(state).isFailure) {
+                resolveMicrophone(false)
+                end("typeFailed")
+                return
+            }
+        }
+        if (state.microphone) resolveMicrophone(microphoneInstalled)
         worker.post { applyOnThread(state) }
     }
 
+    private fun installForeground(state: VoiceServiceState): Result<Unit> = runCatching {
+        val card = session
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
+                if (state.microphone && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                } else {
+                    0
+                }
+        } else {
+            0
+        }
+        ServiceCompat.startForeground(
+            this, NOTIFICATION_ID,
+            if (cardPublished && card != null) mediaNotification(state, card) else baseNotification(state).build(),
+            type,
+        )
+        foregroundInstalled = true
+        microphoneInstalled = state.microphone
+        journal.record("fgs type microphone=${state.microphone}")
+    }
+
     private fun applyOnThread(state: VoiceServiceState) {
-        if (ended || state == shown) return
+        if (ended || state != latest || state == shown) return
         shown = state
         if (!state.active) {
             end("retentionEnded")
             return
         }
+        acquireWakeLock()
         worker.removeCallbacks(publishCard)
         when {
             cardPublished -> publishCard(state)
             // A quick peek at the lock screen never registers a card.
             state.appStopped -> worker.postDelayed(publishCard, CARD_DEFER_MILLIS)
-            else -> notify(baseNotification().build())
+            else -> notify(baseNotification(state).build())
         }
     }
 
     private fun end(reason: String) {
         if (ended) return
         ended = true
+        worker.removeCallbacks(renewWakeLease)
+        worker.post { if (ended) releaseWakeLock() }
         journal.record("fgs end reason=$reason")
         main.post {
             // A new reply may have restarted this instance since.
@@ -226,12 +274,14 @@ class HomeVoiceService : Service() {
         getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun baseNotification(): Notification.Builder =
+    private fun baseNotification(state: VoiceServiceState): Notification.Builder =
         Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_hermes)
             // Content-free: never the prompt, the reply or a conversation title.
             .setContentTitle(getString(R.string.android_voice_card_title))
-            .setContentText(getString(R.string.android_voice_playback_controls))
+            .setContentText(getString(
+                if (state.listening) R.string.android_voice_listening else R.string.android_voice_playback_controls,
+            ))
             .setContentIntent(
                 PendingIntent.getActivity(
                     this,
@@ -256,15 +306,15 @@ class HomeVoiceService : Service() {
         } else {
             action(ACTION_PAUSE, android.R.drawable.ic_media_pause, R.string.android_voice_action_pause)
         }
-        return baseNotification()
-            .addAction(toggle)
+        return baseNotification(state)
+            .also { if (!state.listening) it.addAction(toggle) }
             .addAction(
                 action(ACTION_STOP, android.R.drawable.ic_menu_close_clear_cancel, R.string.android_voice_action_stop),
             )
             .setStyle(
                 Notification.MediaStyle()
                     .setMediaSession(session.sessionToken)
-                    .setShowActionsInCompactView(0, 1),
+                    .setShowActionsInCompactView(*if (state.listening) intArrayOf(0) else intArrayOf(0, 1)),
             )
             .build()
     }
@@ -284,16 +334,26 @@ class HomeVoiceService : Service() {
     private fun runtime(): HomeRuntime? =
         (application as? HermesRelayApplication)?.homeRuntimeBox?.current()
 
+    /** Worker-only: renew before expiry, without imposing a maximum conversation length. */
     private fun acquireWakeLock() {
-        val manager = getSystemService(PowerManager::class.java) ?: return
-        wakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
-            setReferenceCounted(false)
-            acquire(WAKE_LOCK_TIMEOUT_MILLIS)
+        if (ended || !latest.active) return
+        val existing = wakeLock
+        val held = existing ?: run {
+            val manager = getSystemService(PowerManager::class.java) ?: return
+            manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).also {
+                it.setReferenceCounted(false)
+                wakeLock = it
+            }
         }
-        journal.record("wakelock acquired")
+        // Reacquiring a non-reference-counted lock replaces its bounded platform timeout.
+        held.acquire(wakeLeaseMillis)
+        worker.removeCallbacks(renewWakeLease)
+        worker.postDelayed(renewWakeLease, wakeLeaseMillis / 2)
+        journal.record(if (existing == null) "wakelock acquired" else "wakelock renewed")
     }
 
     private fun releaseWakeLock() {
+        worker.removeCallbacks(renewWakeLease)
         val held = wakeLock ?: return
         wakeLock = null
         if (held.isHeld) held.release()
@@ -312,8 +372,13 @@ class HomeVoiceService : Service() {
         /** The full card waits this long after a stop, so a quick look away registers nothing. */
         private const val CARD_DEFER_MILLIS = 750L
 
-        /** A backstop: the runtime releases it as soon as the reply ends. */
-        private const val WAKE_LOCK_TIMEOUT_MILLIS = 10 * 60 * 1000L
+        /** Bounded safety lease, not a session cap. Tests may shorten it before service creation. */
+        @Volatile
+        internal var wakeLockLeaseMillis = 10 * 60 * 1000L
+            set(value) {
+                require(value >= 2)
+                field = value
+            }
 
         /** The newest state the runtime asked for; read by a service that is still starting. */
         @Volatile
@@ -321,6 +386,25 @@ class HomeVoiceService : Service() {
 
         @Volatile
         internal var instance: HomeVoiceService? = null
+
+        private val microphoneWaiters = mutableListOf<(Boolean) -> Unit>()
+
+        internal fun awaitMicrophone(onReady: (Boolean) -> Unit) {
+            val running = instance
+            if (!latest.active || !latest.microphone) {
+                onReady(false)
+            } else if (running?.microphoneInstalled == true && !running.isEnding) {
+                onReady(true)
+            } else {
+                microphoneWaiters += onReady
+            }
+        }
+
+        private fun resolveMicrophone(ready: Boolean) {
+            val waiters = microphoneWaiters.toList()
+            microphoneWaiters.clear()
+            waiters.forEach { it(ready) }
+        }
     }
 }
 
@@ -329,6 +413,8 @@ internal class ServiceForegroundController(
     private val context: Context,
     private val journal: DiagnosticsJournal,
 ) : ForegroundServiceController {
+    override fun awaitMicrophone(onReady: (Boolean) -> Unit) = HomeVoiceService.awaitMicrophone(onReady)
+
     override fun sync(state: VoiceServiceState) {
         HomeVoiceService.latest = state
         HomeVoiceService.instance?.takeUnless { it.isEnding }?.let { running ->
@@ -340,6 +426,7 @@ internal class ServiceForegroundController(
             ContextCompat.startForegroundService(context, Intent(context, HomeVoiceService::class.java))
         }.onFailure { error ->
             journal.record("fgs start failed class=${error.javaClass.simpleName}")
+            HomeVoiceService.latest = state.copy(active = false, microphone = false)
         }
     }
 }

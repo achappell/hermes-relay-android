@@ -1,13 +1,15 @@
 package com.achappell.hermesrelay
 
 /** [VoiceTimers] that fire only when the test advances time. Single-threaded. */
-internal class ManualVoiceTimers : VoiceTimers {
+internal class ManualVoiceTimers : VoiceTimers, MonotonicClock {
     private class Entry(val dueAt: Long, val action: () -> Unit) {
         var cancelled = false
     }
 
     private val entries = mutableListOf<Entry>()
     private var now = 0L
+
+    override fun nanoTime(): Long = now * 1_000_000
 
     val pendingCount: Int get() = entries.count { !it.cancelled }
 

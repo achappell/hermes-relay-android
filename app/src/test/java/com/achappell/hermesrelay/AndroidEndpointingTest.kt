@@ -238,9 +238,10 @@ class AndroidEndpointingTest {
     }
 
     @Test
-    fun an_overdue_final_in_hands_free_closes_the_window_as_silence() {
+    fun an_overdue_final_discards_partial_speech_and_reopens_without_submitting_it() {
         val rig = Rig()
-        val controller = rig.start()
+        val port = FakePort()
+        val controller = rig.start(port)
         controller.armHandsFree()
         rig.speech.emit(AndroidSpeechEvent.Started)
         rig.speech.emit(AndroidSpeechEvent.Partial("check the weather"))
@@ -248,9 +249,12 @@ class AndroidEndpointingTest {
 
         rig.timers.advanceBy(2_000)
 
-        assertFalse(controller.isHandsFree)
-        assertEquals(AndroidHandsFreeExit.Silence, controller.lastHandsFreeExit)
-        assertNull(controller.lastHandsFreeExit?.takeIf { it == AndroidHandsFreeExit.Failure })
+        assertTrue(controller.isHandsFree)
+        assertEquals(AndroidCaptureState.Idle, controller.state)
+        assertEquals(0, port.requests.size)
+        rig.timers.advanceBy(250)
+        assertTrue(controller.isCapturing)
+        assertEquals(0, port.requests.size)
     }
 
     private inner class FakePort : AndroidClientPort {

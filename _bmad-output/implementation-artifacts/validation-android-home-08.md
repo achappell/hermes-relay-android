@@ -4,12 +4,12 @@ spec: spec-android-home-08-background-voice.md
 build_spec: spec-android-home-08-background-voice-2.md
 status: partial
 story_status: in-progress
-updated: 2026-10-13
+updated: 2026-10-14
 ---
 
 # ANDROID-HOME-08 validation record
 
-**Local status:** **08a (reply retention) is implemented and tested on the host and is in review as a draft pull request** stacked on `ANDROID-HOME-06` (base `feat/android-home-06-backgrounded-transport`). **08b (hands-free voice session: `microphone` service type, 60 s idle, interruption mic-end, own-voice tail, the conversation-switch fix) is not started**, so the story stays `in-progress`. No device was attached during this work: every device check below is pending. Approval: director review of the build spec in place of the owner checkpoint (owner authorized); the owner corrects afterward.
+**Current local status (2026-10-14):** 08a and 08b software are implemented; 08b passed reviewed JVM/build/lint and isolated real-service emulator gates. The story remains `in-progress` because physical microphone/recognizer-under-lock and speaker-echo gates remain open. Verification caused a destructive managed-runner incident: profiles and authenticated access were recovered, but newer history was not exactly restored (see incident section). The 08a evidence below is historical and keeps its original environment scope.
 
 ## Gates (08a)
 
@@ -88,3 +88,181 @@ used by both connection modes; actual live playback below used Standard.
 - **Completion:** `standard audio result=drained` at 21:06:19.758Z; background retention ended, transport closed with uncertain=false, foreground service stopped and wake lock released. Foreground return showed Ready/Verified. Final wake-lock count zero, no Hermes media session, original draft/settings restored. Only test APK and owned captures removed.
 - **Limits:** output was already port-muted and remained so; this is AudioTrack control/drain evidence, not an audible-playback claim. No Pixel, unattended microphone, app reset or server change. Physical checklist and 08b remain open; story stays in-progress.
 - **Review:** independent production review found no supported defect; coverage review found a removed playing-driver Pause assertion, restored with a stable worker barrier and repeated-Pause check before final full/repetition gates. No new deferred code finding.
+
+## 2026-10-14 — HOME-08b software and emulator-only scope
+
+Baseline: `13962b88845961491369026b23193adbda9b53b1` (merged PR #161).
+Isolated branch: `feat/home-08b-background-voice`. No owner checkout changes,
+push or pull request are part of this work.
+
+Implementation covers foreground-armed `VoiceSession` retention, microphone
+foreground-service acknowledgement before capture, background-only admission
+refusal, monotonic 60-second idle/paused shutdown, and reply/drain-derived wake
+suppression for both results and recognizer speech activity. Recognizer silence
+reopens without extending idle; genuine activity and a completed reply restart
+the window. Disarm downgrades the service when a reply remains.
+
+`RetentionTimings.outputTailMillis = 1500` is a **provisional injectable software
+default**, not an acoustic measurement or a hardware-accepted value. Physical
+speaker/microphone and locked-screen recognizer acceptance remain open.
+
+The owned temporary `Home08bOwnedSmokeTest` fixture exercises production
+`HomeRuntime`, real Android `HomeVoiceService` microphone type and Activity
+stop/return, with explicitly simulated speech and Home transport. It does not
+write saved profile, credential or history records. Its evidence cannot establish
+real recognizer capture, acoustic echo rejection or live-server claim behavior.
+No assumption about emulator audio flags is made. The first Gradle-managed
+attempt caused the separate destructive runner incident documented below;
+subsequent smoke uses only direct instrumentation on an isolated AVD clone.
+
+Baseline API status: voice-service admission, `VoiceSession`, speech-activity and
+injected deadline APIs did not exist on the baseline (`compile-red`). Independent
+verification subsequently proved isolated red regressions for both review fixes:
+removing only the idle-expiry predicate guard fails the queued-speech regression;
+removing only the activity resets from close/disarm fails both exact-stop and
+recognizer-failure re-arm regressions. The patched targeted suite passed **30
+consecutive runs of 111 tests** before the later smoke-discovered lifecycle race.
+Final fixture-free full-build and refreshed 120-test repetition evidence follow.
+
+### Review regression: speech activity versus an already-due idle callback
+
+Independent inspection found that checking only the timer generation/deadline
+could expire idle listening after the controller had already received speech,
+but before its posted runtime refresh ran. The expiry path now rechecks the
+controller's current activity/armed state, current retention and active client
+turn. The regression holds the runtime callback queue, delivers speech activity,
+then advances the monotonic clock to the idle deadline before releasing that
+queue. The verifier observed its isolated failure with the guard removed and the
+patched repetition gate passing. A second review finding cleared sticky speech
+activity on every capture terminal/disarm path; its two re-arm regressions likewise
+failed with only those resets removed.
+
+
+### Verification incident and bounded recovery — not a complete data restoration
+
+The verification agent ran the single-class Gradle command
+`./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.achappell.hermesrelay.Home08bOwnedSmokeTest --no-daemon`
+on the configured original emulator. After the fixture failed a dumpsys parser
+assertion, the Gradle-managed runner cleanup removed the target package **and
+its app data**. `pm path`, `run-as`, `pm list packages -u` and both app-data paths
+were absent. This violated the task's preservation requirement. An APK and
+file hashes had been saved, but no raw app-data backup had been captured first.
+
+Recovery preserved the paused complete AVD in a private incident-recovery
+directory before loading `default_boot`; its absolute machine-local location is
+in the delivery handoff, not this portable record. Both userdata and
+encryption-key qcow2 images contained the matching snapshot dated
+2026-10-12 22:38:35 (host-local snapshot listing). The original `default_boot`
+was not overwritten. Named `home08b_postincident_20261014` and
+`home08b_restored_20261014` checkpoints and a second complete
+`restored-good.avd` copy are retained; do not delete these incident-recovery copies
+as routine test cleanup. A private raw restored-app tar was also captured before
+opening the app.
+
+Observed recovery:
+
+- The original app package and `run-as` returned.
+- `files/relay-profiles.json` exactly matches the preincident SHA-256:
+  `ff4142f575ed175206a796810821cc08945451e834745b0e4e61f3132d0df66d`.
+- Original Standard credentials/Keystore are usable: the restored app showed
+  **Ready**, and the content-free journal recorded
+  `2026-10-14T15:58:54.740Z standard session method=session.resume result=connected uncertain=false`.
+- History is **not** an exact restoration. The preincident SHA-256 for
+  `files/history-standard_aa76f566c7f66631b5231df8e28601d0216504393bc7479e775faee.json`
+  was `f2e9305c9673cb1e0ede328a8491078e66c453a7d2a496f268e64036f8df31c1`;
+  the restored older file hashes to
+  `3195995167067a420777795b2997f0c9371b48e4ef7ef040c91828d7d44a8c6d`.
+  It contains 19 entries dated 2026-10-13 01:28:50.176 through
+  03:16:03.930 UTC and an empty draft. The exact newer preincident history and
+  number/content of missing or changed entries are unknown: only its hash was
+  saved. No record or timestamp was fabricated to make this appear restored.
+
+Targeted searches for owned `/tmp` recovery artifacts found no newer raw history
+backup. A read-only scan of the preserved postincident qcow2 copy found neither
+the known history filename nor the restored plaintext prefix. The forensic copy
+is retained for possible future recovery; these bounded checks do not prove
+forensic recovery impossible.
+
+The original `emulator-5554` was left in this authenticated, partially restored
+state. Further smoke is isolated to owned API 36 `home08b-smoke`,
+`emulator-5556`, cold-booted from a private copy with snapshot loading/saving
+disabled. `AGENTS.md` now prohibits Gradle `connected*` on configured devices
+even with a class filter, and requires private raw data/permission backups and
+a whole-AVD/Keystore recovery path before testing configured state.
+
+### Additional race found by the isolated OS smoke
+
+The first isolated direct-instrumentation attempt correctly disarmed after the
+fixture emitted a completed turn without any audio-delivery events; the reducer
+reports that as unavailable audio, so the fixture was corrected to supply a
+controlled successful audio-terminal sequence. This does not claim real playback.
+
+The next run reached the real 60-second idle deadline. Its journal at
+11:09:41.757 and 11:09:41.759 showed **two** lifecycle deactivations: queued
+capture notifications briefly re-read the stale UI hands-free mirror and
+resurrected `VoiceSession`. Before changing production, the new deterministic
+`queued_capture_callbacks_cannot_resurrect_retention_after_idle_teardown` test
+failed with `expected:<1> but was:<2>`. Retention, microphone service state and
+focus ownership now use the capture controller's arming state directly. The
+focused voice-retention suite and app/test APK builds then passed.
+
+The smoke's initial cleanup parser also matched historical ACQ/REL entries in
+`dumpsys power` even though its **active** wake-lock section had size zero. The
+corrected temporary fixture checks only that active section, checks notification
+7401 absence, and checks exactly one runtime journal park as well as one
+controlled-transport close. Both the original journal and deterministic red
+evidence are retained privately under the incident-recovery directory.
+
+### Successful isolated runtime smoke — direct ADB only
+
+After the source-of-truth fix and fixture-parser correction, direct
+`adb -s emulator-5556 shell am instrument -w -e class com.achappell.hermesrelay.Home08bOwnedSmokeTest com.achappell.hermesrelay.test/androidx.test.runner.AndroidJUnitRunner`
+passed **1 test in 109.302 seconds** on API 36. The owned temporary source was
+then removed from the repository and retained privately with the evidence.
+
+Observed OS/runtime evidence, not a hardware or live-server claim:
+
+- Actual `mediaPlayback|microphone` foreground service was installed before
+  controlled speech capture started. Activity `ON_STOP` retained `VoiceSession`.
+- A two-second injected wake-lock lease remained **actually held after 2536 ms**;
+  the service worker emitted 64 renewal events across this run.
+- One controlled background speech follow-up submitted once. Controlled reply
+  audio-terminal events allowed capture to reopen after the suppression tail.
+- Default monotonic idle shutdown was observed after **60244 ms**. Both the
+  controlled transport and actual runtime journal recorded **exactly one** park.
+- Journal order: microphone FGS at 11:14:01.307, background voice retention at
+  11:14:01.869, idle expiry at 11:15:04.409, lifecycle park at 11:15:04.410,
+  wake-lock release at 11:15:04.414 and service stop at 11:15:04.442.
+- Android reported no remaining app service, notification 7401 was absent, and
+  the active OS wake-lock count was zero. Historical ACQ/REL entries are not held
+  locks. Background arm/tap/Play attempts did not restart capture.
+- Unlike the managed-runner incident, direct instrumentation left the clone
+  package installed. Its profile and restored-history hashes were unchanged,
+  and `RECORD_AUDIO`/`POST_NOTIFICATIONS` remained granted as before the smoke.
+
+The original owner emulator was not used for these attempts. Controlled speech
+and controlled Home/audio events do not prove real recognizer-under-lock,
+physical microphone/speaker echo, audible playback, or server-side claim release.
+
+### Final fixture-free verification
+
+| Gate | Observed result |
+| --- | --- |
+| Full JVM, debug app/test APKs and lint | `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug --no-daemon` passed; **623 tests across 47 suites**, zero failures/errors/skips. |
+| Refreshed lifecycle/voice repetition gate | **30 consecutive runs of 120 tests**, zero failures, including the new queued-callback exactly-once regression. Classes: `HomeRuntimeVoiceRetentionTest`, `HomeRuntimeRetentionTest`, `HomeRuntimeInterruptTest`, `HomeRuntimeBackgroundTransportTest`, `AndroidCaptureControllerTest`, `AndroidHandsFreeTest`, `AndroidEndpointingTest`, `AndroidWatchF1Test`. |
+| APK metadata | Min SDK 26, version 0.3.1 (301), backup disabled with extraction rules, 16 KB alignment passed. Debug signer verified against the preserved installed APK certificate; this is not release-signing acceptance. |
+| Manifest and fixture removal | Final APK declares microphone FGS permission and service type `0x82` (`mediaPlayback|microphone`). Final test APK contains no `Home08bOwnedSmokeTest` class. |
+| Original permission restoration | Read-only inspection after recovery: `RECORD_AUDIO` and `POST_NOTIFICATIONS` both `granted=true`, both exactly `[USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]`, matching the verifier's baseline; no permission mutation needed. |
+| Owned process cleanup | Only owned `emulator-5556` was stopped after evidence capture; its emulator process exited 0. Original `emulator-5554` was not stopped. Private recovery copies remain retained. |
+
+The initial host run's five failures were not ignored: obsolete silence-disarm
+expectations were replaced with no-partial-submit/continued-listening coverage;
+unbound-capture and typed-send fixtures now cross the actual output tail before
+asserting their original consumer behavior; the background-only submit test
+retains its zero-service-start invariant across audio start and watchdog checks,
+without requiring an incidental exact diagnostic count.
+
+**Remaining acceptance:** physical microphone/recognizer continuation under
+lock, speaker echo and acoustic tail calibration, calls/routes and release-signed
+Pixel checks. **Remaining incident gap:** the exact newer preincident history
+bytes are unavailable; profile/auth restoration is not full data restoration.

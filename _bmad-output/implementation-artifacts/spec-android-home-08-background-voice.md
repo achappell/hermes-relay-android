@@ -2,6 +2,7 @@
 id: ANDROID-HOME-08
 title: Keep Home reply and voice conversations running in the background
 status: in-progress
+baseline_commit: 13962b88845961491369026b23193adbda9b53b1
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -160,3 +161,41 @@ iOS hands-free self-echo (Amanda-reported, code-consistent, not device-verified 
 ## References
 
 iOS: `spec-ios-home-07-background-voice.md`, `validation-ios-home-07.md`, PR #122 (`e7859db`).
+
+## HOME-08b software implementation — 2026-10-14
+
+The owner authorized emulator-only implementation/verification of D1/D2. Physical
+microphone, recognizer behavior under lock, speaker echo, calls/routes and Pixel
+release-signed acceptance remain open; software delivery does not close them.
+
+- `HomeRuntime` retains `VoiceSession` while foreground-armed hands-free or a
+  foreground-started capture is active. The service keeps its microphone type
+  through suppressed output so continuation never needs a background upgrade.
+- `AndroidCaptureController` refuses background arming/tapped capture, waits for
+  the platform microphone-service acknowledgement before calling `speech.start`,
+  and retires recognizer generations when output suppresses wake. Recognizer
+  results and beginning-of-speech activity use the same gate on every route.
+- Runtime monotonic deadlines expire idle listening after 60 seconds; opening a
+  recognizer or its no-speech result does not reset that window. Genuine speech
+  cancels idle accounting; a completed reply starts a fresh window. A held reply
+  also expires after 60 seconds, including a foreground hold.
+- Output suppression is derived from accepted/pending reply state through audio
+  drain, not from the moment hands-free was armed. `RetentionTimings.outputTailMillis`
+  is injectable and defaults to **1500 ms provisionally**. This is not a measured,
+  calibrated or hardware-accepted value. The physical device gate chooses the
+  accepted acoustic tail.
+- Notification Stop, task removal, interruption, identity/conversation change,
+  transport loss and idle expiry retire capture; no callback or media Play
+  command re-arms it. Microphone service type downgrades when only output remains.
+- Deterministic coverage is in `HomeRuntimeVoiceRetentionTest`, alongside the
+  existing capture, retention and interruption suites. Evidence and limitations
+  are recorded in [the validation record](validation-android-home-08.md).
+
+## HOME-08b Review Triage Log
+
+| Finding | Verdict | Resolution |
+| --- | --- | --- |
+| An already-due idle callback can beat the queued runtime refresh after recognizer speech activity. | high | Expiry now rechecks controller activity/arming and current retention/active-turn state. `speech_activity_wins_when_the_idle_callback_precedes_its_queued_runtime_refresh` holds the main callback queue while delivering speech before the deadline; verification evidence is tracked separately. |
+| Exact-stop and other already-closed capture paths could leave speech activity set, preventing idle expiry after re-arm. | high | `closeCapture` now clears activity on every terminal path, and disarm explicitly retires it. Exact-stop and recognizer-failure regressions re-arm and cross the full 60-second idle deadline, asserting no submit and one teardown. |
+| The original ten-minute wake-lock timeout silently ended CPU retention during a longer, legitimately active hands-free session. | high | The private service worker renews a bounded lease halfway through its timeout, cancels renewals on end and serializes final release with destruction. The temporary OS smoke shortens the lease to two seconds to observe retention beyond the first timeout and release after idle. |
+| Real service smoke observed two lifecycle parks after idle: a queued capture notification re-read the stale UI hands-free flag and briefly resurrected retention. | high | Retention, microphone service state and focus ownership now read `captureController.isHandsFree` directly. The queued-main regression failed before the fix with one expected park versus two observed; final direct-ADB smoke also checks the runtime journal's park count, not only the controlled transport count. |

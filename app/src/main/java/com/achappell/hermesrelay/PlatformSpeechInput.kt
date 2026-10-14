@@ -92,17 +92,19 @@ internal class PlatformSpeechInput(
 
         created.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
+                if (recognizer !== created || finished) return
                 listener?.invoke(AndroidSpeechEvent.Started)
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
+                if (recognizer !== created || finished) return
                 transcript(partialResults)?.let { text ->
                     listener?.invoke(AndroidSpeechEvent.Partial(text))
                 }
             }
 
             override fun onResults(results: Bundle?) {
-                if (finished) return
+                if (recognizer !== created || finished) return
                 finished = true
                 val text = transcript(results)
                 if (text.isNullOrBlank()) {
@@ -114,13 +116,15 @@ internal class PlatformSpeechInput(
             }
 
             override fun onError(error: Int) {
-                if (finished) return
+                if (recognizer !== created || finished) return
                 finished = true
                 listener?.invoke(AndroidSpeechEvent.Failed(speechFailureFor(error)))
                 release()
             }
 
-            override fun onBeginningOfSpeech() = Unit
+            override fun onBeginningOfSpeech() {
+                if (recognizer === created && !finished) listener?.invoke(AndroidSpeechEvent.SpeechActivity)
+            }
             override fun onEndOfSpeech() = Unit
             override fun onRmsChanged(rmsdB: Float) = Unit
             override fun onBufferReceived(buffer: ByteArray?) = Unit

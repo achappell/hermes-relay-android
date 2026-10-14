@@ -145,7 +145,7 @@ class HomeRuntimeRetentionTest {
         workExecutor = work,
         journal = journal,
         recoveryPacer = pacer,
-        clock = clock,
+        clock = timers,
         foregroundService = service,
         audioFocus = focus,
         retentionTimers = timers,
@@ -286,8 +286,11 @@ class HomeRuntimeRetentionTest {
         runtime.initiate(AndroidTurnInput.Typed("hello"))
         work.drain()
 
-        assertTrue(service.states.isEmpty())
-        assertEquals(1, journal.count("fgs start skipped reason=background"))
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        timers.advanceBy(2_000)
+        work.drain()
+        assertTrue("neither submit, audio start nor retention rechecks may start a background-only FGS", service.states.isEmpty())
+        assertTrue(journal.count("fgs start skipped reason=background") > 0)
     }
 
     @Test
@@ -427,7 +430,7 @@ class HomeRuntimeRetentionTest {
     }
 
     @Test
-    fun a_pause_in_the_foreground_is_never_timed_out() {
+    fun a_foreground_pause_also_obeys_the_D2_idle_limit_without_closing_the_foreground_transport() {
         val (home, runtime) = replying()
         runtime.pauseFromControl()
         work.drain()
@@ -435,9 +438,9 @@ class HomeRuntimeRetentionTest {
         timers.advanceBy(120_000)
         work.drain()
 
-        assertEquals(0, home.interrupts)
+        assertEquals(1, home.interrupts)
         assertEquals(0, home.lifecycleCloses)
-        assertTrue(runtime.outputPaused)
+        assertFalse(runtime.outputPaused)
     }
 
     @Test
