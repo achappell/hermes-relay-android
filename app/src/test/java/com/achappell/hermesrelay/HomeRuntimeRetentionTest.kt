@@ -21,6 +21,29 @@ class HomeRuntimeRetentionTest {
     private val timers = ManualVoiceTimers()
     private val service = RecordingService()
     private val focus = FakeFocus()
+    private val routes = FakeRoutes()
+    private var deferMain = false
+    private val mainQueue = ArrayDeque<Runnable>()
+
+    private class FakeRoutes : AudioRouteEvents {
+        var selection = listOf(OutputRoute(7, true))
+        var listener: ((AudioRouteChange) -> Unit)? = null
+        val oldListeners = mutableListOf<(AudioRouteChange) -> Unit>()
+        var stops = 0
+        override fun selectedRoutes() = selection
+        override fun observe(listener: (AudioRouteChange) -> Unit) {
+            this.listener = listener
+            oldListeners += listener
+        }
+        override fun stop() { stops++; listener = null }
+        fun emit(event: AudioRouteEvent, selected: List<OutputRoute> = selection) {
+            val removed = if (event == AudioRouteEvent.DeviceRemoved) {
+                selection.filter { old -> selected.none { it.id == old.id } }.mapTo(mutableSetOf()) { it.id }
+            } else emptySet()
+            selection = selected
+            listener?.invoke(AudioRouteChange(event, selected, removed))
+        }
+    }
 
     private class RecordingService : ForegroundServiceController {
         val states = mutableListOf<VoiceServiceState>()
@@ -53,13 +76,15 @@ class HomeRuntimeRetentionTest {
         }
     }
 
-    private class Home(private val binding: AndroidTurnBinding) : AndroidClientPort {
+    private class Home(private val binding: AndroidTurnBinding, private val sink: AndroidAudioSink? = null) : AndroidClientPort {
         var reconnects = 0
         var lifecycleCloses = 0
         var gracefulCloses = 0
         var interrupts = 0
         var pauses = 0
         var resumes = 0
+        val duckChanges = mutableListOf<Boolean>()
+        override fun setOutputDucked(ducked: Boolean) { duckChanges += ducked; sink?.setDucked(ducked) }
         var live = true
         var activeTurn = false
         private var turnListener: ((AndroidNormalizedEvent) -> Unit)? = null
@@ -120,10 +145,12 @@ class HomeRuntimeRetentionTest {
 
         override fun pauseOutput() {
             pauses += 1
+            sink?.pause()
         }
 
         override fun resumeOutput() {
             resumes += 1
+            sink?.resume()
         }
 
         fun emit(event: AndroidNormalizedEvent) {
@@ -137,23 +164,24 @@ class HomeRuntimeRetentionTest {
         }
     }
 
-    private fun runtime(home: Home): HomeRuntime = HomeRuntime(
+    private fun runtime(home: Home, routeEvents: AudioRouteEvents = routes): HomeRuntime = HomeRuntime(
         clientPort = home,
         speechInput = null,
         historyStore = InMemoryAndroidHistoryStore(),
-        postToMain = { it.run() },
+        postToMain = { if (deferMain) mainQueue.addLast(it) else it.run() },
         workExecutor = work,
         journal = journal,
         recoveryPacer = pacer,
         clock = timers,
         foregroundService = service,
         audioFocus = focus,
+        audioRoutes = routeEvents,
         retentionTimers = timers,
     )
 
     /** A connected app with a reply submitted and accepted, in front. */
-    private fun replying(home: Home = Home(binding)): Pair<Home, HomeRuntime> {
-        val runtime = runtime(home)
+    private fun replying(home: Home = Home(binding), routeEvents: AudioRouteEvents = routes): Pair<Home, HomeRuntime> {
+        val runtime = runtime(home, routeEvents)
         runtime.appStarted()
         runtime.appForegrounded()
         runtime.recover()
@@ -169,6 +197,245 @@ class HomeRuntimeRetentionTest {
         home.emit(AndroidNormalizedEvent.AudioEnded(binding))
         home.activeTurn = false
         home.emit(AndroidNormalizedEvent.TurnCompleted(binding, "done"))
+    }
+
+    @Test
+    fun route_hold_precedes_real_sink_start_even_when_audio_started_main_delivery_is_delayed() {
+        val waiting = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val played = java.util.concurrent.CountDownLatch(1)
+        val plays = java.util.concurrent.atomic.AtomicInteger()
+        val driver = object : AudioTrackDriver {
+            override fun state() = android.media.AudioTrack.STATE_INITIALIZED
+            override fun play() { plays.incrementAndGet(); played.countDown() }
+            override fun write(buffer: ByteArray, offset: Int, size: Int) = size
+            override fun playbackHeadFrames() = 0L
+            override fun underrunCount() = 0
+            override fun stop() = Unit
+            override fun release() = Unit
+        }
+        val sink = AudioTrackAudioSink(
+            driverFactory = AudioTrackDriverFactory { _, _ -> driver },
+            minBufferSizeProvider = { 4 },
+            sleeper = Sleeper {
+                waiting.countDown()
+                check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            },
+        )
+        try {
+            val (home, runtime) = replying(Home(binding, sink))
+            routes.emit(AudioRouteEvent.BecomingNoisy, listOf(OutputRoute(1, false)))
+            sink.prepareTurn()
+            assertTrue(sink.start(AndroidAudioFormat(16_000, 1, 2, "pcm_s16le")))
+            deferMain = true
+            home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+            sink.write(ByteArray(32_000))
+            assertTrue(waiting.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(0, plays.get())
+            while (mainQueue.isNotEmpty()) mainQueue.removeFirst().run()
+            assertEquals(0, plays.get())
+            runtime.playFromControl()
+            release.countDown()
+            assertTrue(played.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(1, plays.get())
+        } finally {
+            release.countDown()
+            sink.close()
+        }
+    }
+
+    @Test
+    fun unknown_noisy_then_old_personal_route_is_not_released_by_unrelated_removal() {
+        var selected = emptyList<OutputRoute>()
+        val evidence = AudioRouteEvidence(object : AudioRouteQueries {
+            override fun trackRoutes() = selected
+            override fun mediaRoutes() = emptyList<OutputRoute>()
+        })
+        val (home, runtime) = replying(routeEvents = evidence)
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        val registration = evidence.registration()
+        registration.noisy()
+        selected = listOf(OutputRoute(1, true))
+        registration.changed()
+        registration.removed(setOf(99))
+        assertTrue(runtime.outputPaused)
+        assertEquals(0, home.resumes)
+        registration.removed(setOf(1))
+        selected = listOf(OutputRoute(2, true))
+        registration.changed()
+        assertFalse(runtime.outputPaused)
+        assertEquals(1, home.resumes)
+    }
+
+    @Test
+    fun captured_removal_survives_reconnection_before_the_main_queue_runs() {
+        val selected = listOf(OutputRoute(7, true))
+        val evidence = AudioRouteEvidence(object : AudioRouteQueries {
+            override fun trackRoutes() = selected
+            override fun mediaRoutes() = emptyList<OutputRoute>()
+        })
+        val (home, runtime) = replying(routeEvents = evidence)
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        val registration = evidence.registration()
+        deferMain = true
+        registration.removed(setOf(7))
+        registration.added(setOf(7))
+        assertEquals(0, home.pauses)
+        while (mainQueue.isNotEmpty()) mainQueue.removeFirst().run()
+        assertEquals("the captured removal must still hold output", 1, home.pauses)
+        assertEquals(1, home.resumes)
+        assertFalse(runtime.outputPaused)
+    }
+
+    @Test
+    fun paused_route_recheck_detects_selection_of_an_already_connected_device() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        routes.emit(AudioRouteEvent.BecomingNoisy, listOf(OutputRoute(1, false)))
+        routes.selection = listOf(OutputRoute(8, true))
+        timers.advanceBy(1_000)
+        assertFalse(runtime.outputPaused)
+        assertEquals(1, home.resumes)
+    }
+
+    @Test
+    fun noisy_with_unknown_selection_cannot_resume_on_unproven_old_headphones() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        routes.emit(AudioRouteEvent.BecomingNoisy, emptyList())
+        routes.emit(AudioRouteEvent.SelectionChanged, listOf(OutputRoute(7, true)))
+        assertTrue(runtime.outputPaused)
+        assertEquals(0, home.resumes)
+    }
+
+    @Test
+    fun a_verified_personal_replacement_resumes_on_the_same_route_event() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        routes.emit(AudioRouteEvent.SelectionChanged, listOf(OutputRoute(8, true)))
+        assertFalse(runtime.outputPaused)
+        assertEquals(1, home.resumes)
+    }
+
+    @Test
+    fun noisy_forewarning_cannot_be_cleared_by_the_still_selected_old_headphones() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        routes.emit(AudioRouteEvent.BecomingNoisy)
+        routes.emit(AudioRouteEvent.SelectionChanged)
+        focus.emit(FocusChange.Gain)
+        assertTrue("old route has not departed yet", runtime.outputPaused)
+        assertEquals(0, home.resumes)
+        routes.emit(AudioRouteEvent.DeviceRemoved, emptyList())
+        routes.emit(AudioRouteEvent.SelectionChanged, listOf(OutputRoute(7, true)))
+        assertFalse(runtime.outputPaused)
+        assertEquals(1, home.resumes)
+    }
+
+    @Test
+    fun route_focus_and_user_holds_are_independent_and_foreground_only_clears_user() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        routes.emit(AudioRouteEvent.BecomingNoisy, listOf(OutputRoute(1, false)))
+        runtime.pauseFromControl()
+        focus.emit(FocusChange.LossTransient)
+        runtime.appBackgrounded(isChangingConfigurations = false)
+        runtime.appForegrounded()
+        focus.emit(FocusChange.Gain)
+        work.drain()
+        assertTrue(runtime.outputPaused)
+        assertEquals(0, home.resumes)
+        routes.emit(AudioRouteEvent.SelectionChanged, listOf(OutputRoute(8, true)))
+        work.drain()
+        assertFalse(runtime.outputPaused)
+        assertEquals(1, home.resumes)
+        assertEquals(1, journal.count("voice output paused reason=route"))
+    }
+
+    @Test
+    fun connected_but_unselected_or_unknown_devices_cannot_resume_a_route_hold() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        routes.emit(AudioRouteEvent.DeviceRemoved, listOf(OutputRoute(1, false)))
+        routes.emit(AudioRouteEvent.SelectionChanged)
+        routes.emit(AudioRouteEvent.SelectionChanged, emptyList())
+        focus.emit(FocusChange.Gain)
+        work.drain()
+        assertTrue(runtime.outputPaused)
+        assertEquals(0, home.resumes)
+        runtime.playFromControl()
+        assertFalse(runtime.outputPaused)
+        assertEquals(1, home.resumes)
+    }
+
+    @Test
+    fun selected_headphones_return_does_not_release_user_or_focus() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        routes.emit(AudioRouteEvent.BecomingNoisy, emptyList())
+        runtime.pauseFromControl()
+        focus.emit(FocusChange.LossTransient)
+        routes.emit(AudioRouteEvent.SelectionChanged, listOf(OutputRoute(8, true)))
+        runtime.playFromControl()
+        assertTrue(runtime.outputPaused)
+        assertEquals(0, home.resumes)
+        focus.emit(FocusChange.Gain)
+        assertFalse(runtime.outputPaused)
+        assertEquals(1, home.resumes)
+    }
+
+    @Test
+    fun unrelated_removal_does_not_pause_the_selected_headphones() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        routes.emit(AudioRouteEvent.DeviceRemoved)
+        assertFalse(runtime.outputPaused)
+        assertEquals(0, home.pauses)
+    }
+
+    @Test
+    fun expired_route_hold_and_stale_callbacks_cannot_revive_output() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        routes.emit(AudioRouteEvent.BecomingNoisy, emptyList())
+        val stale = routes.oldListeners.last()
+        timers.advanceBy(60_001)
+        work.drain()
+        routes.selection = listOf(OutputRoute(8, true))
+        stale(AudioRouteChange(AudioRouteEvent.SelectionChanged, routes.selection))
+        focus.emit(FocusChange.Gain)
+        runtime.playFromControl()
+        assertEquals(0, home.resumes)
+        assertFalse(service.last!!.active)
+        assertTrue(routes.stops > 0)
+    }
+
+    @Test
+    fun dead_transport_cannot_resume_even_before_disconnect_notification() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        routes.emit(AudioRouteEvent.BecomingNoisy, emptyList())
+        home.live = false
+        routes.emit(AudioRouteEvent.SelectionChanged, listOf(OutputRoute(8, true)))
+        runtime.playFromControl()
+        assertTrue(runtime.outputPaused)
+        assertEquals(0, home.resumes)
+    }
+
+    @Test
+    fun focus_duck_and_gain_restore_volume_without_releasing_route_hold() {
+        val (home, runtime) = replying()
+        home.emit(AndroidNormalizedEvent.AudioStarted(binding))
+        focus.emit(FocusChange.Duck)
+        routes.emit(AudioRouteEvent.BecomingNoisy, emptyList())
+        focus.emit(FocusChange.Gain)
+        assertEquals(listOf(true, false), home.duckChanges)
+        assertTrue(runtime.outputPaused)
+        assertEquals(0, home.resumes)
+        runtime.stopFromControl()
+        work.drain()
+        focus.emit(FocusChange.Duck)
+        assertEquals(listOf(true, false), home.duckChanges)
     }
 
     @Test

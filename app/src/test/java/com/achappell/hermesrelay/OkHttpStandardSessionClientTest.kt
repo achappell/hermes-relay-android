@@ -127,6 +127,38 @@ class OkHttpStandardSessionClientTest {
         return (result as AndroidInitiationResult.Accepted).binding
     }
 
+    @Test fun admission_preserves_preaudio_hold_and_duck_through_first_standard_pcm() {
+        enqueueSession()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                if (JSONObject(text).optBoolean("done")) {
+                    webSocket.send(JSONObject().put("type", "start").put("sample_rate", 24000).put("channels", 1).toString())
+                    webSocket.send(ByteArray(48_000).toByteString())
+                    webSocket.send(JSONObject().put("type", "end").toString())
+                }
+            }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
+        }))
+        HeldAudioAdmissionFixture().use { audio ->
+            val client = client(audio.sink)
+            assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+            nextMethod("session.create")
+            client.pauseOutput()
+            client.setOutputDucked(true)
+            val binding = submit(client)
+            val ended = CountDownLatch(1)
+            client.observeTurn(binding) { if (it is AndroidNormalizedEvent.AudioEnded) ended.countDown() }
+            event("message.delta", JSONObject().put("text", "done"))
+            event("message.complete", JSONObject().put("text", "done"))
+            audio.assertHeldBeforeFirstPlayback()
+            client.resumeOutput()
+            audio.releaseWorker()
+            assertTrue(ended.await(5, TimeUnit.SECONDS))
+            audio.assertPlayed()
+            client.close()
+        }
+    }
+
     private fun event(type: String, payload: JSONObject = JSONObject(), session: String = "runtime") {
         assertTrue(peer.get().send(JSONObject().put("jsonrpc", "2.0").put("method", "event")
             .put("params", JSONObject().put("session_id", session).put("seq", 1).put("type", type).put("payload", payload)).toString()))

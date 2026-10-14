@@ -414,7 +414,7 @@ internal class OkHttpRelaySessionClient(
                 audioBytesRemainder = 0
                 audioRemainder = ByteArray(0)
             }
-            audioSink.cancel()
+            audioSink.prepareTurn()
             interruptRequested.set(false)
             terminalObserved.set(false)
 
@@ -1180,6 +1180,8 @@ internal class OkHttpRelaySessionClient(
     override fun pauseOutput() = audioSink.pause()
 
     override fun resumeOutput() = audioSink.resume()
+
+    override fun setOutputDucked(ducked: Boolean) = audioSink.setDucked(ducked)
 
     override fun prepareForExplicitResend() {
         synchronized(turnAdmissionLock) {

@@ -35,6 +35,7 @@ internal class ModeAwareClientPort(
     override fun newConversation() = selected().newConversation()
     override fun pauseOutput() = selected().pauseOutput()
     override fun resumeOutput() = selected().resumeOutput()
+    override fun setOutputDucked(ducked: Boolean) = selected().setOutputDucked(ducked)
     override fun prepareForExplicitResend() = selected().prepareForExplicitResend()
     override fun endSession() = selected().endSession()
     override fun hasLiveTransport() = selected().hasLiveTransport()

@@ -283,6 +283,9 @@ internal interface AndroidClientPort {
     /** Continues output held by [pauseOutput]. */
     fun resumeOutput() = Unit
 
+    /** Changes only the current output track's gain; never reconfigures the stream. */
+    fun setOutputDucked(ducked: Boolean) = Unit
+
     /** Clears a client-side uncertain-delivery guard after an explicit user action. */
     fun prepareForExplicitResend() = Unit
 

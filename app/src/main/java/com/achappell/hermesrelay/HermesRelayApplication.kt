@@ -69,10 +69,11 @@ class HermesRelayApplication : Application() {
         // unconfigured relay without needing a separate bootstrap adapter.
         // The API-level policy is read once, here at the runtime root, and injected.
         val platform = AndroidPlatform.current(this)
+        val audioRoutes = PlatformAudioRouteEvents(this)
         val homePort = OkHttpRelaySessionClient(
             collection = { services.configuration.collection },
             credentials = services.credentials,
-            audioSink = AudioTrackAudioSink(driverFactory = platformAudioTrackDriverFactory(platform)),
+            audioSink = AudioTrackAudioSink(driverFactory = platformAudioTrackDriverFactory(platform, audioRoutes)),
             clientClaims = HomeClientClaimProvider(
                 services.pairings,
                 services.credentials,
@@ -87,7 +88,7 @@ class HermesRelayApplication : Application() {
                 collection = { services.configuration.collection },
                 credentials = services.credentials,
                 restartStore = services.standardRestartStore,
-                audioSink = AudioTrackAudioSink(driverFactory = platformAudioTrackDriverFactory(platform)),
+                audioSink = AudioTrackAudioSink(driverFactory = platformAudioTrackDriverFactory(platform, audioRoutes)),
                 journal = journal,
             ),
         )
@@ -105,6 +106,7 @@ class HermesRelayApplication : Application() {
             networkEvents = ConnectivityNetworkEvents(this, journal),
             foregroundService = ServiceForegroundController(this, journal),
             audioFocus = PlatformAudioFocusController(this),
+            audioRoutes = audioRoutes,
             retentionTimers = MainLooperVoiceTimers,
         )
     }

@@ -464,6 +464,7 @@ stories:
     parity_epic: ANDROID-PARITY-01
     parity_stream: S2
     spec: _bmad-output/implementation-artifacts/spec-android-home-09-reply-audio-output-resilience.md
+    scope_note: '2026-10-14: approved requirements 3–4 route/focus safety slice software-verified and independently reviewed; 655 JVM tests, 30×164 repetition tests and 2 actual Android smoke tests passed. Independent Route/User/Focus holds and same-track duck/restore; automatic return requires verified selected personal output, never connected-device inventory. API 26–32 paused-track unknown-route automatic return requires explicit Play and remains open, as does physical headset/Bluetooth/acoustic acceptance. Dead-track recreation, cushion cap and lead telemetry remain separate unfinished scope; parent story stays in progress.'
     depends_on:
       - android:ANDROID-HOME-05
       - android:ANDROID-HOME-08

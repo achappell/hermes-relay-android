@@ -17,12 +17,8 @@ internal enum class RetentionEnd(val journal: String, val trigger: String) {
     FocusLost("interruption", "backgroundWorkEnded"),
 }
 
-/**
- * Who is holding the reply's output. Resume needs the set empty, so a focus
- * gain never resumes a reply the user paused. Route loss joins in
- * `ANDROID-HOME-09`.
- */
-internal enum class PauseReason { User, Focus }
+/** Independent output holds: only an empty set permits a safe resume. */
+internal enum class PauseReason { User, Focus, Route }
 
 /** Timings of retained work; injectable so tests cross them by moving a manual timer. */
 internal data class RetentionTimings(

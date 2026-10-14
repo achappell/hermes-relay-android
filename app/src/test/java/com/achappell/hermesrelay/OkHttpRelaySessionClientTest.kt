@@ -2661,18 +2661,47 @@ class OkHttpRelaySessionClientTest {
         paired.client.close()
     }
 
-    /** `ANDROID-HOME-08`: the port's Pause and Play reach the sink. */
     @Test
-    fun pausing_and_resuming_the_output_reach_the_audio_sink() {
-        val sink = RecordingAudioSink()
-        val client = client(audioSink = sink)
-
-        client.pauseOutput()
-        client.resumeOutput()
-
-        assertEquals(1, sink.pauseCalls)
-        assertEquals(1, sink.resumeCalls)
-        client.close()
+    fun admission_preserves_preaudio_hold_and_duck_through_first_home_pcm() {
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val request = JSONObject(text)
+                when (request.optString("method")) {
+                    "conversation.open" -> webSocket.send(readyResponse(request.getString("id"), audio = true))
+                    "prompt.submit" -> {
+                        val turnId = "held-admission"
+                        webSocket.send(rpcResult(request.getString("id"), JSONObject()
+                            .put("schema", 1).put("conversation_handle", CONVERSATION_HANDLE)
+                            .put("turn_id", turnId).put("status", "submitted")))
+                        webSocket.send(audioStartFrame(turnId))
+                        webSocket.send(ByteString.of(*ByteArray(48_000)))
+                        webSocket.send(audioEndFrame(turnId))
+                        webSocket.send(eventFrame(turnId, "message.complete",
+                            JSONObject().put("rendered", "done").put("status", "complete")))
+                    }
+                }
+            }
+        }))
+        HeldAudioAdmissionFixture().use { audio ->
+            val client = client(audioSink = audio.sink)
+            try {
+                assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+                client.pauseOutput()
+                client.setOutputDucked(true)
+                val accepted = client.beginTurn(AndroidTurnRequest(
+                    AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("held")))
+                assertTrue(accepted is AndroidInitiationResult.Accepted)
+                val ended = CountDownLatch(1)
+                client.observeTurn((accepted as AndroidInitiationResult.Accepted).binding) {
+                    if (it is AndroidNormalizedEvent.AudioEnded) ended.countDown()
+                }
+                audio.assertHeldBeforeFirstPlayback()
+                client.resumeOutput()
+                audio.releaseWorker()
+                assertTrue(ended.await(5, TimeUnit.SECONDS))
+                audio.assertPlayed()
+            } finally { client.close() }
+        }
     }
 
     /** `ANDROID-HOME-08`: after an interrupt the socket closes gracefully, so the queued frame is delivered. */

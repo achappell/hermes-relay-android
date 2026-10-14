@@ -127,6 +127,7 @@ internal class OkHttpStandardSessionClient(
     override fun supportsInterrupt() = hasLiveTransport()
     override fun pauseOutput() = audioSink.pause()
     override fun resumeOutput() = audioSink.resume()
+    override fun setOutputDucked(ducked: Boolean) = audioSink.setDucked(ducked)
     // Explicit resend/discard is not a new session and must not clear this guard.
     override fun prepareForExplicitResend() = Unit
 
@@ -309,7 +310,7 @@ internal class OkHttpStandardSessionClient(
             }
             session = checkNotNull(runtimeSession)
             binding = AndroidTurnBinding(profile.id, checkNotNull(storedSession), connectionId, UUID.randomUUID().toString())
-            stopAudio()
+            stopAudio(preservePendingControls = true)
             turn = binding
             observationBinding = binding
             observer = null
@@ -529,7 +530,7 @@ internal class OkHttpStandardSessionClient(
         journal.record("standard audio result=failed")
     }
 
-    private fun stopAudio() {
+    private fun stopAudio(preservePendingControls: Boolean = false) {
         audioDeadline?.cancel(false)
         audioDeadline = null
         audioSocket?.cancel()
@@ -537,7 +538,7 @@ internal class OkHttpStandardSessionClient(
         audioStarted = false
         audioEnding = false
         audioRemainder = ByteArray(0)
-        runCatching { audioSink.cancel() }
+        runCatching { if (preservePendingControls) audioSink.prepareTurn() else audioSink.cancel() }
     }
 
     private fun rpc(method: String, params: JSONObject, timeout: Long = requestTimeoutMillis): JSONObject? {
