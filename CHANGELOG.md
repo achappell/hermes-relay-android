@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Features
+- Add independent route-loss reply holds and same-track focus duck/restore. Focus gain cannot resume route-paused audio onto the speaker; explicit Play clears Route/User only. Automatic device return requires verified selected personal output; unknown paused routing on API 26–32 still requires Play. Physical route/acoustic acceptance and the rest of HOME-09 remain open.
 - Continue foreground-armed hands-free listening after the app stops under a microphone foreground service; end idle listening and held replies after 60 seconds of monotonic time. Background-only actions never arm capture.
 - Suppress hands-free recognition and speech activity throughout a reply and audio drain, then a named injectable 1.5-second provisional tail. Physical microphone/speaker calibration and echo acceptance remain open.
 - Add explicit Standard setup alongside HomeBridge, with checked authentication, a separate Keystore credential slot, and mode/endpoint/Hermes-profile-scoped Local History.

@@ -20,6 +20,20 @@ Paused output freezes write-stall, drain-stall and overall drain deadlines at
 the pause transition, including holds between worker polls. Play resumes the
 remaining active-time budget; it does not disable real stalled-output failures.
 
+Reply output holds Route, User and Focus pauses independently. Headphone loss
+does not opt into the speaker: focus gain and foreground return cannot clear a
+Route hold. Play is the explicit output-route override, but cannot override a
+Focus hold or revive expired/stopped/disconnected work. Focus duck/gain adjusts
+only the live track's volume, without rebuilding it.
+
+Automatic route return requires actual selected personal-output evidence, not
+merely a newly connected device. On API 33+ the media-policy route query can
+provide that evidence while the track is paused. API 26–32 exposes track routing
+but has no equivalent public inactive-media query: when the paused track reports
+no route, automatic return remains unsupported and Play is required. Unknown
+routing on any API stays paused. Physical headset/Bluetooth/acoustic acceptance
+and the remaining HOME-09 restart/cushion/telemetry work remain open.
+
 ## Toolchain
 
 - JDK 21 (Gradle/Kotlin runtime; Java 17-compatible Android bytecode)

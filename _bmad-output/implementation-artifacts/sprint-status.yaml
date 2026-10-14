@@ -31,7 +31,7 @@ development_status:
   android-home-06: review
   android-home-07: done
   android-home-08: in-progress # 08a/08b software implemented, emulator-verified 2026-10-14; physical microphone/echo gates open. Verification incident/history recovery limits in validation.
-  android-home-09: backlog
+  android-home-09: in-progress # Requirements 3–4 safety slice reviewed/software-verified: 655 JVM, 30×164 race, 2 Android smoke tests. Unknown-route automatic return, physical route acceptance, restart/cushion/lead remain open.
   android-home-10: backlog
   android-home-11: in-progress # Compact-viewport/IME bugfix emulator-verified 2026-10-13; full matrix and physical Pixel gate remain open.
   android-test-01: done

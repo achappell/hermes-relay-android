@@ -5,6 +5,8 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import java.util.concurrent.Executor
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -63,15 +65,21 @@ internal interface AndroidAudioSink {
     /** Abandons playback immediately, discarding anything still queued. */
     fun cancel()
 
+    /** Admission ends prior live output, but preserves holds already set before this turn's audio. */
+    fun prepareTurn() = cancel()
+
     /**
      * Holds the reply's output without discarding anything (`ANDROID-HOME-08`).
-     * The sink's stall and drain deadlines do not run while held. A [cancel] or
-     * a new [start] ends the hold.
+     * The sink's stall and drain deadlines do not run while held. A [cancel]
+     * ends the turn's hold; [start] preserves pre-audio controls for that turn.
      */
     fun pause() {}
 
     /** Continues output held by [pause]. */
     fun resume() {}
+
+    /** Sets the owned turn's gain, including before its first track exists. Cancel ends it. */
+    fun setDucked(ducked: Boolean) {}
 
     /** Releases any platform worker owned by the sink. */
     fun close() {
@@ -120,6 +128,8 @@ internal interface AudioTrackDriver {
 
     /** Holds the track; [play] continues it. */
     fun pause() {}
+
+    fun setVolume(volume: Float): Int = AudioTrack.SUCCESS
 }
 
 internal fun interface AudioTrackDriverFactory {
@@ -157,7 +167,9 @@ internal fun preparePlaybackBuffer(
 private class PlatformAudioTrackDriver(
     private val track: AudioTrack,
     private val platform: AndroidPlatform,
+    private val routes: PlatformAudioRouteEvents?,
 ) : AudioTrackDriver {
+    init { routes?.attach(track) }
     private val bufferControl = object : PlaybackBufferControl {
         // The injected platform, built from SDK_INT by AndroidPlatform.current,
         // is the guard; preparePlaybackBuffer never calls this below API 31.
@@ -189,13 +201,21 @@ private class PlatformAudioTrackDriver(
 
     override fun stop() = track.stop()
 
-    override fun release() = track.release()
+    override fun release() {
+        routes?.detach(track)
+        track.release()
+    }
 
     override fun pause() = track.pause()
+
+    override fun setVolume(volume: Float): Int = track.setVolume(volume)
 }
 
 /** The real output factory; [platform] selects the API-specific buffer policy. */
-internal fun platformAudioTrackDriverFactory(platform: AndroidPlatform) = AudioTrackDriverFactory { format, bufferSize ->
+internal fun platformAudioTrackDriverFactory(
+    platform: AndroidPlatform,
+    routes: PlatformAudioRouteEvents? = null,
+) = AudioTrackDriverFactory { format, bufferSize ->
     val channelMask = if (format.channels == 1) {
         AudioFormat.CHANNEL_OUT_MONO
     } else {
@@ -218,7 +238,7 @@ internal fun platformAudioTrackDriverFactory(platform: AndroidPlatform) = AudioT
         .setBufferSizeInBytes(bufferSize)
         .setTransferMode(AudioTrack.MODE_STREAM)
         .build()
-    PlatformAudioTrackDriver(track, platform)
+    PlatformAudioTrackDriver(track, platform, routes)
 }
 
 /** `AudioTrack`-backed playback for streamed 16-bit PCM. */
@@ -230,6 +250,7 @@ internal class AudioTrackAudioSink(
     private val writeStallDeadlineMillis: Long = DEFAULT_WRITE_STALL_DEADLINE_MILLIS,
     private val drainStallDeadlineMillis: Long = DEFAULT_DRAIN_STALL_DEADLINE_MILLIS,
     private val drainTimeoutMillis: Long = DEFAULT_DRAIN_TIMEOUT_MILLIS,
+    controlExecutor: Executor? = null,
     /**
      * Live-gate evidence requires gapless playback, so it fails on the first
      * underrun. Ordinary playback only counts them: AudioTrack resumes once
@@ -252,6 +273,11 @@ internal class AudioTrackAudioSink(
     private val worker = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "hermes-audio-out").apply { isDaemon = true }
     }
+    private val controls = controlExecutor ?: Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "hermes-audio-control").apply { isDaemon = true }
+    }
+    private val ownsControls = controlExecutor == null
+    private val ducked = AtomicBoolean(false)
     private val generation = AtomicLong(0)
     private val driver = AtomicReference<AudioTrackDriver?>(null)
     private val active = AtomicBoolean(false)
@@ -261,6 +287,9 @@ internal class AudioTrackAudioSink(
     private val drained = AtomicBoolean(false)
     private val failed = AtomicBoolean(false)
     private val paused = AtomicBoolean(false)
+    private val volumeLock = Any()
+    private var appliedVolume = 1f
+    private var driverPaused = false
     private val deadlineLock = Any()
     // A monotonic elapsed clock excluding every hold, even between worker polls.
     // Keep the offset across streams so a cancelled worker cannot observe time going backwards.
@@ -287,7 +316,13 @@ internal class AudioTrackAudioSink(
     )
 
     override fun start(format: AndroidAudioFormat): Boolean {
-        cancel()
+        var expectedGeneration = 0L
+        val previous = synchronized(deadlineLock) {
+            expectedGeneration = generation.incrementAndGet()
+            active.set(false)
+            driver.getAndSet(null)
+        }
+        previous?.let { releaseTrack(it, stop = true) }
         started.set(false)
         acceptedBytes.set(0)
         acceptedFrames.set(0)
@@ -300,32 +335,46 @@ internal class AudioTrackAudioSink(
         startupFrames = format.sampleRate.toLong() * STARTUP_BUFFER_MILLIS / 1_000
         drainPaddingBytes = format.sampleRate / 10 * frameBytes
         if (!format.isSupported) {
-            fail(AudioSinkFailureKind.StartFailure)
+            fail(AudioSinkFailureKind.StartFailure, expectedGeneration)
             return false
         }
 
+        var unpublished: AudioTrackDriver? = null
         return runCatching {
             val minBuffer = minBufferSizeProvider(format)
             if (minBuffer <= 0) {
-                fail(AudioSinkFailureKind.OutputUnavailable)
+                fail(AudioSinkFailureKind.OutputUnavailable, expectedGeneration)
                 return@runCatching false
             }
             val bufferBytes = maxOf(minBuffer * BUFFER_FACTOR, (startupFrames * frameBytes).toInt())
             val created = driverFactory.create(format, bufferBytes)
-            if (created.state() != AudioTrack.STATE_INITIALIZED) {
-                runCatching { created.release() }
-                fail(AudioSinkFailureKind.StartFailure)
-                return@runCatching false
-            }
+            unpublished = created
+            check(created.state() == AudioTrack.STATE_INITIALIZED)
             val baselineUnderruns = created.underrunCount().coerceAtLeast(0)
             underrunBaseline.set(baselineUnderruns)
             underrunCount.set(0)
-            driver.set(created)
-            active.set(true)
+            synchronized(volumeLock) {
+                val volume = if (ducked.get()) 0.2f else 1f
+                check(created.setVolume(volume) == AudioTrack.SUCCESS)
+                val published = synchronized(deadlineLock) {
+                    if (generation.get() != expectedGeneration) false else {
+                        appliedVolume = volume
+                        driverPaused = false
+                        driver.set(created)
+                        active.set(true)
+                        true
+                    }
+                }
+                unpublished = null
+                if (!published) {
+                    releaseTrack(created, stop = false)
+                    return@runCatching false
+                }
+            }
             true
         }.getOrElse {
-            fail(AudioSinkFailureKind.StartFailure)
-            releaseDriver(stop = false)
+            fail(AudioSinkFailureKind.StartFailure, expectedGeneration)
+            unpublished?.let { releaseTrack(it, stop = false) }
             false
         }
     }
@@ -352,8 +401,8 @@ internal class AudioTrackAudioSink(
     override fun finish(onDrained: () -> Unit, onFailure: (String) -> Unit) {
         val expectedGeneration = generation.get()
         if (!active.get() || driver.get() == null) {
-            fail(AudioSinkFailureKind.StartFailure)
-            onFailure(SAFE_FAILURE_MESSAGE)
+            fail(AudioSinkFailureKind.StartFailure, expectedGeneration)
+            if (completeStream(expectedGeneration, succeeded = false) != null) onFailure(SAFE_FAILURE_MESSAGE)
             return
         }
         val callbackSent = AtomicBoolean(false)
@@ -368,48 +417,93 @@ internal class AudioTrackAudioSink(
                 val outcome = runCatching {
                     drainQueued(expectedGeneration)
                 }
-                if (generation.get() != expectedGeneration) return@execute
-                if (outcome.isSuccess && !failed.get()) {
-                    releaseDriver(stop = true)
-                    drained.set(true)
-                    active.set(false)
-                    drainedOnce()
-                } else {
-                    if (failureKind.get() == null) fail(AudioSinkFailureKind.DrainTimeout)
-                    releaseDriver(stop = false)
-                    active.set(false)
-                    failedOnce()
-                }
+                val success = completeStream(expectedGeneration, outcome.isSuccess) ?: return@execute
+                if (success) drainedOnce() else failedOnce()
             }
         } catch (_: RuntimeException) {
-            fail(AudioSinkFailureKind.DrainTimeout)
-            releaseDriver(stop = false)
-            active.set(false)
-            failedOnce()
+            if (completeStream(expectedGeneration, succeeded = false) != null) failedOnce()
         }
     }
 
-    override fun cancel() {
-        generation.incrementAndGet()
-        active.set(false)
-        endHold()
-        releaseDriver(stop = true)
+    private fun completeStream(expected: Long, succeeded: Boolean): Boolean? {
+        var success = false
+        val current = synchronized(deadlineLock) {
+            if (generation.get() != expected) return null
+            success = succeeded && !failed.get()
+            if (!success && failureKind.get() == null) fail(AudioSinkFailureKind.DrainTimeout, expected)
+            active.set(false)
+            endHold()
+            ducked.set(false)
+            drained.set(success)
+            driver.getAndSet(null)
+        }
+        current?.let { releaseTrack(it, stop = success) }
+        return success
+    }
+
+    override fun cancel() = cancelCurrent(onlyIfActive = false)
+
+    override fun prepareTurn() = cancelCurrent(onlyIfActive = true)
+
+    private fun cancelCurrent(onlyIfActive: Boolean) {
+        val current = synchronized(deadlineLock) {
+            if (onlyIfActive && !active.get()) return
+            generation.incrementAndGet()
+            active.set(false)
+            endHold()
+            ducked.set(false)
+            driver.getAndSet(null)
+        }
+        current?.let { releaseTrack(it, stop = true) }
+    }
+
+
+    override fun setDucked(ducked: Boolean) {
+        synchronized(deadlineLock) { this.ducked.set(ducked) }
+        queueControl { current ->
+            applyVolume(current)
+        }
     }
 
     override fun pause() {
         synchronized(deadlineLock) {
-            if (!active.get() || paused.get()) return
+            if (paused.get()) return
             heldSince = clock.nanoTime()
             paused.set(true)
         }
-        // Before playback starts there is nothing to hold; startPlayback waits for resume.
-        if (started.get()) runCatching { driver.get()?.pause() }
+        queueControl { current ->
+            if (started.get() && paused.get() && !driverPaused) {
+                current.pause()
+                driverPaused = true
+            }
+        }
     }
 
     override fun resume() {
         if (!endHold()) return
-        // Before playback started, the write and drain loops start it themselves.
-        if (started.get()) runCatching { driver.get()?.play() }
+        queueControl { current ->
+            if (started.get() && !paused.get() && driverPaused) {
+                current.play()
+                driverPaused = false
+            }
+        }
+    }
+
+    /** UI controls publish intent immediately; native work never waits on the UI thread. */
+    private fun queueControl(action: (AudioTrackDriver) -> Unit) {
+        val expected = generation.get()
+        if (!active.get()) return
+        runCatching {
+            controls.execute {
+                synchronized(volumeLock) {
+                    if (generation.get() != expected || !active.get() || failed.get()) return@execute
+                    val current = driver.get() ?: return@execute
+                    runCatching { action(current) }.onFailure {
+                        fail(AudioSinkFailureKind.OutputUnavailable, expected)
+                    }
+                }
+            }
+        }.onFailure { fail(AudioSinkFailureKind.OutputUnavailable, expected) }
     }
 
     private fun endHold(): Boolean = synchronized(deadlineLock) {
@@ -426,6 +520,7 @@ internal class AudioTrackAudioSink(
     override fun close() {
         cancel()
         worker.shutdownNow()
+        if (ownsControls) (controls as ExecutorService).shutdown()
     }
 
     private fun writeQueued(
@@ -492,23 +587,38 @@ internal class AudioTrackAudioSink(
         }
     }
 
-    private fun startPlayback(activeDriver: AudioTrackDriver, expectedGeneration: Long): Boolean {
-        if (generation.get() != expectedGeneration || !active.get() || failed.get()) return false
-        if (started.get()) return true
-        // A held reply starts when it is resumed.
-        if (paused.get()) return true
-        return runCatching {
-            activeDriver.preparePlayback(acceptedFrames.get().coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
-            activeDriver.play()
-            started.set(true)
-            // A pause that arrived between the check above and now saw no
-            // started track and held nothing.
-            if (paused.get()) runCatching { activeDriver.pause() }
-            true
-        }.getOrElse {
-            fail(AudioSinkFailureKind.StartFailure, expectedGeneration)
-            false
+    private fun startPlayback(activeDriver: AudioTrackDriver, expectedGeneration: Long): Boolean =
+        synchronized(volumeLock) {
+            if (generation.get() != expectedGeneration || !active.get() || failed.get()) return false
+            if (started.get() || paused.get()) return true
+            runCatching {
+                activeDriver.preparePlayback(acceptedFrames.get().coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+                applyVolume(activeDriver)
+                if (generation.get() != expectedGeneration || !active.get() || driver.get() !== activeDriver) return false
+                if (paused.get()) return true
+                activeDriver.play()
+                synchronized(deadlineLock) {
+                    if (generation.get() != expectedGeneration || driver.get() !== activeDriver) return false
+                    started.set(true)
+                }
+                if (paused.get()) {
+                    activeDriver.pause()
+                    synchronized(deadlineLock) {
+                        if (generation.get() == expectedGeneration && driver.get() === activeDriver) driverPaused = true
+                    }
+                }
+                true
+            }.getOrElse {
+                fail(AudioSinkFailureKind.StartFailure, expectedGeneration)
+                false
+            }
         }
+
+    private fun applyVolume(current: AudioTrackDriver) {
+        val volume = if (ducked.get()) 0.2f else 1f
+        if (volume == appliedVolume) return
+        check(current.setVolume(volume) == AudioTrack.SUCCESS)
+        appliedVolume = volume
     }
 
     private fun drainQueued(expectedGeneration: Long) {
@@ -589,15 +699,20 @@ internal class AudioTrackAudioSink(
     }
 
     private fun fail(kind: AudioSinkFailureKind, expectedGeneration: Long? = null) {
-        if (expectedGeneration != null && generation.get() != expectedGeneration) return
-        failed.set(true)
-        failureKind.compareAndSet(null, kind)
+        synchronized(deadlineLock) {
+            if (expectedGeneration != null && generation.get() != expectedGeneration) return
+            failed.set(true)
+            failureKind.compareAndSet(null, kind)
+        }
     }
 
-    private fun releaseDriver(stop: Boolean) {
-        val current = driver.getAndSet(null) ?: return
-        if (stop) runCatching { current.stop() }
-        runCatching { current.release() }
+    private fun releaseTrack(current: AudioTrackDriver, stop: Boolean) {
+        controls.execute {
+            synchronized(volumeLock) {
+                if (stop) runCatching { current.stop() }
+                runCatching { current.release() }
+            }
+        }
     }
 
     private fun elapsedMillis(startNanos: Long): Long =

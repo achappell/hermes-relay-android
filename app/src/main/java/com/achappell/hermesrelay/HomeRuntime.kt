@@ -42,6 +42,7 @@ internal class HomeRuntime(
     /** Keeps a reply alive after the app stops (`ANDROID-HOME-08`). */
     private val foregroundService: ForegroundServiceController = ForegroundServiceController.None,
     private val audioFocus: AudioFocusController = AudioFocusController.None,
+    private val audioRoutes: AudioRouteEvents = AudioRouteEvents.None,
     private val retentionTimers: VoiceTimers = NoVoiceTimers,
     private val retentionTimings: RetentionTimings = RetentionTimings.Default,
 ) {
@@ -119,6 +120,13 @@ internal class HomeRuntime(
     private var retentionWatchdog: VoiceTimer? = null
     private var lastServiceState: VoiceServiceState? = null
     private var focusAsked = false
+    private var focusGeneration = 0L
+    private var routeGeneration = 0L
+    private var observingRoutes = false
+    private var selectedRoutes = emptyList<OutputRoute>()
+    private var routeAwaitingDeparture = emptyList<OutputRoute>()
+    private var awaitingRouteDeparture = false
+    private var outputDucked = false
     private var inBackgroundRetention = false
     private var voiceIdle: VoiceTimer? = null
     private var voiceIdleDeadline: Long? = null
@@ -382,6 +390,7 @@ internal class HomeRuntime(
             val now = retention
             val changed = now != appliedRetention
             appliedRetention = now
+            syncRoutes(now == BackgroundRetention.Reply)
             if (now != BackgroundRetention.None) {
                 if (retentionWatchdog == null) scheduleRetentionWatchdog()
                 pushServiceState()
@@ -508,6 +517,7 @@ internal class HomeRuntime(
         voiceIdleDeadline = null
         idleGeneration++
         pauseReasons.clear()
+        syncRoutes(false)
         outputPaused = false
         abandonFocus()
         pushServiceState()
@@ -535,7 +545,9 @@ internal class HomeRuntime(
     fun pauseFromControl() = holdOutput(PauseReason.User)
 
     /** The notification's Play. */
-    fun playFromControl() = releaseOutput(PauseReason.User)
+    fun playFromControl() {
+        releaseOutput(PauseReason.User, PauseReason.Route)
+    }
 
     /** The notification's Stop. */
     fun stopFromControl() = stopReply(RetentionEnd.NotificationStop)
@@ -552,23 +564,81 @@ internal class HomeRuntime(
         journal.record("voice output paused reason=${reason.name.lowercase()}")
         if (pauseReasons.size == 1) {
             outputPaused = true
-            runOnWork { clientPort.pauseOutput() }
+            clientPort.pauseOutput()
             pushServiceState()
         }
         refreshPausedHold()
     }
 
-    private fun releaseOutput(reason: PauseReason) {
-        if (!pauseReasons.remove(reason)) return
+    private fun releaseOutput(reason: PauseReason, additional: PauseReason? = null) {
+        if (pausedDeadline?.let { clock.nanoTime() >= it } == true) {
+            stopReply(RetentionEnd.IdleTimeout)
+            return
+        }
+        if (appliedRetention != BackgroundRetention.Reply || turnState.isTerminal ||
+            acceptedBinding == stoppedBinding || !clientPort.hasLiveTransport()
+        ) return
+        val removed = pauseReasons.remove(reason)
+        val additionallyRemoved = additional?.let { pauseReasons.remove(it) } ?: false
+        if (!removed && !additionallyRemoved) return
         if (pauseReasons.isNotEmpty()) return
         outputPaused = false
         refreshPausedHold()
-        // The retained reply may already be over, or its transport gone; then
-        // there is nothing to resume and the end path owns the rest.
-        if (appliedRetention != BackgroundRetention.Reply || !clientPort.hasLiveTransport()) return
         journal.record("voice output resumed reason=${reason.name.lowercase()}")
-        runOnWork { clientPort.resumeOutput() }
+        clientPort.resumeOutput()
         pushServiceState()
+    }
+
+    private fun syncRoutes(wanted: Boolean) {
+        if (wanted == observingRoutes) return
+        observingRoutes = wanted
+        val generation = ++routeGeneration
+        if (!wanted) {
+            audioRoutes.stop()
+            selectedRoutes = emptyList()
+            routeAwaitingDeparture = emptyList()
+            awaitingRouteDeparture = false
+            return
+        }
+        selectedRoutes = audioRoutes.selectedRoutes()
+        audioRoutes.observe { change ->
+            postToMain {
+                if (generation != routeGeneration || !observingRoutes) return@postToMain
+                onRouteChange(change)
+            }
+        }
+    }
+
+    private fun onRouteChange(change: AudioRouteChange) {
+        val current = change.selected
+        val lost = selectedRoutes.any { old ->
+            old.personal && (old.id in change.removedIds || current.none { it.id == old.id })
+        }
+        if (change.event == AudioRouteEvent.BecomingNoisy && PauseReason.Route !in pauseReasons) {
+            awaitingRouteDeparture = true
+            routeAwaitingDeparture = (if (current.any { it.personal }) current else selectedRoutes).filter { it.personal }
+        }
+        if (awaitingRouteDeparture) {
+            // The first personal sample after unknown noisy is a candidate for
+            // the departing route, not evidence that a different output returned.
+            if (routeAwaitingDeparture.isEmpty() && current.any { it.personal }) {
+                routeAwaitingDeparture = current.filter { it.personal }
+            }
+            val removed = routeAwaitingDeparture.any { it.id in change.removedIds }
+            val replaced = current.isNotEmpty() && routeAwaitingDeparture.isNotEmpty() &&
+                current.none { route -> routeAwaitingDeparture.any { it.id == route.id } }
+            val publicOutput = current.isNotEmpty() && current.none { it.personal }
+            if (removed || replaced || publicOutput) awaitingRouteDeparture = false
+        }
+        selectedRoutes = current
+        journal.record("audio route event reason=${change.event.name.lowercase()}")
+        if (change.event == AudioRouteEvent.BecomingNoisy || lost ||
+            (change.event == AudioRouteEvent.DeviceRemoved && current.isEmpty())
+        ) holdOutput(PauseReason.Route)
+        // A replacement can be verified in this very event. Other causes remain held.
+        if (change.event != AudioRouteEvent.BecomingNoisy && !awaitingRouteDeparture &&
+            current.isNotEmpty() && current.all { it.personal }
+        ) releaseOutput(PauseReason.Route)
     }
 
     /** A held reply expires on monotonic time; stale timer callbacks cannot end a later hold. */
@@ -602,6 +672,9 @@ internal class HomeRuntime(
         retentionWatchdog = retentionTimers.after(retentionTimings.recheckMillis) {
             retentionWatchdog = null
             syncRetention()
+            if (observingRoutes && PauseReason.Route in pauseReasons) {
+                onRouteChange(AudioRouteChange(AudioRouteEvent.SelectionChanged, audioRoutes.selectedRoutes()))
+            }
             if (appliedRetention != BackgroundRetention.None) scheduleRetentionWatchdog()
         }
     }
@@ -646,8 +719,11 @@ internal class HomeRuntime(
             appliedRetention != BackgroundRetention.None
         ) {
             focusAsked = true
+            val generation = ++focusGeneration
             val granted = audioFocus.request(allowDuck = lifecycle.isForeground) { change ->
-                postToMain { onFocusChange(change) }
+                postToMain {
+                    if (focusAsked && generation == focusGeneration) onFocusChange(change)
+                }
             }
             journal.record("audio focus request result=${if (granted) "granted" else "denied"}")
         }
@@ -656,6 +732,8 @@ internal class HomeRuntime(
     private fun abandonFocus() {
         if (!focusAsked) return
         focusAsked = false
+        focusGeneration++
+        outputDucked = false
         audioFocus.abandon()
     }
 
@@ -668,9 +746,15 @@ internal class HomeRuntime(
         when (change) {
             FocusChange.LossTransient -> holdOutput(PauseReason.Focus)
             FocusChange.LossPermanent -> stopReply(RetentionEnd.FocusLost)
-            FocusChange.Gain -> releaseOutput(PauseReason.Focus)
-            // Ducking is `ANDROID-HOME-09`; the reply keeps playing.
-            FocusChange.Duck -> Unit
+            FocusChange.Gain -> {
+                outputDucked = false
+                clientPort.setOutputDucked(false)
+                releaseOutput(PauseReason.Focus)
+            }
+            FocusChange.Duck -> {
+                outputDucked = true
+                clientPort.setOutputDucked(true)
+            }
         }
     }
 
@@ -776,13 +860,10 @@ internal class HomeRuntime(
     private fun onTurnEvent(event: AndroidNormalizedEvent) {
         val phaseBefore = turnState.phase
         updateTurn(AndroidTurnStateReducer.reduce(turnState, event))
-        // A new stream starts unpaused: hold it again if the user or focus still does.
-        if (
-            pauseReasons.isNotEmpty() &&
-            turnState.phase == AndroidTurnPhase.Speaking &&
-            phaseBefore != AndroidTurnPhase.Speaking
-        ) {
-            runOnWork { clientPort.pauseOutput() }
+        // New streams reset sink-local holds/gain; the live session still owns its causes.
+        if (turnState.phase == AndroidTurnPhase.Speaking && phaseBefore != AndroidTurnPhase.Speaking) {
+            if (pauseReasons.isNotEmpty()) clientPort.pauseOutput()
+            if (outputDucked) clientPort.setOutputDucked(true)
         }
         syncFocus()
         // Text-complete (audio still pending) resolves the Home turn as well: Home's

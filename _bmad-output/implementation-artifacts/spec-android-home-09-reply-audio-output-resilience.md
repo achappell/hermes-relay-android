@@ -1,7 +1,9 @@
 ---
 id: ANDROID-HOME-09
 title: Keep reply audio playing through route changes, focus changes and output restarts
-status: backlog
+status: in-progress
+baseline_commit: 12c298139c11f2bf5032e0612fdf514999eb0176
+route: dispatch
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -77,3 +79,163 @@ On a physical Pixel with Bluetooth earbuds: start a long reply; (1) lock the scr
 ## References
 
 iOS: `validation-ios-home-07.md` follow-ups "background reply stays speaking with no sound", "background during speech stops audio…", "stutter at background entry on build 18", "one-second pause at background entry on build 19"; `AudioOutputTests` (`testBurstOfConfigurationChangesRestartsTheEngineOnce`, `testLeadCountsQueuedAudioNotTheNodeTimelineSoItRecoversAfterAnUnderrun`).
+
+## Approved first slice — 2026-10-14
+
+The user approved requirements 3–4 only. HOME-09 remains **in-progress**:
+dead-track recreation, cushion cap and lead telemetry are unfinished separate scope.
+The HOME-08 implementation merged in PR #162 supersedes the historical
+“Android today” focus/pause inventory above.
+
+<frozen-after-approval reason="Explicit user approval of requirements 3–4">
+
+### Intent and constraints
+
+Pause reply output on headphone/output-route loss without automatic speaker
+fallback. Preserve independent Route, User and Focus holds; resume only a live,
+unfinished, unexpired reply. Foreground return releases User only. Explicit Play
+may release User and Route, never Focus. Interruption must not re-arm capture.
+Duck and restore the same live track without reconfiguration. Keep one process
+runtime and the existing off-main PCM path.
+
+### Acceptance
+
+- Given Route and Focus holds, when focus returns, then Route still prevents output.
+- Given User and Route holds, when a selected safe output returns, then User still prevents output.
+- Given a route hold, when an unrelated device is added or selection is unknown,
+  then output remains paused; explicit Play is the deliberate speaker opt-in.
+- Given an expired, stopped or transport-dead reply, when any resume event arrives,
+  then playback cannot restart.
+- Given ducked output, when gain arrives, then the same track returns to normal
+  volume; cancellation/new stream cannot inherit stale callback changes.
+- Given a foreground return, when User is released, then Route/Focus remain intact.
+
+</frozen-after-approval>
+
+### Code map and execution
+
+Production paths below are under `app/src/main/java/com/achappell/hermesrelay/`.
+
+- `HomeRuntime.kt`, `BackgroundRetention.kt`: extend existing pause reasons,
+  retained-reply timeout and focus lifecycle; guard stale callbacks.
+- `AudioRouteEvents.kt`: injected route observation with selected-media-route
+  evidence, not a connected-device inventory masquerading as route selection.
+- `AndroidAudioSink.kt`: track route observation and same-track volume control.
+- `AndroidClientPort.kt`, `ModeAwareClientPort.kt`,
+  `OkHttpRelaySessionClient.kt`, `OkHttpStandardSessionClient.kt`: carry output
+  controls through both adapters, without per-chunk main-thread dispatch.
+- `HermesRelayApplication.kt`: wire the process-owned route controller.
+- Existing runtime retention and sink tests plus route-policy regressions:
+  meaningful pause combinations, deadlines, stale generations and volume boundaries.
+- Existing documentation, story index and sprint status: record partial delivery
+  and keep physical headset/Bluetooth/acoustic acceptance open.
+
+### Verification plan
+
+Independent review precedes a local-only commit. Run JVM tests, debug build,
+lint, APK metadata and the 30-run race gate after the implementation handoff.
+Runtime smoke uses a new empty disposable AVD with explicit serial and direct
+`adb shell am instrument`; never Gradle connected tasks or the owner's emulator.
+Physical Pixel/headset/Bluetooth/acoustic acceptance remains unavailable and open.
+
+### Implementation notes and bounded acceptance
+
+`AudioRouteChange` captures selection and removed-device evidence before main
+dispatch. Production `AudioRouteEvidence` owns removed-ID vetoes, registration
+generations and attached-track identity. Android 36+ preserves multiple actual
+routed outputs; Android 33+ media-policy selection is the paused-track fallback.
+On Android 26–32, a null paused-track route has no equivalent public inactive
+media selection query: automatic return in that case remains unsupported, with
+explicit Play required. Unknown selection never grants automatic resume.
+
+Noisy is a forewarning, not proof that departure already occurred. Its pending
+departure state survives an empty route sample; a duplicate old-route callback
+cannot clear it. A confirmed personal replacement is evaluated in the same
+event. While Route is held, the existing bounded retention watchdog rechecks
+selection so switching to an already-connected device does not require a new
+device-added callback.
+
+Sink controls are retained before audio starts. `prepareTurn()` ends prior live
+output but preserves already-held pending-turn controls when no prior stream is
+live; both clients use that admission boundary. `start()` preserves those
+controls before PCM can play. Cancellation and terminal drain reset them.
+Native pause/play/volume/release work uses a serialized control worker rather
+than blocking the UI behind native teardown. Stream generations reject stale
+control tasks; returned platform volume errors enter the existing failure path.
+
+### Review triage log — first formal pass
+
+Every formal finding is recorded separately; shared causes refer to the same fix.
+All 17 rows below are closed: 16 repaired/verified, one parent claim rejected as
+false. The three independent formal review lenses and their targeted follow-ups
+were cleared by the parent after the final ownership/admission/privacy repairs.
+
+| Finding | Verdict | Evidence and repair |
+| --- | --- | --- |
+| Blind 1 | medium | Resampling after a second main post could erase removal. Immutable event selection/removal capture plus queued removal/reconnection regression now preserves it. |
+| Blind 2 | medium | A→B personal replacement took only the loss branch and stayed held. The same event now evaluates safe replacement after adding Route, preserving other causes. |
+| Blind 3 | high | `start()` cleared a pre-audio hold before queued `AudioStarted` delivery. Red sink regression observed; pending-turn hold/gain now survives admission/start, with real sink + delayed runtime-main regression. |
+| Blind 4 | medium | Already-connected selected-device changes could produce no callback. Existing retained-work timer now rechecks only a held Route, bounded by its existing expiry. |
+| Blind 5 | medium | UI controls could wait on native release under the volume lock. Atomic intent publication plus serialized off-UI native controls and blocked-release regression remove that wait. |
+| Blind 6 | medium | Platform volume return status was discarded. Driver returns status; sink checks `AudioTrack.SUCCESS`; returned-error regression proves failure propagation. |
+| Blind 7 | medium | Fake route callbacks bypassed production evidence logic. Injected `AudioRouteQueries` and production `AudioRouteEvidence` now test tombstones, null-route fallback, unknown selection, stale registration, detached tracks and immutable snapshots. |
+| Edge 1 | high | Same pre-audio leak as Blind 3. Shares the admission/start control-state fix and delayed-main real-sink regression. |
+| Edge 2 | high | Noisy with empty current selection allowed the still-old route to resume. Red runtime regression observed; explicit pending-departure state now survives an empty sample. |
+| Edge 3 | medium | Same single-event safe-replacement failure as Blind 2. Red A→B runtime regression observed; same-event replacement now releases Route only. |
+| Verification Gap 1 | medium | Same production-evidence gap as Blind 7. Production evidence tests and evidence-to-runtime queued delivery regression now cover it. |
+| Parent follow-up: terminal reset absent | false | The pre-repair source already called `endHold()` and cleared duck at lines 405–407, omitted by the parent's partial read. No claim of a plain sequential-drain red was made. Sequential success/failure turn regressions now preserve this behavior. |
+| Parent follow-up: terminal generation ownership | high | Check/reset/detach could interleave with newer controls. Completion, admission and cancellation now detach/reset only within the short generation/state lock; native release remains outside it. Stale-finish/new-held-turn and cancel-during-native-prepare regressions cover ownership. |
+| Repair regression: duplicate initial play | medium | The real-sink/delayed-main test failed when queued Resume arrived after the PCM worker's first play (two plays). Native paused state now distinguishes actual resume from a not-yet-started hold; the same test passes. |
+| Recheck: old native play publication | medium | Blocked old `play()` returned after cancel/new-start and published `started=true` for the new track. The blocked-old-play/concurrent-new-start regression failed before repair. Post-native publication now checks generation and driver identity atomically. |
+| Recheck: actual adapter admission coverage | medium | Direct sink tests did not exercise either protocol client's admission. Replaced the Relay forwarding-count test and added Standard admission coverage using real clients, mock servers and the real sink. Temporarily restoring admission cancellation made both tests fail; restored production admission passes. |
+| Recheck: unknown-noisy unrelated removal | high | Empty candidate IDs treated any removed sink as departure evidence. Production-evidence→runtime regression failed for unknown/noisy, selected old personal ID 1, unrelated removal ID 99. First personal evidence is now retained as a candidate, and only correlated removal, verified replacement/public transition or explicit Play can release it. |
+
+### Observed verification chronology
+
+- Initial noisy-forewarning regression: **1 test failed** before its first fix.
+- First formal review regressions: **3 tests failed** before fixes (pre-audio
+  hold/gain, noisy/null-old-route, direct personal A→B replacement).
+- Before formal repairs, full fixture-free JVM/build/lint passed: **633 tests,
+  47 suites, zero failures/errors/skips**. APK metadata passed; signer checking
+  was skipped because `EXPECTED_SIGNER_SHA256` was not configured.
+- Before formal repairs, direct instrumentation on a newly created empty API 36
+  AVD (`hermes-home09-route-safety-20261014`, serial `emulator-5556`) passed
+  **2 tests**. One used actual Android focus requests and the production focus
+  adapter, observing Duck/Gain callbacks. The other used controlled route/focus
+  events with the real runtime and production AudioTrack sink: real paused/play
+  states and one unchanged track/session. Actual platform route query identified
+  the emulator speaker. AudioFlinger track 55/session 129 showed L/R gain
+  **−14 dB → 0 dB**, unchanged port gain −33 dB and advancing server frames.
+  This is OS/software evidence, not headset/Bluetooth/acoustic acceptance.
+- Temporary instrumentation fixtures were removed after proof. The owner
+  emulator, original AVD, user data and recovery copies were not accessed.
+- Final fixture-free full JVM/build/lint: **655 tests in 48 suites, zero
+  failures/errors/skips** (`artifact://1453`). APK metadata passed: min SDK 26,
+  version 0.3.1 (301), backup disabled/extraction rules and 16 KB alignment.
+  Signer comparison remained skipped because `EXPECTED_SIGNER_SHA256` was unset.
+- Final expanded race gate: **30 consecutive runs × 164 tests = 4,920 test
+  executions, zero failures**, covering runtime retention, sink controls,
+  production route evidence and both actual protocol adapters (`bg_148`).
+- Final repaired Android build and direct instrumentation passed **2 tests**
+  on the same exclusively owned empty API 36 AVD. Actual Android focus requests
+  produced Duck/Gain callbacks. Controlled route evidence exercised the real
+  runtime and native AudioTrack: pre-audio held start stayed inactive, explicit
+  Play resumed, same-track duck/gain restored volume, route/User/Focus holds
+  remained independent, and a subsequent naturally completed turn started at
+  normal gain. This is controlled-route OS evidence, not physical route proof.
+- Final private instrumentation receipt:
+  `/var/folders/cb/3pkc1ncx58j1xq63ktd8xftw0000gn/T/home09-final-instrument-fb0z68x_.log`.
+  AudioFlinger evidence in that directory:
+  `home09-final-preaudio_held-mq54khzs.audio_flinger:64-66` shows track 56/session
+  137 inactive with zero server frames;
+  `home09-final-ducked-2kpi87lw.audio_flinger:67-69` and
+  `home09-final-restored-s7d8jh5y.audio_flinger:67-69` show the same track/session
+  at **−14 dB → 0 dB** L/R, unchanged −33 dB port gain and advancing frames;
+  `home09-final-next_turn_normal-x0lkzqe4.audio_flinger:67-70` shows new track
+  57/session 145 at normal 0 dB gain.
+- Temporary smoke source was removed; debug and Android-test APKs were rebuilt
+  fixture-free successfully (`artifact://1462`). No Gradle connected task was
+  used. Owner emulator 5554, original AVD/data and recovery copies remained
+  untouched. Physical headset/Bluetooth/acoustic acceptance, API 26–32
+  unknown-route automatic return and the remaining HOME-09 requirements stay
+  open; the parent story remains **in-progress**.
