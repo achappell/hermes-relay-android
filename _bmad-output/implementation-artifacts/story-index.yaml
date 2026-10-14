@@ -681,7 +681,7 @@ stories:
     depends_on:
       - android:ANDROID-UX-02
     github_issue: https://github.com/achappell/hermes-relay-android/issues/88
-    scope_note: 'Done by owner closeout 2026-10-08: merged #129, exact-head CI and 2/2 functional Pixel scenarios satisfy the approved existing-button delivery; deterministic deadline/capture/typed-ownership and accessibility assertions passed. Amanda waived manual physical TalkBack spoken-output/focus-gesture acceptance on 2026-10-07; spoken output, focus order and gesture activation remain unverified risks, not a manual pass. UX-02 final orb and other voice stories remain separate.'
+    scope_note: 'Done by owner closeout 2026-10-08: merged #129, exact-head CI and 2/2 functional Pixel scenarios satisfy the approved existing-button delivery; deterministic deadline/capture/typed-ownership and accessibility assertions passed. Amanda waived manual physical TalkBack spoken-output/focus-gesture acceptance on 2026-10-07; spoken output, focus order and gesture activation remain unverified risks, not a manual pass. UX-02 final orb and other voice stories remain separate. 2026-10-14 emulator follow-up separates intentionally stopped audio from genuine failure; see spec-home-interrupt-audio-state.md and the appended validation-android-voice-04.md evidence. No new physical or TalkBack acceptance is claimed.'
     parity_source: 'PX-16 (matrix V5)'
   - id: ANDROID-VOICE-05
     title: 'Echo-safe route classifier, capture audio focus and a barge-in spike'

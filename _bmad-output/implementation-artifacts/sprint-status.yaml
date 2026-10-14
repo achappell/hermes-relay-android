@@ -42,7 +42,7 @@ development_status:
   android-voice-01: done # Actual spoken Home turn accepted; missing-pack/offline live check explicitly waived, unverified not passed.
   android-voice-02: done # Explicit owner waiver of both manual denial/recovery and physical TalkBack legs; unverified not passed.
   android-voice-03: done # Owner-confirmed pause, automatic no-Send submission and reply; journal/UI corroborated.
-  android-voice-04: done # Owner closeout 2026-10-08; functional acceptance plus 2026-10-07 TalkBack waiver, not manual verification.
+  android-voice-04: done # Owner closeout 2026-10-08; TalkBack waiver remains. 2026-10-14 emulator audio-state follow-up recorded in validation; no new physical acceptance.
   android-voice-05: backlog
   android-voice-06: backlog
   android-home-12: done # All nonwaived HOME12 acceptance passed; physical TalkBack speech/focus/gesture remains explicitly waived, unverified, not passed. Canonical status becomes effective on PR #142 merge.

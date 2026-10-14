@@ -21,6 +21,8 @@ internal enum class AndroidAudioDelivery {
     Buffering,
     Speaking,
     Delivered,
+    /** Playback deliberately stopped by the user, not an output failure. */
+    Stopped,
     Unavailable,
 }
 
@@ -289,8 +291,13 @@ internal object AndroidTurnStateReducer {
 
             is AndroidNormalizedEvent.TurnInterrupted -> state.copy(
                 phase = AndroidTurnPhase.Interrupted,
-                audio = AndroidAudioDelivery.Unavailable,
-                unavailableReason = event.reason,
+                audio = when (state.audio) {
+                    AndroidAudioDelivery.Buffering,
+                    AndroidAudioDelivery.Speaking -> AndroidAudioDelivery.Stopped
+                    else -> state.audio
+                },
+                unavailableReason = state.unavailableReason
+                    .takeIf { state.audio == AndroidAudioDelivery.Unavailable },
                 turnCompleteObserved = true,
             )
 
@@ -347,6 +354,7 @@ internal object AndroidTurnStateReducer {
             )
 
             AndroidAudioDelivery.Unavailable -> state.copy(phase = AndroidTurnPhase.Unavailable)
+            AndroidAudioDelivery.Stopped -> state.copy(phase = AndroidTurnPhase.Interrupted)
         }
     }
 
