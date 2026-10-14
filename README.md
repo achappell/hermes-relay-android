@@ -113,6 +113,14 @@ they are not silently migrated.
 Saving or deleting a connection, or reselecting the current Standard Profile,
 automatically reconnects the selected Standard connection after its settings
 reset. No manual New conversation is needed just to restore connectivity.
+Rejected Standard credentials show unavailable authorization and **Edit relay**
+guidance, without a futile Retry action. Correct and check the credential in
+configuration; a successful connection restores Verified/Ready.
+
+Connections with the same canonical Standard endpoint and Hermes profile share
+Local History and its draft, but retain separate credential slots. Deleting one
+connection preserves that history while another saved connection owns the same
+identity; deleting the last owner removes it.
 
 Standard offers typed streaming, on-device speech capture, and response audio
 through `/api/audio/speak-stream`. Audio starts after the text response

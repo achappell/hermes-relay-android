@@ -353,8 +353,10 @@ internal class RelayConfigurationController(
         val deleted = collection.profiles.firstOrNull { it.id == id }
         if (update(collection.remove(id))) {
             credentials.delete(id)
-            // A Profile's conversation must not outlive the Profile that held it.
-            deleted?.let { history?.delete(it.historyKey) }
+            // Standard aliases share identity-scoped history; retain it for the last owner.
+            deleted?.historyKey?.let { key ->
+                if (collection.profiles.none { it.historyKey == key }) history?.delete(key)
+            }
             standardRestartStore?.deleteProfile(id)
             deleted?.homeClientGrant?.let(::releasePairingIfUnused)
         }

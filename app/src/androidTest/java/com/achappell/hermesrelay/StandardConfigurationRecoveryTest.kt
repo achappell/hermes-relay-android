@@ -2,6 +2,10 @@ package com.achappell.hermesrelay
 
 import android.Manifest
 import android.os.Build
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -10,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextClearance
 import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
@@ -69,6 +74,57 @@ class StandardConfigurationRecoveryTest {
         }
     }
 
+    @Test fun a_pending_draft_blocks_connection_changes_until_cleared() = verifyGuard(Guard.Draft)
+
+    @Test fun an_active_standard_turn_blocks_connection_changes_until_settled() = verifyGuard(Guard.Active)
+
+    @Test fun an_uncertain_standard_turn_blocks_connection_changes_until_resolved() = verifyGuard(Guard.Uncertain)
+
+    private enum class Guard { Draft, Active, Uncertain }
+
+    private fun verifyGuard(guard: Guard) {
+        val selected = RelayProfile(
+            id = "selected", endpoint = "wss://example.test/api/ws", clientId = "", deviceId = "",
+            displayName = "Selected", mode = RelayConnectionMode.Standard,
+        )
+        val other = selected.copy(id = "other", displayName = "Other", hermesProfile = "other")
+        val credentials = InMemoryRelayCredentialStore(
+            standardCredentials = mapOf(selected.id to "selected-secret", other.id to "other-secret"),
+        )
+        val initial = RelayProfileCollection(listOf(selected, other), selected.id)
+        val configuration = RelayConfigurationController(InMemoryRelayProfileStore(initial), credentials)
+        val port = ConfigurationPort(configuration, credentials).apply {
+            active = guard == Guard.Active
+            uncertain = guard == Guard.Uncertain
+        }
+        composeRule.setContent {
+            HermesRelayTheme { AndroidClientScreen(clientPort = port, configuration = configuration) }
+        }
+        if (guard == Guard.Draft) {
+            composeRule.waitUntil { port.connected }
+            composeRule.onNodeWithTag("android_typed_prompt").performTextInput("unsent draft")
+            closeSoftKeyboard()
+        }
+        composeRule.onNodeWithTag("android_more_menu").performClick()
+        composeRule.onNodeWithText("Configure relay").performClick()
+        composeRule.onNodeWithTag("android_relay_configuration").assertDoesNotExist()
+        composeRule.onAllNodesWithText("Select").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Delete").assertCountEquals(0)
+        composeRule.runOnIdle { assertEquals(initial, configuration.collection) }
+
+        if (guard == Guard.Draft) {
+            androidx.test.espresso.Espresso.pressBack()
+            composeRule.onNodeWithTag("android_typed_prompt").performTextClearance()
+            closeSoftKeyboard()
+            composeRule.onNodeWithTag("android_more_menu").performClick()
+            composeRule.onNodeWithText("Configure relay").performClick()
+        } else {
+            composeRule.runOnIdle { port.active = false; port.uncertain = false }
+        }
+        composeRule.onAllNodesWithText("Select")[1].performScrollTo().assertIsEnabled()
+        composeRule.onAllNodesWithText("Delete")[1].performScrollTo().assertIsEnabled()
+    }
+
     private class ConfigurationPort(
         private val configuration: RelayConfigurationController,
         private val credentials: RelayCredentialStore,
@@ -76,6 +132,10 @@ class StandardConfigurationRecoveryTest {
         @Volatile var connected = false
         @Volatile var disconnects = 0
         @Volatile var submitted = false
+        var active by mutableStateOf(false)
+        var uncertain by mutableStateOf(false)
+        override fun hasActiveTurn() = active
+        override fun hasUncertainTurn() = uncertain
         override fun connectionMode() = RelayConnectionMode.Standard
         override fun hasLiveTransport() = connected
         override fun snapshot() = AndroidClientSnapshot(
