@@ -12,6 +12,7 @@
 # A class name without a package is resolved in com.achappell.hermesrelay.
 # Exit status is 0 only when every iteration passes with at least one test run.
 # Per-iteration Gradle logs are kept under app/build/flake-gate/.
+# Failed-iteration JUnit XML is preserved before the next clean, in a unique directory.
 
 set -euo pipefail
 
@@ -75,6 +76,12 @@ for ((i = 1; i <= iterations; i++)); do
   fi
   if ((iteration_failed)); then
     failed_iterations=$((failed_iterations + 1))
+    evidence_dir="$(mktemp -d "$log_dir/failed-iteration-$i.XXXXXX")"
+    for xml in "$results_dir"/TEST-*.xml; do
+      [[ -e "$xml" ]] || continue
+      cp "$xml" "$evidence_dir/"
+    done
+    echo "failure evidence: $evidence_dir"
     echo "iteration $i/$iterations: FAIL (gradle status $status, $tests_run tests; log $log)"
   else
     echo "iteration $i/$iterations: ok ($tests_run tests)"

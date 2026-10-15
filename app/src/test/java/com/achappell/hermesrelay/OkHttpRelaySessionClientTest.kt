@@ -2835,6 +2835,87 @@ class OkHttpRelaySessionClientTest {
     }
 
     @Test
+    fun failed_track_recreation_before_turn_completion_stops_speaking_but_keeps_receiving_text() {
+        val peer = AtomicReference<WebSocket>()
+        val turnId = "failed-recreation"
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val request = JSONObject(text)
+                when (request.optString("method")) {
+                    "conversation.open" -> webSocket.send(readyResponse(request.getString("id"), audio = true))
+                    "prompt.submit" -> {
+                        peer.set(webSocket)
+                        webSocket.send(rpcResult(request.getString("id"), JSONObject()
+                            .put("schema", 1).put("conversation_handle", CONVERSATION_HANDLE)
+                            .put("turn_id", turnId).put("status", "submitted")))
+                        webSocket.send(eventFrame(turnId, "message.delta", JSONObject().put("text", "Text survives")))
+                        webSocket.send(audioStartFrame(turnId))
+                        webSocket.send(ByteString.of(*ByteArray(RELAY_FORMAT.sampleRate * 2)))
+                    }
+                }
+            }
+        }))
+        val creates = java.util.concurrent.atomic.AtomicInteger()
+        val writes = java.util.concurrent.atomic.AtomicInteger()
+        val sink = AudioTrackAudioSink(
+            driverFactory = AudioTrackDriverFactory { _, _ ->
+                check(creates.incrementAndGet() == 1) { "replacement unavailable" }
+                object : AudioTrackDriver {
+                    override fun state() = android.media.AudioTrack.STATE_INITIALIZED
+                    override fun play() = Unit
+                    override fun write(buffer: ByteArray, offset: Int, size: Int) =
+                        if (writes.incrementAndGet() == 1) size else android.media.AudioTrack.ERROR_DEAD_OBJECT
+                    override fun playbackHeadFrames() = RELAY_FORMAT.sampleRate.toLong()
+                    override fun underrunCount() = 0
+                    override fun stop() = Unit
+                    override fun release() = Unit
+                }
+            },
+            minBufferSizeProvider = { 4 },
+        )
+        val client = client(audioSink = sink)
+        try {
+            assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+            val accepted = client.beginTurn(AndroidTurnRequest(
+                AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("speak")))
+                as AndroidInitiationResult.Accepted
+            val state = AtomicReference(AndroidTurnState.awaitingEvents(accepted.binding))
+            val started = CountDownLatch(1)
+            val failed = CountDownLatch(1)
+            val laterText = CountDownLatch(1)
+            val completed = CountDownLatch(1)
+            client.observeTurn(accepted.binding) { event ->
+                state.set(AndroidTurnStateReducer.reduce(state.get(), event))
+                if (event is AndroidNormalizedEvent.AudioStarted) started.countDown()
+                if (event is AndroidNormalizedEvent.AudioFailed) failed.countDown()
+                if (state.get().responseText == "Text survives and continues") laterText.countDown()
+                if (state.get().turnCompleteObserved) completed.countDown()
+            }
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            assertEquals(AndroidTurnPhase.Speaking, state.get().phase)
+            peer.get().send(ByteString.of(1, 2))
+            peer.get().send(audioEndFrame(turnId))
+            assertTrue(failed.await(5, TimeUnit.SECONDS))
+            assertEquals(2, creates.get())
+            assertEquals(AndroidAudioDelivery.Unavailable, state.get().audio)
+            assertEquals(AndroidTurnPhase.Thinking, state.get().phase)
+            assertFalse(state.get().isTerminal)
+            assertFalse(state.get().turnCompleteObserved)
+            assertEquals("Text survives", state.get().responseText)
+            peer.get().send(eventFrame(turnId, "message.delta", JSONObject().put("text", " and continues")))
+            assertTrue(laterText.await(5, TimeUnit.SECONDS))
+            peer.get().send(eventFrame(turnId, "message.complete",
+                JSONObject().put("rendered", "Text survives and continues").put("status", "complete")))
+            assertTrue(completed.await(5, TimeUnit.SECONDS))
+            assertEquals(AndroidTurnPhase.Unavailable, state.get().phase)
+            assertEquals("Text survives and continues", state.get().responseText)
+        } finally {
+            client.close()
+            sink.close()
+        }
+    }
+
+    @Test
     fun admission_preserves_preaudio_hold_and_duck_through_first_home_pcm() {
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {

@@ -31,7 +31,7 @@ development_status:
   android-home-06: review
   android-home-07: done
   android-home-08: in-progress # 08a/08b software implemented, emulator-verified 2026-10-14; physical microphone/echo gates open. Verification incident/history recovery limits in validation.
-  android-home-09: in-progress # Requirements 3–4 shipped PR163; requirement 5 reviewed/software-verified: 680 JVM, 30×216 repetition, 4 native/runtime + 1 rendered UI Android tests. Physical/Pixel acceptance, unknown-route return, dead-track restart and periodic lead telemetry remain open.
+  android-home-09: in-progress # PR163 route/focus + PR164 startup shipped; dead-track slice software verified: 697 JVM/50 suites, 30×246 post-repair gate, 3 native/UI tests. Initial unattributed iteration23 failure and independently repaired collector race retained in spec. No accepted-PCM replay; uncertain loss fails. Physical/OS-death/Pixel, unknown-route return and periodic telemetry stay open.
   android-home-10: backlog
   android-home-11: in-progress # Compact-viewport/IME bugfix emulator-verified 2026-10-13; full matrix and physical Pixel gate remain open.
   android-test-01: done
