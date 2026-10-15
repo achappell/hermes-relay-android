@@ -17,6 +17,7 @@ import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -192,7 +193,7 @@ class OkHttpStandardSessionClientTest {
             assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
             nextMethod("session.create")
             val binding = submit(client)
-            val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+            val events = CopyOnWriteArrayList<AndroidNormalizedEvent>()
             val started = CountDownLatch(1)
             val ended = CountDownLatch(1)
             client.observeTurn(binding) {
@@ -252,7 +253,7 @@ class OkHttpStandardSessionClientTest {
             client.setOutputDucked(true)
             val binding = submit(client)
             val ended = CountDownLatch(1)
-            val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+            val events = CopyOnWriteArrayList<AndroidNormalizedEvent>()
             client.observeTurn(binding) {
                 events += it
                 if (it is AndroidNormalizedEvent.AudioEnded) ended.countDown()

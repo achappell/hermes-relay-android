@@ -6,6 +6,8 @@ baseline_commit: 12c298139c11f2bf5032e0612fdf514999eb0176
 route: dispatch
 buffering_slice_baseline: 613e740511bd0f166347388b4475074afea2e2b2
 buffering_slice_status: software-verified
+dead_track_slice_baseline: e0af503e3dbd13b8fc6ef75f14280f482bb72763
+dead_track_slice_status: software-verified
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -416,3 +418,196 @@ Private evidence root:
 - `metadata-final.txt`, `fixture-free-apks.json`: metadata, final APK hashes and
   temporary-class absence. `Home09BufferingSmokeTest.kt` is the off-tree proof
   fixture only, not shipped source.
+
+## Approved dead-track slice — 2026-10-14
+
+Baseline: `e0af503e3dbd13b8fc6ef75f14280f482bb72763` (merged PR164).
+This implements requirement 1 only; HOME-09 remains in progress.
+
+### Bounded recovery contract
+
+- One actual replacement per admitted stream, not a three-attempt retry loop.
+  Repeated signals for the obsolete driver coalesce; invalidation of its
+  replacement fails through the existing playback-failure path.
+- Recover returned `ERROR_DEAD_OBJECT`, returned `ERROR_INVALID_OPERATION`,
+  and observed noninitialized state. Route changes alone are not invalidation.
+  Keep the admitted format, buffer policy and AudioAttributes unchanged.
+- Android documents that a positive write result transfers that prefix even
+  when death is reported on the next call. Retry only the app-owned, unaccepted
+  suffix. Never retain/replay accepted PCM or infer acoustic delivery from its
+  acceptance count. Native-accepted but unplayed PCM cannot safely be recovered.
+  If the last native playback head cannot establish that all accepted response
+  frames played, continue the remaining app-owned PCM but finish through the
+  existing failure path. A provably drained prefix permits ordinary success.
+  Reference: [AudioTrack.write](https://developer.android.com/reference/android/media/AudioTrack#write(byte[],%20int,%20int,%20int)).
+- Replacement releases the startup cushion immediately for pending PCM, not
+  the independent User/Route/Focus pause holds. No fresh 1500 ms cap is granted;
+  defaults remain 1000 ms lead / 1500 ms hold. Preserve duck intent. Report
+  Started at most once per stream, only after actual native play.
+- Native controls, deadlines, write/head results and recovery publication must
+  own both the stream generation and the driver identity. Cancellation and a
+  newer stream cannot inherit old callbacks, failure, controls or replacement.
+- Failed creation, unusable replacement or repeat invalidation must terminate
+  pending finish as failure, never hang or leave the turn Speaking.
+
+### Code map and acceptance
+
+`AndroidAudioSink.kt` owns replacement and frame accounting; reuse its worker,
+native-control serialization, deadline lock and existing failure callback.
+Permanent fake-driver tests exercise partial acceptance/no replay, both native
+error codes, state invalidation, bounded replacement, creation failure, native
+queue uncertainty, pause/duck/cap/callback ownership and cancellation races.
+Existing real-adapter/runtime tests retain truthful state and hold semantics.
+`AndroidTurnState.kt` projects pre-terminal audio failure as nonterminal Thinking
+with audio Unavailable, not Speaking; subsequent text remains receivable.
+`OkHttpRelaySessionClientTest` exercises the real adapter and real sink across
+that boundary before delivering the text terminal.
+No periodic telemetry, cushion tuning, new error copy or PCM retention is added.
+
+Verification requires pre-fix regression evidence, full JVM/build/lint/metadata,
+the repetition gate and actual Android native/UI smoke on an exclusively owned
+new empty AVD. Controlled injected invalidation is not OS audioserver death or
+physical/acoustic proof. Preserve complete JUnit XML before the repetition gate.
+After smoke, remove its temporary fixture, rebuild fixture-free APKs, remove only
+the owned AVD, and update partial-status records. No push, PR or remote hook.
+
+### Dead-track review triage and regression evidence
+
+The parent coordinated independent blind, edge-case and verification-gap
+reviews, then focused follow-ups on the repaired snapshot. All three follow-ups
+closed with no actionable findings. The blind review found no actionable issue.
+
+| Finding | Verdict | Evidence and repair |
+| --- | --- | --- |
+| Edge: underruns use max rather than sum across native tracks | medium | Existing exported stream telemetry undercounted old 5 plus replacement 2 as 5. Regression failed before repair; the retired-track count now carries into replacement deltas and the test observes 7. No periodic telemetry added. |
+| Parent: cumulative underrun accounting | medium | Same demonstrated defect as the edge review; kept as an individual triage row and repaired by the same retired-track accounting change. |
+| Verification gap: padding masks wrong replacement drain origin | medium | New regression uses a proved-played 2,000-frame old prefix and an independent replacement head of exactly 2 response frames. It passes with the local target and fails when deliberately mutated to the cumulative stream target. Padding cannot satisfy the assertion. |
+| Parent/verification mapping: failed recreation can leave Speaking before text completion | high | Real Home adapter, real sink and reducer regression failed with Speaking after AudioFailed. The reducer now shows nonterminal Thinking plus the existing audio-unavailable warning, retains subsequent text and reaches Unavailable at the later text terminal. Actual Android rendering also verifies this boundary. |
+| Parent: native head/underrun query exception after state check needs recovery | false | Withdrawn after tracing AOSP Java/JNI: these query exceptions require a null native pointer, not ordinary audioserver death. Cancellation/release already invalidates ownership. No speculative exception-recovery branch was added. |
+
+Observed red/green evidence:
+
+- Before recovery implementation: **7 tests, 6 failures**, including native
+  invalidation, suffix preservation, creation failure and the bounded retry.
+  Preserved `red-junit/`; build receipt `artifact://1614`.
+- Review regression run: **17 tests, 2 failures** for cumulative underruns and
+  pre-terminal consumer phase. Preserved `review-red-junit/`;
+  receipt `artifact://1626`. Both repaired regressions and the response-audio
+  suite passed afterward (`artifact://1629`).
+- Wrong-target mutation: **1 test, 1 failure** (`artifact://1631`,
+  `drain-mutation-red-junit/`). The mutation was immediately removed.
+
+### Dead-track actual Android smoke — 2026-10-14
+
+Direct `adb -s emulator-5556 shell am instrument` passed **3 tests, zero
+failures/ignored**, using a newly created empty API 36 AVD. The temporary test
+decorated the production factory with controlled `ERROR_DEAD_OBJECT`,
+noninitialized-state and replacement-construction-failure signals; Android
+itself did not kill audioserver. All successful drivers were real AudioTracks.
+
+- Native old prefix reached **16,000 playback-head frames**. Recovery created
+  one replacement with the same format and its head advanced to **362**;
+  the stream emitted Started once and finished successfully. AudioFlinger
+  recorded track **56/session 137 → 57/session 145**, not a reused fake track.
+- A paused/ducked replacement stayed at **0 frames / 0 plays**, native track
+  **59/session 161** inactive at **−14 dB**. Resume advanced its head to
+  **362**; restoring volume advanced to **725**, with native L/R **0 dB**.
+  Port gain remained **−33 dB**. This proves native software state, not audible
+  sound or physical focus/headset/Bluetooth behavior.
+- Actual production `TurnZone` rendered **Thinking**, retained response text
+  and the existing audio-unavailable warning after failed recreation and
+  before TurnCompleted. Further text remained visible; the later terminal
+  rendered Unavailable. This is a real Compose component/native sink proof,
+  not a full socket/Home session or a physical acoustic acceptance run.
+
+Private evidence root:
+`/var/folders/cb/3pkc1ncx58j1xq63ktd8xftw0000gn/T/home09-dead-track-proof-3q1gar26/`
+
+- `android-native-ui-smoke.log`: TestRunner **3/0/0** and actual native head counts.
+- `home09-old-prefix.audio_flinger:69`,
+  `home09-replacement.audio_flinger:67-68`: old/replacement native identity.
+- `home09-replacement-held.audio_flinger:68`,
+  `home09-replacement-ducked.audio_flinger:68`,
+  `home09-replacement-restored.audio_flinger:68`: held/ducked/restored evidence.
+- `home09-failed-before-terminal.png`: rendered pre-terminal audio failure.
+- `Home09DeadTrackSmokeTest.kt`: off-tree proof fixture only; removed from the
+  repository before final fixture-free verification.
+
+The owned AVD `hermes-home09-dead-track-20261014` used an isolated temporary
+AVD home and an exclusively claimed free port. It was stopped with explicitly
+targeted `emu kill`, exited cleanly, and deleted with its own isolated AVD home;
+the claim was removed. Emulator 5554, owner AVD/userdata, earlier worktrees and
+the protected HOME-08 recovery copy were untouched. No connected Gradle task,
+push, PR or remote issue hook was run. Physical/acoustic, naturally occurring
+OS track-death and remaining HOME-09 acceptance stay open.
+
+### Repetition-gate incident and repair
+
+The first independent final full suite/build/lint/test-APK run passed
+**697 tests in 50 suites**, but its subsequent **30 × 246** repetition gate
+had **one failure in iteration 23**, with 29 iterations passing. The failing
+suite was `OkHttpStandardSessionClientTest`. This was not dismissed as noise.
+
+The original gate retained its quiet console logs and suite summary, but the
+next iteration's `cleanTestDebugUnitTest` deleted the failed JUnit XML. Searching
+the original Gradle daemon log, surviving binary results, HTML report and XML
+did not recover the exact assertion. **The original failure remains
+unattributed.** Evidence is retained in `flake-final/summary.json`,
+`flake-final/iteration-23.log` and `original-flake-residual/`.
+
+The authorized diagnostic work, distinct from a confirmation rerun:
+
+1. `scripts/run-flake-gate.sh` now copies failed-iteration JUnit XML to a unique
+   `app/build/flake-gate/failed-iteration-N.XXXXXX` directory before any later
+   task clean and prints that location. An off-tree stub generated a known
+   failed XML then a passing iteration; the exact failed assertion survived.
+   Evidence: `/var/folders/cb/3pkc1ncx58j1xq63ktd8xftw0000gn/T/home09-flake-retention-proof-ebx6v892/`.
+   This is not general archival storage: a full `app/build` clean can still
+   remove it, and existing per-iteration console-log filenames are unchanged.
+2. One bounded Standard-only diagnostic campaign retained verbose logs and
+   every iteration's XML, stopping on failure. All 30 passed; this did **not**
+   establish that the original failure was resolved. See `standard-diagnostic/`.
+3. A temporary deterministic probe used the actual Standard observer: it held
+   delivery after AudioEnded woke the test, began the test's event iteration,
+   then allowed the real TurnCompleted append. This produced
+   **ConcurrentModificationException**, **1 test / 1 failure**
+   (`artifact://1658`, `standard-iterator-red-junit/`).
+4. The two affected audio-test collectors now use the existing
+   `CopyOnWriteArrayList` convention rather than iterating a synchronized
+   ArrayList without its monitor. Assertions, timings and production behavior
+   were not weakened. The same forced schedule and the full Standard class
+   passed (**29 tests**, including the temporary probe; `artifact://1661`,
+   `standard-iterator-green-junit/`).
+5. The temporary collection probe was removed before final gates; its before
+   and after source remains off-tree in `standard-iterator-before.kt` and
+   `standard-iterator-after.kt`. Existing behavior tests remain permanent.
+   The focused independent coverage review approved the two-file repair.
+
+This establishes and repairs a real test-observation race, **not the historical
+identity of the lost iteration-23 failure**. No new production change followed
+the native/UI smoke, so no additional native run was represented as necessary.
+
+### Final dead-track software verification
+
+- Fixture-free `testDebugUnitTest assembleDebug lintDebug
+  assembleDebugAndroidTest` passed (`artifact://1664`):
+  **697 tests / 50 suites, zero failures/errors/skips**. Complete XML and counts
+  were copied to `full-jvm-after-flake-repair/` before the repetition gate.
+- The post-repair, evidence-retaining gate passed **30 consecutive runs ×
+  246 tests = 7,380 executions, zero failed iterations**. Its ten classes and
+  every console log are retained in `flake-after-repair/`; final XML is under
+  `flake-after-repair/last-iteration-junit/`. This clean result does not erase
+  the initial failed gate or upgrade its unknown failure identity.
+- APK metadata passed: min SDK **26**, version **0.3.1 (301)**, backup disabled
+  with extraction rules, **16 KB aligned**. Signer comparison was **not
+  exercised** because `EXPECTED_SIGNER_SHA256` was unset. The first metadata
+  invocation failed to locate build tools; explicitly setting the project SDK
+  root and SDK command-line-tool PATH corrected that environment failure
+  without source changes. Receipt:
+  `metadata-after-flake-repair.txt`.
+- Both final APKs were scanned across every DEX entry: the temporary
+  `Home09DeadTrackSmokeTest` was absent. Hashes and absence results:
+  `fixture-free-after-flake-repair.json`.
+- HOME-09 remains **in-progress**. This bounded slice is software verified;
+  periodic lead telemetry, physical/acoustic/Pixel acceptance, API-specific
+  unknown-route return and naturally occurring OS track-death proof remain open.

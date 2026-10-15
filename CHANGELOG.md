@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Features
+- Recover an invalid reply AudioTrack once, continuing only PCM not yet accepted by Android. Preserve pause/focus/duck safety and release the replacement cushion without a fresh hold. Never replay accepted speech; uncertain loss of Android's old native queue remains a playback failure with response text available.
 - Bound slow-stream reply startup with an injectable 1500 ms cap while retaining the 1000 ms audio cushion. HomeBridge and Standard show Buffering until playback actually starts; short-stream completion and explicit resume release queued audio, while pause and stop preserve their safety controls.
 - Add independent route-loss reply holds and same-track focus duck/restore. Focus gain cannot resume route-paused audio onto the speaker; explicit Play clears Route/User only. Automatic device return requires verified selected personal output; unknown paused routing on API 26–32 still requires Play. Physical route/acoustic acceptance and the rest of HOME-09 remain open.
 - Continue foreground-armed hands-free listening after the app stops under a microphone foreground service; end idle listening and held replies after 60 seconds of monotonic time. Background-only actions never arm capture.
@@ -28,6 +29,7 @@
 - Exclude all app data from cloud backup and device transfer with Android 12+ extraction rules.
 
 ### Fixes
+- Stop displaying Speaking immediately when response audio fails before the text turn ends; continue receiving text and show the existing audio-unavailable warning.
 - Keep deliberate interruption distinct from response-audio failure: preserve partial text and actual earlier audio errors without showing a false audio-unavailable warning for stopped playback.
 - Preserve rejected Standard authentication as a terminal authorization failure instead of treating a failed WebSocket upgrade as a lost live connection; show credential-repair guidance without an automatic retry cascade.
 - Preserve shared Standard Local History and drafts when deleting a duplicate connection; remove them only after the last saved owner of that endpoint/Hermes identity is deleted.

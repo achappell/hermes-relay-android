@@ -268,7 +268,8 @@ internal object AndroidTurnStateReducer {
                 phase = if (state.turnCompleteObserved) {
                     AndroidTurnPhase.Unavailable
                 } else {
-                    state.phase
+                    // Text can still arrive, but failed output is neither Speaking nor Buffering.
+                    AndroidTurnPhase.Thinking
                 },
                 audio = AndroidAudioDelivery.Unavailable,
                 unavailableReason = event.reason,
