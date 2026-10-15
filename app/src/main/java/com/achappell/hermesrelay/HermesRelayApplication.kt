@@ -73,7 +73,9 @@ class HermesRelayApplication : Application() {
         val homePort = OkHttpRelaySessionClient(
             collection = { services.configuration.collection },
             credentials = services.credentials,
-            audioSink = AudioTrackAudioSink(driverFactory = platformAudioTrackDriverFactory(platform, audioRoutes)),
+            audioSink = AudioTrackAudioSink(
+                driverFactory = platformAudioTrackDriverFactory(platform, audioRoutes), journal = journal,
+            ),
             clientClaims = HomeClientClaimProvider(
                 services.pairings,
                 services.credentials,
@@ -88,7 +90,9 @@ class HermesRelayApplication : Application() {
                 collection = { services.configuration.collection },
                 credentials = services.credentials,
                 restartStore = services.standardRestartStore,
-                audioSink = AudioTrackAudioSink(driverFactory = platformAudioTrackDriverFactory(platform, audioRoutes)),
+                audioSink = AudioTrackAudioSink(
+                    driverFactory = platformAudioTrackDriverFactory(platform, audioRoutes), journal = journal,
+                ),
                 journal = journal,
             ),
         )

@@ -36,6 +36,8 @@ internal class ModeAwareClientPort(
     override fun pauseOutput() = selected().pauseOutput()
     override fun resumeOutput() = selected().resumeOutput()
     override fun setOutputDucked(ducked: Boolean) = selected().setOutputDucked(ducked)
+    override fun playbackLead() = selected().playbackLead()
+    override fun playbackLeadStream() = selected().playbackLeadStream()
     override fun prepareForExplicitResend() = selected().prepareForExplicitResend()
     override fun endSession() = selected().endSession()
     override fun hasLiveTransport() = selected().hasLiveTransport()

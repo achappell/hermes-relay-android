@@ -286,6 +286,10 @@ internal interface AndroidClientPort {
     /** Changes only the current output track's gain; never reconfigures the stream. */
     fun setOutputDucked(ducked: Boolean) = Unit
 
+    /** Read-only native output facts; callers query off-main, never on the PCM feed path. */
+    fun playbackLead(): AudioPlaybackLead? = null
+    fun playbackLeadStream(): Any? = null
+
     /** Clears a client-side uncertain-delivery guard after an explicit user action. */
     fun prepareForExplicitResend() = Unit
 

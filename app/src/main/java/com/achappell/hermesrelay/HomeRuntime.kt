@@ -45,7 +45,12 @@ internal class HomeRuntime(
     private val audioRoutes: AudioRouteEvents = AudioRouteEvents.None,
     private val retentionTimers: VoiceTimers = NoVoiceTimers,
     private val retentionTimings: RetentionTimings = RetentionTimings.Default,
+    leadScheduler: java.util.concurrent.ScheduledExecutorService? = null,
 ) {
+    private val leadSampler = AudioLeadSampler(
+        clientPort::playbackLead, journal, clock, leadScheduler, clientPort::playbackLeadStream,
+    )
+
     val homeConversations: AndroidHomeConversations?
         get() = clientPort.homeConversations()
     val initiationController = AndroidInitiationController(clientPort)
@@ -334,6 +339,9 @@ internal class HomeRuntime(
             inBackgroundRetention = true
             val kind = if (appliedRetention == BackgroundRetention.Reply) "reply" else "voiceSession"
             journal.record("voice background enter retention=$kind")
+            if (appliedRetention == BackgroundRetention.Reply) {
+                leadSampler.backgroundEntered(clientPort.playbackLeadStream())
+            }
             pushServiceState()
             refreshPausedHold()
             return
@@ -355,6 +363,7 @@ internal class HomeRuntime(
     }
 
     private fun foregroundEntered() {
+        leadSampler.stop()
         if (inBackgroundRetention) {
             inBackgroundRetention = false
             journal.record("voice background exit")
@@ -391,6 +400,7 @@ internal class HomeRuntime(
             val changed = now != appliedRetention
             appliedRetention = now
             syncRoutes(now == BackgroundRetention.Reply)
+            if (now != BackgroundRetention.Reply) leadSampler.stop()
             if (now != BackgroundRetention.None) {
                 if (retentionWatchdog == null) scheduleRetentionWatchdog()
                 pushServiceState()
@@ -478,6 +488,7 @@ internal class HomeRuntime(
      * also runs the `ANDROID-HOME-06` close, so the claim is parked once.
      */
     private fun leaveRetention(reason: RetentionEnd, interrupting: AndroidTurnBinding?) {
+        leadSampler.stop()
         releaseRetentionResources()
         if (lifecycle.isForeground) {
             interrupting?.let { binding -> runOnWork { clientPort.interruptTurn(binding) } }
@@ -1150,6 +1161,7 @@ internal class HomeRuntime(
     private fun tearDown(reason: String) {
         if (tornDown) return
         tornDown = true
+        leadSampler.close()
         journal.record("runtime teardown reason=$reason")
         connectionObservation.cancel()
         networkObservation.cancel()

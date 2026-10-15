@@ -8,6 +8,8 @@ buffering_slice_baseline: 613e740511bd0f166347388b4475074afea2e2b2
 buffering_slice_status: software-verified
 dead_track_slice_baseline: e0af503e3dbd13b8fc6ef75f14280f482bb72763
 dead_track_slice_status: software-verified
+lead_slice_baseline: aeb470ff656c27b55aed9012b08a2bedcd5e069b
+lead_slice_status: software-verified
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -611,3 +613,270 @@ the native/UI smoke, so no additional native run was represented as necessary.
 - HOME-09 remains **in-progress**. This bounded slice is software verified;
   periodic lead telemetry, physical/acoustic/Pixel acceptance, API-specific
   unknown-route return and naturally occurring OS track-death proof remain open.
+
+## Approved playback-lead diagnostics slice — 2026-10-15
+
+Fresh baseline: `aeb470ff656c27b55aed9012b08a2bedcd5e069b`, merged PR165
+(previous head `bf98fa9d9b80839bdfaf1e890e3b7f00c36f8050`). This slice implements
+requirement **6** only. The **1000 ms lead / 1500 ms cap remain unchanged**.
+The actual baseline has no `mediasession_writes` or `voice response ended`
+summary. The approved correction adds the required underrun summary, not
+requirement 7's missing media-session accounting. Existing off-main,
+change-driven media updates remain untouched.
+
+### Observation and ownership contract
+
+- `playbackLead()` returns current-driver accepted **response** frames minus
+  that driver's playback-head frames, clamped at zero; drain padding and the
+  retired driver's lost queue never inflate it. Android's unsigned 32-bit head
+  is widened and full wraps are extended within one native driver.
+- Native head/playing queries run outside the sink's ownership lock. A versioned,
+  generation/driver-owned in-flight marker spans each native response write
+  through positive acceptance-counter publication. Queries and publication reject
+  overlap or version changes, including the native-accepted-but-not-yet-counted
+  interval. Exceptions/cancellation/replacement cannot leave or clear another
+  stream's marker. There is no spin/retry loop, PCM copy or per-chunk UI dispatch.
+- `state` describes logical buffering/playing/paused intent; `playing` is the
+  actual native `AudioTrack.playState == PLAYSTATE_PLAYING`, not an inference
+  from prior `play()`. No diagnostic observation changes native controls,
+  focus, attributes, media state or notification state.
+- Background entry captures the current audio-stream identity without native
+  work and schedules observations off-main. A healthy uninterrupted window has
+  **21 samples**, deadlines 0, 250, …, 5000 ms. `t_ms` is actual monotonic elapsed
+  time at publication. Delayed dispatch skips missed slots: no catch-up burst
+  and no fabricated claim of 21 measurements when the executor was starved.
+- Pre-final dispatch/query/publication expires after 5000 ms. The final 5000 ms
+  slot permits at most one cadence (**250 ms**) of jitter, checked before the
+  native query and again before publication. A read blocked past that bound
+  produces no stale line. A transient inconsistent snapshot skips only its
+  slot, not the rest of an owned window.
+- No active audio stream at entry means no sampling window. Duplicate background
+  notifications cannot start another loop or adopt a later reply. Foreground
+  return, retained-work end and teardown cancel the window; a new stream or
+  terminal sink invalidates its ownership. Foreground followed by background
+  creates a fresh window for the then-current stream. A native driver replacement
+  within the same stream retains the window but invalidates old-driver snapshots.
+- `audio output cushion started lead_ms=N reason=…` records only the first
+  successful native play of a logical audio reply, not subsequent native
+  replacement or resume plays. The user approved the accurate additional reasons
+  **resume**, **restart**, and **buffer_full**, alongside **threshold**, **cap**,
+  and **finish**. These observe existing release paths; they do not add behavior
+  or relabel an early release as a threshold/cap that did not win.
+- `voice response ended underruns=N` is emitted once when the admitted audio
+  reply completes, fails, is cancelled or is replaced by a new stream. Its final
+  native underrun query precedes release, includes retired-driver counts, and
+  does not rely solely on the last PCM/drain poll.
+
+### Implementation and permanent verification
+
+Production paths are under `app/src/main/java/com/achappell/hermesrelay/`:
+
+- `AndroidAudioSink.kt`: per-driver lead/head accounting, truthful first-play
+  cause, owned publication and final underrun summary.
+- `AudioLeadSampler.kt`: the single bounded off-main observation window.
+- `AndroidClientPort.kt`, `ModeAwareClientPort.kt`, both OkHttp adapters:
+  read-only output facts and stream ownership, not PCM event dispatch.
+- `HomeRuntime.kt`: background/foreground/terminal ownership of observations.
+- `HermesRelayApplication.kt`: inject the existing journal into both real sinks.
+
+Permanent `AudioPlaybackLeadTest` and `AudioLeadSamplerTest` cover underrun
+refill, unsigned/wrapped head semantics, padding exclusion, replacement-local
+lead, truthful release reasons, fresh terminal underruns, stale publication,
+delayed/expired scheduling, bounded final jitter, blocked queries and transient
+inconsistent snapshots. The real HomeRuntime + sink regression exercises
+background entry, foreground cancellation and re-entry without changing the
+driver's native play/pause/prepare/volume calls. Existing buffering/recovery
+tests remain in the targeted gate.
+
+### Review triage — playback-lead slice
+
+All initial findings are retained separately, including duplicate causes:
+
+| Source | Verdict | Evidence and repair |
+| --- | --- | --- |
+| Blind 1: delayed callbacks catch up and final slot never expires | medium | Initial dispatch at 1000 ms generated zero-delay samples; final callback could publish at 30000 ms. Skip elapsed slots and apply explicit pre-query/publication expiry with only 250 ms final jitter. |
+| Blind 2: old queued counter minus newer head falsely reads zero | medium | Latch-held native query allowed the PCM worker to accept a refill. The old 160-frame counter minus head 240 incorrectly yielded zero despite 240 queued frames. Discard changed-counter snapshots and retry only at future bounded slots. |
+| Edge 1: final callback at 30000 ms remains permitted | medium | Same expiry defect as Blind 1, retained separately. Before-query and before-publication checks now enforce the final 5250 ms upper bound. |
+| Edge 2: PCM accepted between counter capture and head query | medium | Same observed inconsistent snapshot as Blind 2, retained separately. The worker remains unblocked while the native query is latch-held. |
+| Verification gap: no expired pre-final or bounded final-jitter assertions | medium | Added actual 5001 ms pre-final, 5001/5250/5251 ms final, delayed initial catch-up, and blocked-read expiry cases. Assertions inspect query counts and actual journal timestamps, not test names. |
+| Blind follow-up: accepted native write precedes counter publication | medium | The first counter-equality repair missed the postwrite underrun-query interval. A second latch regression reproduced false zero with 160 published frames and native head 240 after a 320-frame refill. The owned in-flight/version marker now brackets native acceptance through publication; this completes the original finding rather than widening scope. |
+| Full-gate / parent: avoidable pre-first-play head query | medium | The unchanged obsolete-finish test failed in the full suite and all nine prematurely continued repetition runs because its drain-head gate was intercepted before play. Remove the query using the fresh-driver zero-head invariant; this also removes the extra unchecked native-call interval. Original assertions remain unchanged; focused blind review closed the repair. |
+
+Before repair, **20 tests / 5 failures** (`artifact://1690`): four scheduler
+boundary regressions and the latch-controlled concurrent-refill snapshot.
+After the cohesive repair, targeted JVM plus debug/test-APK build passed
+**53 tests / 4 suites / zero failures, errors or skips** (`artifact://1693`).
+Original red and green JUnit XML is preserved outside the build directory.
+
+Blind follow-up found that the first consistency repair was incomplete:
+**1 test / 1 failure** (`artifact://1702`) with the PCM worker blocked in its
+postwrite underrun query. The complete write-interval repair then passed
+**54 tests / 4 suites** plus debug/test-APK builds (`artifact://1707`).
+`postwrite-red-junit/` and `postwrite-green-junit/` retain those exact results.
+The earlier native pass below preceded this final production repair; final
+post-repair native/software evidence is recorded separately rather than treating
+that earlier run as proof of changed code.
+
+### Actual Android proof and retained failed assumption
+
+Direct serial-targeted instrumentation on a newly created empty API 36 ARM64
+AVD passed **1 native test**, using the production factory, sink and sampler:
+
+- Deliberately withholding source PCM caused an **actual native underrun count
+  of 1**. The playback head stayed **16000 → 16000** while lead read zero.
+  Refilling restored **15637 queued response frames**. This is controlled
+  source-starvation/native-API evidence, not acoustic hardware acceptance or an
+  injected fake underrun count.
+- Native pause reported `playing=false`. Entry head **16363**, then final head
+  **16726**, yielded **15274** queued frames, exactly **32000 − 16726**.
+  The observed additional **363 frames after pause** is retained without
+  claiming its mechanism or an instantaneous hardware-pause guarantee.
+- **21** journal samples had actual `t_ms` values
+  **0, 251, 500, 750, 1000, 1251, 1500, 1750, 2001, 2250, 2501, 2751,
+  3001, 3250, 3503, 3750, 4000, 4251, 4502, 4751, 5005**.
+  The fixture asserted strictly advancing timestamps, every expected cadence
+  slot, the final bounded jitter, and **zero additional native
+  play/pause/prepare/volume calls** during sampling.
+- First-play journal: `audio output cushion started lead_ms=1000 reason=threshold`,
+  once. Terminal journal: `voice response ended underruns=1`.
+- The first native attempt failed **1 test** because its fixture incorrectly
+  expected the paused entry head 16363 to remain exactly frozen; Android returned
+  16726 after the window. This was not discarded or rerun to confirm. The revised
+  proof checks head-derived queued arithmetic and actual playing state instead
+  of that disproved assumption. Both fixture versions and the failure are saved.
+- No UI changed, so this slice claims native/runtime diagnostics proof, not an
+  additional rendered UI acceptance run. No Gradle `connected*` task ran.
+
+Evidence root:
+`/var/folders/cb/3pkc1ncx58j1xq63ktd8xftw0000gn/T/home09-lead-proof-vmt237xz/`
+
+- `initial-review.diff`, `review-repaired.diff`: reviewed snapshots.
+- `targeted-junit/`, `review-red-junit/`, `review-green-junit/`: preserved XML.
+- `android-smoke-initial.log`, `Home09LeadSmokeTest-initial.kt`: failed assumption.
+- `android-smoke-repaired.log`, `Home09LeadSmokeTest-final.kt`: complete native
+  proof and final off-tree fixture.
+
+The temporary repository fixture was removed after proof. The exclusively owned
+`emulator-5556` exited with code 0; AVD `hermes-home09-lead-20261015`, its newly
+created empty AVD home and the port claim were deleted. Emulator 5554, owner
+AVD/userdata, other worktrees and protected HOME-08 recovery copies were untouched.
+Physical/OS-death/Pixel tuning acceptance, API-specific unknown-route return,
+and requirement 7's absent `mediasession_writes` accounting remain open.
+HOME-09 stays **in-progress**.
+
+### Final write-interval repair and native proof
+
+All three independent formal review lenses closed after the complete write
+interval repair. Blind and edge follow-ups explicitly verified the marker
+precedes the native write, positive-counter publication closes it atomically,
+and zero/error/exception/cancel/recovery cleanup owns generation, driver and
+version. Coverage follow-up closed the scheduling-boundary gaps.
+
+Final focused tests and debug/test APK build passed **54 tests / 4 suites,
+zero failures/errors/skips** (`artifact://1711`), including the explicit
+cancellation-marker invalidation. These checks and the second native proof
+preceded the full-gate incident and final query-removal repair recorded below.
+
+Because the first owned AVD had already been deleted before the follow-up
+finding arrived, the final production proof used a **second newly created empty**
+AVD, `hermes-home09-lead-final-20261015`, not a clone or restored snapshot.
+Direct instrumentation passed **1 test / zero failures** on `emulator-5556`.
+`android-smoke-write-interval-final.log` retains complete output:
+
+- Controlled source starvation again produced an actual native underrun of **1**
+  and stalled head **16000 → 16000**; refill lead was **15637** response frames.
+- Held entry head/lead were **16363 / 15637**; final native head/lead were
+  **16726 / 15274**, with native `playing=false` and correct `32000 − 16726`
+  queued-frame arithmetic. The previously observed post-pause head advance is
+  not hidden or replaced by a pause/acoustic guarantee.
+- All **21** native sample timestamps were asserted in their expected slots:
+  **0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000, 2250, 2500, 2750, 3000,
+  3250, 3502, 3752, 4000, 4251, 4505, 4750, 5002** ms. Native control-call
+  delta remained **0**. First cushion remained a single threshold/1000 ms line;
+  the once-per-reply terminal summary reported **underruns=1**.
+- The repository fixture was removed again before the fixture-free gates.
+  The second owned emulator exited **0**, its AVD definition, isolated empty
+  home and port claim were deleted. Both disposable environments were created
+  independently; the protected owner emulator/data/recovery copies stayed
+  untouched throughout.
+
+### Full-gate incident: avoidable pre-first-play query
+
+The first fixture-free full run observed **721 tests / 52 suites / 1 failure**:
+`AudioSinkPauseTest.obsolete_finish_cannot_clear_the_next_turn_preaudio_hold_or_duck`
+at line 245 expected **1** native play but observed **0**. Exact XML is retained
+in `full-jvm-final/testDebugUnitTest/TEST-com.achappell.hermesrelay.AudioSinkPauseTest.xml`.
+The verification worker incorrectly continued into repetition instead of
+stopping at this failure. The parent stopped that run after **9 failed
+iterations**. All nine preserved XML files contain this same exact test and
+assertion; they are retained under `final-repetition/flake-gate/`, with
+`prior-full-and-repetition-failure-attribution.json`. This is a deterministic
+regression, **not flakiness**, and these failed gates are not superseded out of
+the record by subsequent success.
+
+Cause: the new cushion diagnostic queried the native playback head immediately
+before the first native `play()`. The existing test deliberately blocks the
+first drain-head query while a newer held/ducked turn is admitted. The added
+query intercepted that gate **before** the old native play, while the native
+control lock was held; cancellation waited until the five-second gate timeout
+and the assertion correctly exposed zero old plays. The query also introduced
+an unnecessary native-call interval after the last pre-play ownership check.
+
+The repair removes that native query entirely. Production admission and
+replacement each construct a fresh AudioTrack, `preparePlayback` does not play,
+and `startPlayback` excludes already-started drivers. Therefore the native
+head is zero at this first-play boundary and the cushion lead is exactly
+current-driver response frames divided by sample rate. No test assertion,
+gate, expected play count or timeout was changed. The focused blind follow-up
+verified these invariants and closed the finding.
+
+After repair, **73 tests / 5 suites / zero failures/errors/skips** and APK
+builds passed (`artifact://1730`); XML is in `cushion-query-fix-junit/`.
+The third independent empty AVD, `hermes-home09-lead-cushion-20261015`, provided
+the post-fix native run: **1 test passed**, exact output
+`android-smoke-cushion-query-final.log`. It again observed actual native underrun
+**1** under controlled source starvation; stalled head **16000**, refill lead
+**15637**, final paused head **16726** and response lead **15274**, with
+**zero extra native control calls**. Its 21 asserted actual timestamps were
+**0, 250, 500, 751, 1009, 1250, 1511, 1751, 2000, 2250, 2500, 2751, 3000,
+3250, 3501, 3754, 4003, 4250, 4500, 4750, 5001** ms. The first cushion event
+and final underrun summary were each emitted once.
+
+The temporary repository fixture was removed before the post-fix full gate.
+The final repetition procedure runs the existing evidence-retaining script
+one iteration at a time, preserving each result off-tree, and stops immediately
+on any failed iteration rather than allowing its ordinary N-run loop to continue.
+
+### Post-incident fixture-free full verification
+
+- Full `testDebugUnitTest assembleDebug lintDebug assembleDebugAndroidTest`
+  passed (`artifact://1735`): **721 tests / 52 suites, zero
+  failures/errors/skips**. Complete XML and `counts.json` were copied into
+  `full-jvm-after-cushion-query-fix/` **before** the repetition gate cleaned
+  Gradle's reports.
+- The two new permanent suites contain **24 tests**. Subtracting those from
+  the observed full result gives the unchanged baseline inventory of
+  **697 tests / 50 suites**; this is an inventory derivation, not a claimed
+  rerun of the historical baseline or its unattributed iteration-23 failure.
+- APK metadata passed: min SDK **26**, version **0.3.1 (301)**, backup disabled
+  with extraction rules and **16 KB alignment**. Signer comparison was not
+  exercised because `EXPECTED_SIGNER_SHA256` was unset.
+- Final debug and Android-test APKs were rebuilt fixture-free. Every DEX entry
+  was scanned (**7** debug, **4** Android-test); `Home09LeadSmokeTest` is absent
+  from both. `fixture-free-apks-final.json` records their SHA-256 hashes;
+  `metadata-after-cushion-query-fix.log` contains the metadata receipt.
+- Final fail-fast repetition passed **30 consecutive runs × 270 tests =
+  8100 executions**, zero failures/errors/skips across **12 suites**. Every
+  iteration's full XML, Gradle output and counts are preserved in
+  `flake-after-cushion-query-fix/iteration-01/` through `iteration-30/`;
+  `summary.json` records all iterations and the exact class filter.
+- The final third owned AVD was retained until the full suite and repetition
+  passed, then explicitly stopped on `emulator-5556` (exit **0**) and deleted
+  with only its isolated empty AVD home and port claim. All three temporary
+  AVDs were newly created, never cloned from owner state.
+- All formal review findings are closed. Requirement **6** is software/native-
+  emulator verified; parent HOME-09 remains **in-progress**. Requirement 7's
+  missing media-session accounting, physical/acoustic/Pixel tuning, natural
+  OS-death and API-specific unknown-route acceptance remain open. The historical
+  unattributed Standard iteration-23 failure is still unattributed; this clean
+  gate does not rewrite that history or the current slice's preserved failures.

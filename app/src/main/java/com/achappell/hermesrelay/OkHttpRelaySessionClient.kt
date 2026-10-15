@@ -1184,6 +1184,9 @@ internal class OkHttpRelaySessionClient(
 
     override fun setOutputDucked(ducked: Boolean) = audioSink.setDucked(ducked)
 
+    override fun playbackLead() = audioSink.playbackLead()
+    override fun playbackLeadStream() = audioSink.playbackLeadStream()
+
     override fun prepareForExplicitResend() {
         synchronized(turnAdmissionLock) {
             uncertainDelivery.set(false)
