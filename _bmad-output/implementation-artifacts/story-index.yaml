@@ -604,6 +604,8 @@ stories:
     parity_epic: ANDROID-PARITY-01
     parity_stream: S1
     spec: _bmad-output/implementation-artifacts/spec-android-arch-01-state-holders.md
+    validation: _bmad-output/implementation-artifacts/validation-android-arch-01.md
+    scope_note: 'Software implemented/local review. 784 JVM tests, 30x206 repetition gate, actual surface/lifecycle emulator proof; existing 98-case instrumentation retains exactly 18 baseline failing IDs (17 same signatures, one advanced fixture failure). Canonical all-tests-green acceptance remains open; no push/PR.'
     depends_on:
       - android:ANDROID-HOME-07
     github_issue: https://github.com/achappell/hermes-relay-android/issues/83

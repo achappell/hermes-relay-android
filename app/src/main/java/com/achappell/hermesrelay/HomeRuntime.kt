@@ -1,9 +1,5 @@
 package com.achappell.hermesrelay
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicLong
 
@@ -57,27 +53,43 @@ internal class HomeRuntime(
     val initiationController = AndroidInitiationController(clientPort)
     val recorder: AndroidHistoryRecorder? = historyStore?.let { AndroidHistoryRecorder(it) }
 
-    var recoveryState by mutableStateOf(AndroidRecoveryState())
-        private set
-    var initiationState by mutableStateOf<AndroidInitiationState>(AndroidInitiationState.Idle)
-        private set
-    var turnState by mutableStateOf(AndroidTurnState())
-        private set
-    var lastRequest by mutableStateOf<AndroidTurnRequest?>(null)
-        private set
-    var resendResult by mutableStateOf<AndroidResendResult?>(null)
-        private set
-    var captureState by mutableStateOf<AndroidCaptureState>(AndroidCaptureState.Idle)
-        private set
-    var handsFree by mutableStateOf(false)
-        private set
-    var interruptStatus by mutableStateOf(InterruptStatus.None)
-        private set
-    var initiationInFlight by mutableStateOf(false)
-        private set
-    var resendInFlight by mutableStateOf(false)
-        private set
-    var promptHistory by mutableStateOf(AndroidPromptHistory())
+    val turnHolder = TurnHolder()
+    val captureHolder = CaptureHolder()
+    val recoveryHolder = RecoveryHolder()
+
+    var recoveryState: AndroidRecoveryState
+        get() = recoveryHolder.state.value.recoveryState
+        private set(value) = recoveryHolder.update { it.copy(recoveryState = value) }
+    var initiationState: AndroidInitiationState
+        get() = turnHolder.state.value.initiationState
+        private set(value) = turnHolder.update { it.copy(initiationState = value) }
+    var turnState: AndroidTurnState
+        get() = turnHolder.state.value.turnState
+        private set(value) = turnHolder.present(value)
+    var lastRequest: AndroidTurnRequest?
+        get() = turnHolder.state.value.lastRequest
+        private set(value) = turnHolder.update { it.copy(lastRequest = value) }
+    var resendResult: AndroidResendResult?
+        get() = recoveryHolder.state.value.resendResult
+        private set(value) = recoveryHolder.update { it.copy(resendResult = value) }
+    var captureState: AndroidCaptureState
+        get() = captureHolder.state.value.captureState
+        private set(value) = captureHolder.update { it.copy(captureState = value) }
+    var handsFree: Boolean
+        get() = captureHolder.state.value.handsFree
+        private set(value) = captureHolder.update { it.copy(handsFree = value) }
+    var interruptStatus: InterruptStatus
+        get() = captureHolder.state.value.interruptStatus
+        private set(value) = captureHolder.update { it.copy(interruptStatus = value) }
+    var initiationInFlight: Boolean
+        get() = turnHolder.state.value.initiationInFlight
+        private set(value) = turnHolder.update { it.copy(initiationInFlight = value) }
+    var resendInFlight: Boolean
+        get() = recoveryHolder.state.value.resendInFlight
+        private set(value) = recoveryHolder.update { it.copy(resendInFlight = value) }
+    var promptHistory: AndroidPromptHistory
+        get() = turnHolder.state.value.promptHistory
+        set(value) = turnHolder.update { it.copy(promptHistory = value) }
     private var historyIdentity: String? = null
 
     fun openHistory(identity: String?) {
@@ -88,23 +100,28 @@ internal class HomeRuntime(
     }
 
     /** Bumped when Local History changes outside Compose; the sheet re-reads on change. */
-    var historyRevision by mutableIntStateOf(0)
+    var historyRevision: Int
+        get() = turnHolder.state.value.historyRevision
+        set(value) = turnHolder.update { it.copy(historyRevision = value) }
 
     /** Bumped each time a turn settles, so the screen can restore composer focus once. */
-    var settleRevision by mutableIntStateOf(0)
-        private set
+    var settleRevision: Int
+        get() = turnHolder.state.value.settleRevision
+        private set(value) = turnHolder.update { it.copy(settleRevision = value) }
 
     /** Bumped when a typed prompt is accepted, so the screen can empty the composer once. */
-    var composerClearRevision by mutableIntStateOf(0)
-        private set
+    var composerClearRevision: Int
+        get() = turnHolder.state.value.composerClearRevision
+        private set(value) = turnHolder.update { it.copy(composerClearRevision = value) }
 
     /**
      * True from a deliberate Disconnect until the user chooses Connect
      * (`ANDROID-HOME-12`). Every automatic path (foreground reconnect, resume,
      * Profile selection) is a no-op meanwhile.
      */
-    var userDisconnected by mutableStateOf(false)
-        private set
+    var userDisconnected: Boolean
+        get() = recoveryHolder.state.value.userDisconnected
+        private set(value) = recoveryHolder.update { it.copy(userDisconnected = value) }
 
     /**
      * Set by the visible screen: reconnects a paired Profile whose socket
@@ -151,8 +168,9 @@ internal class HomeRuntime(
     private var stoppedBinding: AndroidTurnBinding? = null
 
     /** True while the user or a focus loss holds the reply's output. */
-    var outputPaused by mutableStateOf(false)
-        private set
+    var outputPaused: Boolean
+        get() = turnHolder.state.value.outputPaused
+        private set(value) = turnHolder.update { it.copy(outputPaused = value) }
 
     val recoveryController = AndroidRecoveryController(
         clientPort = clientPort,
@@ -201,7 +219,7 @@ internal class HomeRuntime(
             currentSessionId = { recoveryController.state.connectionId },
             onStateChange = { changed ->
                 postToMain {
-                    captureState = changed
+                    val reopenedWindow = captureHolder.onCaptureChanged(changed, turnState)
                     if (changed == AndroidCaptureState.Starting) {
                         journal.record("voice capture started")
                     }
@@ -219,10 +237,7 @@ internal class HomeRuntime(
                     // the reopened window becomes the next turn's Listening
                     // phase. Only a settled turn is replaced; an active one is
                     // never overwritten.
-                    val capturing = changed == AndroidCaptureState.Starting ||
-                        changed == AndroidCaptureState.Listening ||
-                        changed is AndroidCaptureState.Transcribing
-                    if (handsFree && capturing && turnState.isTerminal) {
+                    if (reopenedWindow) {
                         updateInitiation(AndroidInitiationState.Idle)
                         updateTurn(AndroidTurnState(phase = AndroidTurnPhase.Listening))
                     }
@@ -264,11 +279,10 @@ internal class HomeRuntime(
 
     /** True while Home still owns an accepted turn the user is waiting on. */
     val hasAcceptedTurn: Boolean
-        get() = acceptedBinding != null && (!turnState.isTerminal || clientPort.hasActiveTurn())
+        get() = turnHolder.state.value.hasAcceptedTurn(clientPort)
 
     private var observedBinding: AndroidTurnBinding? = null
     private var turnObservation: AndroidTurnObservation? = null
-    private var settledHandled = false
     private var attachedActivities = 0
     private var teardownWhenSettled = false
     private var tornDown = false
@@ -868,13 +882,13 @@ internal class HomeRuntime(
 
     private fun updateTurn(state: AndroidTurnState) {
         turnState = state
-        if (!state.isTerminal) settledHandled = false
         syncRetention()
     }
 
     private fun onTurnEvent(event: AndroidNormalizedEvent) {
         val audioBefore = turnState.audio
-        updateTurn(AndroidTurnStateReducer.reduce(turnState, event))
+        turnHolder.onEvent(event)
+        syncRetention()
         // Apply session controls at audio admission, before the startup cushion is released.
         if (turnState.audio != audioBefore &&
             (turnState.audio == AndroidAudioDelivery.Buffering || turnState.audio == AndroidAudioDelivery.Speaking)
@@ -906,9 +920,7 @@ internal class HomeRuntime(
 
     /** Runs once per settled turn, however many screens come and go meanwhile. */
     private fun settleIfDue() {
-        if (!turnState.isTerminal || initiationState !is AndroidInitiationState.Accepted) return
-        if (settledHandled) return
-        settledHandled = true
+        if (!turnHolder.claimSettlement()) return
         // Whatever was said is kept, including a partial answer from an
         // interrupted turn.
         if (turnState.responseText.isNotBlank()) {
@@ -939,11 +951,8 @@ internal class HomeRuntime(
                     (lastRequest?.input as? AndroidTurnInput.Typed)?.let { typed ->
                         recorder?.recordDraft("")
                         recorder?.recordUserTurn(typed.text)
-                        promptHistory = promptHistory.record(typed.text)
-                        // The composer empties once the turn is accepted; a sent
-                        // prompt lingering in the box reads as unsent.
-                        if (clearTypedPrompt) composerClearRevision += 1
-                        historyRevision += 1
+                        // The composer empties once the turn is accepted.
+                        turnHolder.recordAcceptedPrompt(typed.text, clearTypedPrompt)
                     }
                 }
             }
@@ -1032,10 +1041,7 @@ internal class HomeRuntime(
 
     /** Disconnect is offered while connected or recovering, and not during a submit. */
     val canDisconnect: Boolean
-        get() = (
-            recoveryState.connection == AndroidConnectionState.Connected ||
-                recoveryState.isRecovering
-            ) && !userDisconnected
+        get() = recoveryHolder.state.value.canDisconnect
 
     /** Disabled while a prompt submission (or a resend) is in flight. */
     val disconnectEnabled: Boolean
@@ -1094,14 +1100,12 @@ internal class HomeRuntime(
     }
 
     fun resendUnconfirmedTurn() {
-        if (resendInFlight) return
-        resendInFlight = true
+        if (!recoveryHolder.beginResend()) return
         syncRetention()
         runOnWork {
             val result = recoveryController.resendUnconfirmedTurn()
             runOnMain {
-                resendInFlight = false
-                resendResult = result
+                recoveryHolder.completeResend(result)
                 if (result is AndroidResendResult.Sent) {
                     lastRequest = recoveryController.state.unconfirmedTurn?.request ?: lastRequest
                     updateInitiation(AndroidInitiationState.Accepted(result.binding))
