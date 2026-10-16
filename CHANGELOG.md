@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Refactoring
+- Extract immutable turn, capture, recovery, conversations and approvals state holders from `AndroidClientScreen`, retaining the existing runtime/controller owners and lifecycle-aware rendering. Disposable-emulator surface/lifecycle smoke and 784 JVM tests pass; the unchanged 98-case instrumentation comparison retains the same 18 pre-existing failing test IDs. ARCH-01 remains in local review, not fully accepted.
+
 ### Features
 - Protect accepted Home turns with negotiated `turn.alive` keep-alives: a 45-second activity lease, independent 30-minute cap, and 120-second fallback for older Homes. Pending input suspends only idle expiry; a missing reply enters existing uncertain-turn recovery without replay. Heartbeats never enter transcript/history, and text completion leaves the separate audio wait intact. Software and disposable-emulator verification are complete; live Home/physical acceptance remains open.
 - Add content-free reply playback diagnostics: current-driver queued response-audio lead, actual native playing state, a bounded background-entry sampling window, the first playback-cushion release reason, and final underrun counts. Preserve the 1000 ms cushion / 1500 ms cap; physical-device tuning remains open.
@@ -32,6 +35,7 @@
 - Exclude all app data from cloud backup and device transfer with Android 12+ extraction rules.
 
 ### Fixes
+- Repair all 18 retained instrumentation failures with physical-control reachability, actual runtime/observer readiness, a truthful interrupt fixture, and manual-clock coverage of the unchanged 1500 ms hands-free tail. Fresh-emulator non-LiveRelay discovery is 100: 98 pass, two existing opt-in live-speech cases remain unrequested, and none fail. This supersedes the initial non-green ARCH-01 comparison above without claiming live Home, pairing, or physical audio acceptance.
 - Stop displaying Speaking immediately when response audio fails before the text turn ends; continue receiving text and show the existing audio-unavailable warning.
 - Keep deliberate interruption distinct from response-audio failure: preserve partial text and actual earlier audio errors without showing a false audio-unavailable warning for stopped playback.
 - Preserve rejected Standard authentication as a terminal authorization failure instead of treating a failed WebSocket upgrade as a lost live connection; show credential-repair guidance without an automatic retry cascade.

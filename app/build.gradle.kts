@@ -130,6 +130,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.okhttp)
     // In-app pairing QR scanner (ANDROID-HOME-02). ZXing is pure Java: no
     // native libraries and no Google Play services.

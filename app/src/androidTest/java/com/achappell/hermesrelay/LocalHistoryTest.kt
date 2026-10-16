@@ -25,6 +25,8 @@ import java.io.File
 class LocalHistoryTest {
     @get:Rule
     val composeRule = createComposeRule()
+    @get:Rule val notifications = turnFixtureNotifications()
+    private lateinit var runtime: HomeRuntime
 
     private lateinit var directory: File
 
@@ -89,6 +91,7 @@ class LocalHistoryTest {
             HermesRelayTheme {
                 AndroidClientScreen(
                     clientPort = port,
+                    onRuntime = { runtime = it },
                     configuration = RelayConfigurationController(
                         profiles = InMemoryRelayProfileStore(
                             RelayProfileCollection(
@@ -119,13 +122,8 @@ class LocalHistoryTest {
         composeRule.onNodeWithTag("android_history_close").performClick()
         composeRule.waitForIdle()
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("check the weather")
-        composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("check the weather") { port.hasObserver }
 
         val binding = port.lastBinding!!
         composeRule.runOnIdle {
@@ -182,17 +180,12 @@ class LocalHistoryTest {
 
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(clientPort = port, historyStore = store)
+                AndroidClientScreen(clientPort = port, historyStore = store, onRuntime = { runtime = it })
             }
         }
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("check the weather")
-        composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("check the weather") { port.hasObserver }
 
         val binding = port.lastBinding!!
         composeRule.runOnIdle {
@@ -218,7 +211,8 @@ class LocalHistoryTest {
         private val profile = AndroidProfile("amanda-laptop", "Amanda")
         var lastBinding: AndroidTurnBinding? = null
             private set
-        private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        @Volatile private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        val hasObserver: Boolean get() = listener != null
 
         override fun snapshot() = AndroidClientSnapshot(
             titleRes = BootstrapState.titleRes,

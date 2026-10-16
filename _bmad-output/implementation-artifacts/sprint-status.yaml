@@ -37,7 +37,7 @@ development_status:
   android-test-01: done
   # Umbrella epics (kind: epic in story-index.yaml): not stories; exclude from story counts.
   android-parity-01: backlog
-  android-arch-01: backlog
+  android-arch-01: review # Software implemented locally; 784 JVM tests, 30x206 gate, 2 new actual-screen emulator cases passed across separate receipts. Existing98 retains baseline18 failures; canonical all-tests-green acceptance open. Three reviews closed; pre-existing late rename/approval guards deferred. No push/PR.
   android-net-01: backlog
   android-voice-01: done # Actual spoken Home turn accepted; missing-pack/offline live check explicitly waived, unverified not passed.
   android-voice-02: done # Explicit owner waiver of both manual denial/recovery and physical TalkBack legs; unverified not passed.

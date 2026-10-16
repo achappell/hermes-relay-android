@@ -38,6 +38,8 @@ import org.junit.runner.RunWith
 class MainActivityTest {
     @get:Rule
     val composeRule = createComposeRule()
+    @get:Rule val notifications = turnFixtureNotifications()
+    private lateinit var runtime: HomeRuntime
 
     @Test
     fun conversation_shell_exposes_a_fixed_header_and_action_surface() {
@@ -156,6 +158,7 @@ class MainActivityTest {
         }
 
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("check the weather")
+        closeSoftKeyboard()
 
         composeRule
             .onNodeWithTag("android_cached_draft")
@@ -202,17 +205,14 @@ class MainActivityTest {
     fun prompt_history_is_grouped_under_a_recent_prompts_label() {
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(AuthorizedFakePort())
+                AndroidClientScreen(AuthorizedFakePort(), onRuntime = { runtime = it })
             }
         }
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("check the weather")
-        composeRule.onNodeWithText("Start typed turn").performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("check the weather") {
+            runtime.hasAcceptedTurn && !runtime.initiationInFlight
+        }
 
         composeRule
             .onNodeWithTag("android_prompt_history_label")
@@ -227,17 +227,14 @@ class MainActivityTest {
 
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(port)
+                AndroidClientScreen(port, onRuntime = { runtime = it })
             }
         }
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
-        composeRule.onNodeWithText("Start typed turn").performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("Check the weather") {
+            runtime.hasAcceptedTurn && !runtime.initiationInFlight
+        }
 
         composeRule.scrollToConversationTag("android_turn_status")
         composeRule.onNodeWithText("Start typed turn").assertIsNotEnabled()
@@ -251,17 +248,12 @@ class MainActivityTest {
 
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(port)
+                AndroidClientScreen(port, onRuntime = { runtime = it })
             }
         }
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
-        composeRule.onNodeWithText("Start typed turn").performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("Check the weather") { port.hasObserver }
         val binding = port.requests.single().let { request ->
             AndroidTurnBinding(request.profile.id, "session-1", "turn-1")
         }
@@ -304,17 +296,12 @@ class MainActivityTest {
 
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(port)
+                AndroidClientScreen(port, onRuntime = { runtime = it })
             }
         }
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Tell me a story")
-        composeRule.onNodeWithText("Start typed turn").performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("Tell me a story") { port.hasObserver }
         val binding = AndroidTurnBinding("amanda", "session-1", "turn-1")
 
         port.emit(AndroidNormalizedEvent.Thinking(binding))
@@ -337,17 +324,12 @@ class MainActivityTest {
 
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(port)
+                AndroidClientScreen(port, onRuntime = { runtime = it })
             }
         }
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
-        composeRule.onNodeWithText("Start typed turn").performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("Check the weather") { port.hasObserver }
         val binding = port.lastBinding!!
 
         port.emit(AndroidNormalizedEvent.Thinking(binding))
@@ -360,7 +342,12 @@ class MainActivityTest {
 
         composeRule.scrollToConversationTag("android_connect")
         composeRule.onNodeWithText("Retry").performClick()
-        composeRule.waitForIdle()
+        composeRule.waitUntil {
+            composeRule.runOnIdle {
+                runtime.recoveryState.connection == AndroidConnectionState.Connected &&
+                    !runtime.recoveryState.isRecovering
+            }
+        }
         assertEquals(1, port.requests.size)
 
         composeRule.scrollToConversationTag("android_unconfirmed_turn")
@@ -368,7 +355,13 @@ class MainActivityTest {
             .onNodeWithText("Resend this turn")
             .performScrollTo()
             .performClick()
-        composeRule.waitForIdle()
+        composeRule.waitUntil {
+            composeRule.runOnIdle {
+                !runtime.resendInFlight && runtime.hasAcceptedTurn &&
+                    runtime.turnState.binding == port.lastBinding &&
+                    port.lastBinding != binding && port.hasObserver
+            }
+        }
 
         assertEquals(2, port.requests.size)
         assertEquals(port.requests[0], port.requests[1])
@@ -384,17 +377,12 @@ class MainActivityTest {
 
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(port)
+                AndroidClientScreen(port, onRuntime = { runtime = it })
             }
         }
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
-        composeRule.onNodeWithText("Start typed turn").performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("Check the weather") { port.hasObserver }
         val binding = port.lastBinding!!
 
         port.emit(AndroidNormalizedEvent.Thinking(binding))
@@ -418,6 +406,7 @@ class MainActivityTest {
         // The composer emptied when the turn was sent, so a draft only exists
         // once something new is typed during the outage.
         composeRule.onNodeWithTag("android_typed_prompt").performTextInput("written while offline")
+        closeSoftKeyboard()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("android_cached_draft").performScrollTo().assertIsDisplayed()
     }
@@ -557,7 +546,8 @@ class MainActivityTest {
     private class ObservableAuthorizedFakePort : AndroidClientPort {
         private val profile = AndroidProfile("amanda", "Amanda")
         val requests = mutableListOf<AndroidTurnRequest>()
-        private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        @Volatile private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        val hasObserver: Boolean get() = listener != null
 
         override fun snapshot() = AndroidClientSnapshot(
             titleRes = BootstrapState.titleRes,
@@ -600,7 +590,8 @@ class MainActivityTest {
     private class RecoverableAuthorizedFakePort : AndroidClientPort {
         private val profile = AndroidProfile("amanda", "Amanda")
         val requests = mutableListOf<AndroidTurnRequest>()
-        private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        @Volatile private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        val hasObserver: Boolean get() = listener != null
         private var connectionListener: ((AndroidNormalizedEvent.Disconnected) -> Unit)? = null
         private var sessionId = "session-1"
         private var connections = 0

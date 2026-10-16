@@ -126,3 +126,10 @@
 - source_spec: `spec-standard-auth-recovery.md`
   summary: Preserve the authoritative typed authorization rejection instead of overwriting it with a failed-upgrade transport-loss event.
   evidence: Baseline MockWebServer regression proved that HTTP401/403 initial failure emitted Disconnected despite never establishing a transport. The minimal callback-ownership fix passes that regression; existing presentation already converts typed Unauthorized to unavailable authorization and configuration repair. On the configured API 36 emulator, the owned invalid credential produced one rejection at 2026-10-14T00:16:59.584Z, no loss callback or prompt/replay, no Retry action, and a working Edit relay action. Repairing only the owned credential restored Verified/Ready at 00:18:09.258Z. Original configuration and history checksums were unchanged after cleanup. The earlier duplicate client-state candidate was removed as unnecessary; default-profile audio is not fixed by this change.
+
+- source_spec: `spec-android-arch-01-state-holders.md`
+  summary: Guard conversation rename completion against a hidden sheet or changed Profile.
+  evidence: Review E1 traced the same unguarded completion in baseline MainActivity976–983 and extracted ConversationsHolder154–163; completion publishes feedback and starts a list after hide/Profile change. Existing list and claim guards remain intact. Deferred as pre-existing behavior outside the approved pure refactor.
+- source_spec: `spec-android-arch-01-state-holders.md`
+  summary: Scope approval response rows and pending count to the requesting Profile.
+  evidence: Review E2 traced baseline MainActivity447–466 and ApprovalsHolder32–49 publishing a loaded result without a Profile/generation guard. A queued holder test preserves and exposes the existing out-of-order response. Same-provider Profile changes do not extend the original composition lifetime; separate authorization-aware hardening is required.
