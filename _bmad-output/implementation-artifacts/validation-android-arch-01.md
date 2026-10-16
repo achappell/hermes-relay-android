@@ -83,5 +83,8 @@ The first Accessibility fixture calls Connect→waitForIdle→type→Start→clo
 Existing instrumentation remains non-green; it is not waived or relabelled as accepted. This is a locally implemented/reviewed refactor with bounded emulator proof and preserved baseline exceptions, not whole-story acceptance. Physical/live limitations from HOME09/HOME10 remain unchanged. Publishing and any broader baseline remediation require separate authorization.
 
 Owned emulator5588 was identified by its AVD name, shut down after proof, and its
-exclusive port claim released (`E/owned-emulator-cleanup.log`). Disposable AVD
-artifacts remain confined to E for evidence; owner assets were untouched.
+exclusive port claim released (`E/owned-emulator-cleanup.log`). After shutdown,
+only its disposable `E/avd` home was removed; absence is recorded in
+`E/owned-avd-disk-cleanup.json`. Reproduction configuration remains in
+`E/owned-avd-config`; all logs/XML/APKs/comparison receipts remain intact.
+Owner AVDs and recovery assets were untouched.
