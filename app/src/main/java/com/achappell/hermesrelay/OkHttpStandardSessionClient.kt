@@ -129,6 +129,8 @@ internal class OkHttpStandardSessionClient(
     override fun pauseOutput() = audioSink.pause()
     override fun resumeOutput() = audioSink.resume()
     override fun setOutputDucked(ducked: Boolean) = audioSink.setDucked(ducked)
+    override fun playbackLead() = audioSink.playbackLead()
+    override fun playbackLeadStream() = audioSink.playbackLeadStream()
     // Explicit resend/discard is not a new session and must not clear this guard.
     override fun prepareForExplicitResend() = Unit
 

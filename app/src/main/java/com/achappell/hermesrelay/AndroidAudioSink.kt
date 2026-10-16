@@ -63,6 +63,12 @@ internal interface AndroidAudioSink {
 
     fun write(bytes: ByteArray)
 
+    /** Response PCM queued on the current native driver, excluding drain padding. */
+    fun playbackLead(): AudioPlaybackLead? = null
+
+    /** Ownership only; does not query or change native output. */
+    fun playbackLeadStream(): Any? = null
+
     /**
      * Signals that no more audio is coming.
      *
@@ -117,6 +123,18 @@ internal data class AndroidAudioSinkTelemetry(
     val failureKind: AudioSinkFailureKind?,
 )
 
+internal data class AudioPlaybackLead(
+    val stream: Any,
+    val frames: Long,
+    val sampleRate: Int,
+    val state: String,
+    val playing: Boolean,
+    /** Publishes only while the queried stream and native driver still own this snapshot. */
+    val publish: (() -> Unit) -> Unit = { it() },
+) {
+    val millis: Long get() = frames * 1_000 / sampleRate
+}
+
 /** Narrow platform seam; implementations must not retain PCM for inspection. */
 internal interface AudioTrackDriver {
     fun state(): Int
@@ -128,6 +146,8 @@ internal interface AudioTrackDriver {
     fun write(buffer: ByteArray, offset: Int, size: Int): Int
 
     fun playbackHeadFrames(): Long
+
+    fun isPlaying(): Boolean = false
 
     fun underrunCount(): Int
 
@@ -176,6 +196,19 @@ internal fun preparePlaybackBuffer(
     }
 }
 
+/** AudioTrack's unsigned 32-bit head belongs to one driver; stop/release ends its use. */
+internal class PlaybackHeadCounter {
+    private var previous = 0L
+    private var wraps = 0L
+
+    fun frames(raw: Int): Long {
+        val unsigned = raw.toLong() and 0xffff_ffffL
+        if (unsigned < previous) wraps += 1L shl 32
+        previous = unsigned
+        return wraps + unsigned
+    }
+}
+
 private class PlatformAudioTrackDriver(
     private val track: AudioTrack,
     private val platform: AndroidPlatform,
@@ -183,6 +216,7 @@ private class PlatformAudioTrackDriver(
 ) : AudioTrackDriver {
     init { routes?.attach(track) }
     private var invalidationListener: AudioRouting.OnRoutingChangedListener? = null
+    private val headCounter = PlaybackHeadCounter()
 
     override fun observeRoutingChanges(listener: () -> Unit) {
         val callback = AudioRouting.OnRoutingChangedListener { listener() }
@@ -214,7 +248,10 @@ private class PlatformAudioTrackDriver(
         AudioTrack.WRITE_NON_BLOCKING,
     )
 
-    override fun playbackHeadFrames(): Long = track.playbackHeadPosition.toLong()
+    @Synchronized
+    override fun playbackHeadFrames(): Long = headCounter.frames(track.playbackHeadPosition)
+
+    override fun isPlaying(): Boolean = track.playState == AudioTrack.PLAYSTATE_PLAYING
 
     override fun underrunCount(): Int = track.underrunCount
 
@@ -275,6 +312,7 @@ internal class AudioTrackAudioSink(
     private val startupLeadMillis: Long = 1_000,
     private val maximumHoldMillis: Long = 1_500,
     startupScheduler: ScheduledExecutorService? = null,
+    private val journal: DiagnosticsJournal = DiagnosticsJournal.None,
     /**
      * Live-gate evidence requires gapless playback, so it fails on the first
      * underrun. Ordinary playback only counts them: AudioTrack resumes once
@@ -310,6 +348,9 @@ internal class AudioTrackAudioSink(
     private var startupDeadline: ScheduledFuture<*>? = null
     // Explicit resume also releases PCM submitted while held but not yet accepted by the driver.
     private var startupReleased = false
+    private var startupReleaseReason = "resume"
+    private var cushionReported = false
+    private var responseReported = false
     private var playbackStartedCallback: (() -> Unit)? = null
     // Only notification ordering is serialized here; never hold native/state locks in client code.
     private val notificationLock = Any()
@@ -327,10 +368,13 @@ internal class AudioTrackAudioSink(
     private val acceptedFrames = AtomicLong(0)
     // Stream totals never reset during recovery; native heads start again at zero.
     private val driverFrames = AtomicLong(0)
+    private var responseWriteVersion = 0L
+    private var responseWriteInFlight = false
     private var streamFormat: AndroidAudioFormat? = null
     private var streamBufferBytes = 0
     private var replacementUsed = false
     private var nativeQueueUncertain = false
+    private var telemetryStream = Any()
     private val drained = AtomicBoolean(false)
     private val failed = AtomicBoolean(false)
     private val paused = AtomicBoolean(false)
@@ -363,13 +407,64 @@ internal class AudioTrackAudioSink(
         failureKind = failureKind.get(),
     )
 
+    override fun playbackLeadStream(): Any? = synchronized(deadlineLock) {
+        if (active.get() && !failed.get()) telemetryStream else null
+    }
+
+    override fun playbackLead(): AudioPlaybackLead? {
+        val current: AudioTrackDriver
+        val expected: Long
+        val queued: Long
+        val writeVersion: Long
+        synchronized(deadlineLock) {
+            if (!active.get() || failed.get()) return null
+            if (responseWriteInFlight) return null
+            writeVersion = responseWriteVersion
+            current = driver.get() ?: return null
+            expected = generation.get()
+            queued = driverFrames.get()
+        }
+        val played = runCatching { current.playbackHeadFrames() }.getOrNull() ?: return null
+        val playing = runCatching { current.isPlaying() }.getOrNull() ?: return null
+        return synchronized(deadlineLock) {
+            if (generation.get() != expected || driver.get() !== current || !active.get() || failed.get() ||
+                responseWriteInFlight || responseWriteVersion != writeVersion || driverFrames.get() != queued) null
+            else AudioPlaybackLead(
+                stream = telemetryStream,
+                frames = (queued - played).coerceAtLeast(0),
+                sampleRate = checkNotNull(streamFormat).sampleRate,
+                state = when {
+                    paused.get() -> "paused"
+                    started.get() -> "playing"
+                    else -> "buffering"
+                },
+                playing = playing,
+                publish = { record ->
+                    synchronized(deadlineLock) {
+                        if (generation.get() == expected && driver.get() === current && active.get() &&
+                            !failed.get() && !responseWriteInFlight && responseWriteVersion == writeVersion &&
+                            driverFrames.get() == queued) {
+                            record()
+                        }
+                    }
+                },
+            )
+        }
+    }
+
     override fun start(format: AndroidAudioFormat, onPlaybackStarted: () -> Unit): Boolean {
         var expectedGeneration = 0L
         val previous = synchronized(deadlineLock) {
+            reportResponseEnded()
             expectedGeneration = generation.incrementAndGet()
+            responseWriteVersion++
+            responseWriteInFlight = false
             active.set(false)
             cancelStartupDeadline()
             startupReleased = false
+            telemetryStream = Any()
+            cushionReported = false
+            responseReported = false
             playbackStartedCallback = onPlaybackStarted
             driver.getAndSet(null)
         }
@@ -492,6 +587,7 @@ internal class AudioTrackAudioSink(
             if (generation.get() != expected) return null
             success = succeeded && !failed.get() && !nativeQueueUncertain
             if (!success && failureKind.get() == null) fail(AudioSinkFailureKind.PlaybackStalled, expected)
+            reportResponseEnded()
             active.set(false)
             cancelStartupDeadline()
             startupReleased = false
@@ -512,7 +608,10 @@ internal class AudioTrackAudioSink(
     private fun cancelCurrent(onlyIfActive: Boolean) {
         val current = synchronized(deadlineLock) {
             if (onlyIfActive && !active.get()) return
+            reportResponseEnded()
             generation.incrementAndGet()
+            responseWriteVersion++
+            responseWriteInFlight = false
             active.set(false)
             cancelStartupDeadline()
             startupReleased = false
@@ -522,6 +621,23 @@ internal class AudioTrackAudioSink(
             driver.getAndSet(null)
         }
         current?.let { releaseTrack(it, stop = true) }
+    }
+
+    /** Called while this stream still owns its counters, before cancellation resets ownership. */
+    private fun reportResponseEnded() {
+        if (!active.get() || responseReported) return
+        responseReported = true
+        val current = driver.get()
+        val observed = underrunCount.get()
+        val baseline = underrunBaseline.get()
+        val retired = retiredUnderruns
+        controls.execute {
+            val finalDelta = current?.let { runCatching { it.underrunCount() }.getOrNull() }
+                ?.let { (it - baseline).coerceAtLeast(0) } ?: 0
+            val total = maxOf(observed.toLong(), retired.toLong() + finalDelta)
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+            journal.record("voice response ended underruns=$total")
+        }
     }
 
 
@@ -549,7 +665,10 @@ internal class AudioTrackAudioSink(
     override fun resume() {
         val expected = synchronized(deadlineLock) {
             if (!endHold()) return
-            if (active.get()) startupReleased = true
+            if (active.get()) {
+                startupReleased = true
+                startupReleaseReason = "resume"
+            }
             generation.get()
         }
         queueControl(expected) { current ->
@@ -558,7 +677,7 @@ internal class AudioTrackAudioSink(
                 driverPaused = false
             }
         }
-        queueStartupPlayback(expected)
+        queueStartupPlayback(expected, reason = "resume")
     }
 
     /** UI controls publish intent immediately; native work never waits on the UI thread. */
@@ -604,7 +723,7 @@ internal class AudioTrackAudioSink(
         runCatching {
             worker.execute {
                 val recovered = recoverTrack(obsolete, expected) ?: return@execute
-                if (driverFrames.get() > 0) startPlayback(recovered, expected)
+                if (driverFrames.get() > 0) startPlayback(recovered, expected, "restart")
             }
         }.onFailure { fail(AudioSinkFailureKind.OutputUnavailable, expected, obsolete) }
     }
@@ -632,6 +751,7 @@ internal class AudioTrackAudioSink(
             }
             // A head is evidence only for the old native queue, never permission to replay PCM.
             val played = runCatching { obsolete.playbackHeadFrames() }.getOrNull()
+            val finalUnderruns = runCatching { obsolete.underrunCount() }.getOrNull()
             val uncertain = driverFrames.get() > 0 && (played == null || played < driverFrames.get())
             var unpublished: AudioTrackDriver? = null
             runCatching {
@@ -648,12 +768,20 @@ internal class AudioTrackAudioSink(
                     }
                     nativeQueueUncertain = nativeQueueUncertain || uncertain
                     driverFrames.set(0)
+                    responseWriteVersion++
+                    responseWriteInFlight = false
+                    retiredUnderruns = maxOf(
+                        underrunCount.get().toLong(),
+                        retiredUnderruns.toLong() + ((finalUnderruns ?: underrunBaseline.get()) -
+                            underrunBaseline.get()).coerceAtLeast(0),
+                    ).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    underrunCount.set(retiredUnderruns)
                     underrunBaseline.set(baseline)
-                    retiredUnderruns = underrunCount.get()
                     started.set(false)
                     driverPaused = false
                     appliedVolume = volume
                     startupReleased = true
+                    startupReleaseReason = "restart"
                     cancelStartupDeadline()
                     driver.set(created)
                     unpublished = null
@@ -695,69 +823,91 @@ internal class AudioTrackAudioSink(
                 continue
             }
             if (!observeUnderruns(activeDriver, expectedGeneration)) return
-            val written = runCatching {
-                activeDriver.write(bytes, offset, bytes.size - offset)
-            }.getOrElse {
-                fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
-                return
-            }
-            if (generation.get() != expectedGeneration || !active.get()) return
-            when {
-                written == AudioTrack.ERROR_DEAD_OBJECT || written == AudioTrack.ERROR_INVALID_OPERATION -> {
-                    activeDriver = recoverTrack(activeDriver, expectedGeneration) ?: return
-                }
-
-                written < 0 || written > bytes.size - offset -> {
+            val writingDriver = activeDriver
+            val writeVersion = if (responseAudio) synchronized(deadlineLock) {
+                if (generation.get() != expectedGeneration || driver.get() !== writingDriver || !active.get()) return
+                responseWriteInFlight = true
+                ++responseWriteVersion
+            } else -1L
+            try {
+                val written = runCatching {
+                    activeDriver.write(bytes, offset, bytes.size - offset)
+                }.getOrElse {
                     fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
                     return
                 }
+                if (generation.get() != expectedGeneration || !active.get()) return
+                when {
+                    written == AudioTrack.ERROR_DEAD_OBJECT || written == AudioTrack.ERROR_INVALID_OPERATION -> {
+                        activeDriver = recoverTrack(activeDriver, expectedGeneration) ?: return
+                    }
 
-                written == 0 -> {
-                    // A platform buffer may fill below the requested threshold.
-                    if (!started.get() && driverFrames.get() > 0 &&
-                        !startPlayback(activeDriver, expectedGeneration)) return
-                    if (elapsedMillis(lastProgress) >= writeStallDeadlineMillis) {
+                    written < 0 || written > bytes.size - offset -> {
                         fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
                         return
                     }
-                    sleepForPoll(expectedGeneration)
-                }
 
-                written % frameBytes != 0 -> {
-                    fail(AudioSinkFailureKind.InvalidFrameAlignment, expectedGeneration)
-                    return
-                }
-
-                else -> {
-                    if (!observeUnderruns(activeDriver, expectedGeneration)) return
-                    offset += written
-                    val releaseStartup = synchronized(deadlineLock) {
-                        // Native underrun queries can return after cancellation/replacement.
-                        // Counter publication and first-buffer timer admission belong to one generation.
-                        if (generation.get() != expectedGeneration || driver.get() !== activeDriver ||
-                            !active.get() || failed.get()) return
-                        val frames = if (responseAudio) {
-                            acceptedBytes.addAndGet(written.toLong())
-                            driverFrames.addAndGet((written / frameBytes).toLong())
-                            acceptedFrames.addAndGet((written / frameBytes).toLong())
-                        } else {
-                            acceptedFrames.get()
+                    written == 0 -> {
+                        // A platform buffer may fill below the requested threshold.
+                        if (!started.get() && driverFrames.get() > 0 &&
+                            !startPlayback(activeDriver, expectedGeneration, "buffer_full")) return
+                        if (elapsedMillis(lastProgress) >= writeStallDeadlineMillis) {
+                            fail(AudioSinkFailureKind.WriteFailure, expectedGeneration)
+                            return
                         }
-                        if (responseAudio && frames == written / frameBytes.toLong() &&
-                            frames < startupFrames && !startupReleased
-                        ) {
-                            armStartupDeadline(expectedGeneration)
-                        }
-                        driverFrames.get() >= startupFrames || startupReleased
+                        sleepForPoll(expectedGeneration)
                     }
-                    if (releaseStartup && !startPlayback(activeDriver, expectedGeneration)) return
-                    lastProgress = playbackTimeNanos()
+
+                    written % frameBytes != 0 -> {
+                        fail(AudioSinkFailureKind.InvalidFrameAlignment, expectedGeneration)
+                        return
+                    }
+
+                    else -> {
+                        if (!observeUnderruns(activeDriver, expectedGeneration)) return
+                        offset += written
+                        val releaseStartup = synchronized(deadlineLock) {
+                            // Native acceptance and its published counters form one observation interval.
+                            if (generation.get() != expectedGeneration || driver.get() !== activeDriver ||
+                                !active.get() || failed.get()) return
+                            val frames = if (responseAudio) {
+                                acceptedBytes.addAndGet(written.toLong())
+                                driverFrames.addAndGet((written / frameBytes).toLong())
+                                acceptedFrames.addAndGet((written / frameBytes).toLong())
+                            } else {
+                                acceptedFrames.get()
+                            }
+                            if (responseAudio) endResponseWrite(expectedGeneration, writingDriver, writeVersion)
+                            if (responseAudio && frames == written / frameBytes.toLong() &&
+                                frames < startupFrames && !startupReleased
+                            ) {
+                                armStartupDeadline(expectedGeneration)
+                            }
+                            when {
+                                startupReleased -> startupReleaseReason
+                                driverFrames.get() >= startupFrames -> "threshold"
+                                else -> null
+                            }
+                        }
+                        if (releaseStartup != null && !startPlayback(activeDriver, expectedGeneration, releaseStartup)) return
+                        lastProgress = playbackTimeNanos()
+                    }
                 }
+            } finally {
+                if (responseAudio) endResponseWrite(expectedGeneration, writingDriver, writeVersion)
             }
         }
     }
 
-    private fun startPlayback(activeDriver: AudioTrackDriver, expectedGeneration: Long): Boolean {
+    private fun endResponseWrite(expected: Long, current: AudioTrackDriver, version: Long) =
+        synchronized(deadlineLock) {
+            if (generation.get() == expected && driver.get() === current && responseWriteVersion == version) {
+                responseWriteInFlight = false
+                responseWriteVersion++
+            }
+        }
+
+    private fun startPlayback(activeDriver: AudioTrackDriver, expectedGeneration: Long, reason: String): Boolean {
         var beganPlayback = false
         val success = synchronized(volumeLock) {
             if (generation.get() != expectedGeneration || driver.get() !== activeDriver ||
@@ -773,12 +923,18 @@ internal class AudioTrackAudioSink(
                 applyVolume(activeDriver)
                 if (generation.get() != expectedGeneration || !active.get() || driver.get() !== activeDriver) return false
                 if (paused.get()) return@synchronized true
+                // This driver has never played: admission/recovery creates a fresh AudioTrack.
+                val leadAtStart = driverFrames.get() * 1_000 / checkNotNull(streamFormat).sampleRate
                 activeDriver.play()
                 synchronized(deadlineLock) {
                     if (generation.get() != expectedGeneration || driver.get() !== activeDriver) return false
                     started.set(true)
                     beganPlayback = true
                     cancelStartupDeadline()
+                    if (!cushionReported) {
+                        cushionReported = true
+                        journal.record("audio output cushion started lead_ms=$leadAtStart reason=$reason")
+                    }
                 }
                 if (paused.get()) {
                     activeDriver.pause()
@@ -823,13 +979,17 @@ internal class AudioTrackAudioSink(
         startupDeadline = null
     }
 
-    private fun queueStartupPlayback(expected: Long, expectedDriver: AudioTrackDriver? = driver.get()) {
+    private fun queueStartupPlayback(
+        expected: Long,
+        expectedDriver: AudioTrackDriver? = driver.get(),
+        reason: String = "cap",
+    ) {
         runCatching {
             controls.execute {
                 if (generation.get() != expected || !active.get() || driver.get() !== expectedDriver ||
                     driverFrames.get() == 0L) return@execute
                 val current = driver.get() ?: return@execute
-                startPlayback(current, expected)
+                startPlayback(current, expected, reason)
             }
         }.onFailure { fail(AudioSinkFailureKind.StartFailure, expected) }
     }
@@ -862,7 +1022,7 @@ internal class AudioTrackAudioSink(
         val targetFrames = driverFrames.get()
         if (targetFrames == 0L) return
         // Short replies can end before the startup threshold is filled.
-        if (!startPlayback(activeDriver, expectedGeneration)) return
+        if (!startPlayback(activeDriver, expectedGeneration, "finish")) return
         val startedAt = playbackTimeNanos()
         var lastPosition = runCatching { activeDriver.playbackHeadFrames() }
             .getOrElse {
@@ -883,7 +1043,7 @@ internal class AudioTrackAudioSink(
                 sleepForPoll(expectedGeneration)
                 continue
             }
-            if (!started.get() && !startPlayback(activeDriver, expectedGeneration)) return
+            if (!started.get() && !startPlayback(activeDriver, expectedGeneration, "finish")) return
             if (!observeUnderruns(activeDriver, expectedGeneration)) return
             val position = runCatching { activeDriver.playbackHeadFrames() }
                 .getOrElse {
