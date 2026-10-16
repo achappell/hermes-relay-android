@@ -17,6 +17,8 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -132,6 +134,11 @@ internal class OkHttpRelaySessionClient(
     private val clientClaims: HomeClientClaimProvider? = null,
     private val journal: DiagnosticsJournal = DiagnosticsJournal.None,
     private val clock: MonotonicClock = MonotonicClock.Real,
+    // The process HomeRuntime owns this client and closes its worker on teardown.
+    private val controlScheduler: ScheduledExecutorService = ScheduledThreadPoolExecutor(1, { task ->
+        Thread(task, "hermes-home-control").apply { isDaemon = true }
+    }).apply { removeOnCancelPolicy = true },
+    private val controlDeadlines: HomeTurnDeadlines = HomeTurnDeadlines(),
 ) : AndroidClientPort, AndroidHomeConversations, AndroidHomeApprovals {
 
     /** A personal-client claim held for one Profile; never persisted. */
@@ -177,6 +184,8 @@ internal class OkHttpRelaySessionClient(
     private val lastUnavailableProfileId = AtomicReference<String?>(null)
     private val ready = AtomicBoolean(false)
     private val audioActive = AtomicBoolean(false)
+    /** Validated wire stream, independent of whether presentation has attached. */
+    private var ingressAudioBinding: AndroidTurnBinding? = null
     private val audioStreamGeneration = AtomicLong(0)
     private val interruptRequested = AtomicBoolean(false)
     private val terminalObserved = AtomicBoolean(false)
@@ -204,6 +213,16 @@ internal class OkHttpRelaySessionClient(
     private val pending = ConcurrentHashMap<String, PendingRpc>()
     private val queuedFrames = ConcurrentLinkedQueue<InboundFrame>()
     private val inboundLock = Any()
+    private val controlLease = HomeControlLease(inboundLock, controlScheduler, clock, controlDeadlines) { binding, kind ->
+        if (activeTurn.get() == binding && connectionId.get() == binding.connectionId) {
+            val socket = activeSocket.get()
+            if (socket != null) {
+                journal.record("store Home deadline expired kind=$kind")
+                reportDisconnect(socket, "The Home turn stopped responding. Its outcome is unconfirmed.")
+                socket.cancel()
+            }
+        }
+    }
     @Volatile
     private var audioBytesPerFrame = 2
     @Volatile
@@ -250,6 +269,7 @@ internal class OkHttpRelaySessionClient(
             val connectionId: String?,
             val binding: AndroidTurnBinding?,
         ) : InboundFrame
+        data class Event(val value: AndroidNormalizedEvent) : InboundFrame
     }
 
     override fun snapshot(): AndroidClientSnapshot {
@@ -398,9 +418,14 @@ internal class OkHttpRelaySessionClient(
                     !turnId.isNullOrBlank()
                 ) {
                     synchronized(inboundLock) {
-                        activeTurn.set(AndroidTurnBinding(
+                        if (activeSocket.get() !== socket || connectionId.get() != localConnection) return@synchronized
+                        val accepted = AndroidTurnBinding(
                             profile.id, binding.conversationHandle, localConnection, turnId,
-                        ))
+                        )
+                        activeTurn.set(accepted)
+                        ingressAudioBinding = null
+                        controlLease.start(accepted, capabilities.get().turnKeepalive)
+                        flushQueued()
                     }
                 }
             }
@@ -478,10 +503,12 @@ internal class OkHttpRelaySessionClient(
                 turnId = turnId,
             )
             synchronized(inboundLock) {
-                activeTurn.set(accepted)
-            }
-            synchronized(turnAdmissionLock) {
-                uncertainDelivery.set(false)
+                if (activeTurn.get() != accepted || connectionId.get() != localConnection) {
+                    return uncertain(AndroidHomeUnavailableReason.TransportTimeout)
+                }
+                synchronized(turnAdmissionLock) {
+                    uncertainDelivery.set(false)
+                }
             }
             return AndroidInitiationResult.Accepted(accepted)
         } finally {
@@ -809,6 +836,7 @@ internal class OkHttpRelaySessionClient(
             val builder = Request.Builder()
                 .url(bridgeUrl(homeBinding.approvedRoute))
                 .header("Authorization", "Device $credential")
+                .header("X-Hermes-Home-Client-Features", "turn_keepalive")
             liveHomeGateTrace?.let { trace ->
                 builder
                     .header("X-Hermes-Live-Run-Id", trace.runId)
@@ -877,7 +905,7 @@ internal class OkHttpRelaySessionClient(
                             settled.countDown()
                             webSocket.cancel()
                         } else {
-                            dispatch(text)
+                            dispatch(text, sourceSocket = webSocket, sourceGeneration = attemptGeneration)
                         }
                         return
                     }
@@ -910,7 +938,7 @@ internal class OkHttpRelaySessionClient(
                     if (id != null && pending.remove(id)?.also { it.complete(frame) } != null) {
                         return
                     }
-                    dispatch(text)
+                    dispatch(text, sourceSocket = webSocket, sourceGeneration = attemptGeneration)
                 }
 
                 override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -921,7 +949,7 @@ internal class OkHttpRelaySessionClient(
                         return
                     }
                     if (!handshakeCommitted.get()) return
-                    dispatch(bytes)
+                    dispatch(bytes, sourceSocket = webSocket, sourceGeneration = attemptGeneration)
                 }
 
                 override fun onFailure(
@@ -1051,6 +1079,7 @@ internal class OkHttpRelaySessionClient(
                         connectionId.set(result.connectionId)
                         route.set(result.route)
                         capabilities.set(result.capabilities)
+                        journal.record("home capability turn_keepalive=${result.capabilities.turnKeepalive}")
                         ready.set(true)
                         if (result.unresolvedTurnBinding != null) {
                             activeTurn.set(result.unresolvedTurnBinding)
@@ -1058,7 +1087,10 @@ internal class OkHttpRelaySessionClient(
                             audioSeenThisTurn.set(true)
                             awaitingAudio.set(false)
                             normalizer.set(
-                                HermesEventNormalizer(profile.id, allowLegacyFrames = false).apply {
+                                HermesEventNormalizer(
+                                    profile.id, allowLegacyFrames = false,
+                                    onScopedActivity = { controlLease.activity(it) },
+                                ).apply {
                                     beginTurn()
                                 },
                             )
@@ -1071,7 +1103,10 @@ internal class OkHttpRelaySessionClient(
                             activeTurn.set(null)
                             if (!result.unresolvedTurn) queuedFrames.clear()
                             normalizer.set(
-                                HermesEventNormalizer(profile.id, allowLegacyFrames = false),
+                                HermesEventNormalizer(
+                                    profile.id, allowLegacyFrames = false,
+                                    onScopedActivity = { controlLease.activity(it) },
+                                ),
                             )
                         }
                         hasOpenedConversation.set(true)
@@ -1358,6 +1393,7 @@ internal class OkHttpRelaySessionClient(
         terminalObserved.set(false)
         queuedFrames.clear()
         audioSink.close()
+        controlScheduler.shutdownNow()
     }
 
     override fun selectedIsPaired(): Boolean =
@@ -1666,7 +1702,9 @@ internal class OkHttpRelaySessionClient(
      * Closes the transport. The call that takes the socket records [initiator]
      * once; later calls find none and record nothing (`ANDROID-HOME-06`).
      */
-    private fun closeTransport(initiator: String? = null, flushQueued: Boolean = false) {
+    private fun closeTransport(initiator: String? = null, flushQueued: Boolean = false): Unit = synchronized(inboundLock) {
+        controlLease.cancel()
+        ingressAudioBinding = null
         transportGeneration.incrementAndGet()
         awaitingAudio.set(false)
         val socket = activeSocket.getAndSet(null)
@@ -1702,35 +1740,69 @@ internal class OkHttpRelaySessionClient(
     private fun dispatch(
         text: String,
         taggedBinding: AndroidTurnBinding? = null,
+        sourceSocket: WebSocket? = null,
+        sourceGeneration: Long = transportGeneration.get(),
     ) {
         synchronized(inboundLock) {
+            if (sourceGeneration != transportGeneration.get() ||
+                (sourceSocket != null && activeSocket.get() !== sourceSocket)
+            ) return
             val binding = activeTurn.get()
             val currentObserver = observer.get()
             if (taggedBinding != null && taggedBinding != binding) return
-            if (binding == null || currentObserver == null) {
-                // Home can publish a turn event before the prompt acknowledgement
-                // reaches beginTurn. Keep text until the response supplies the
-                // turn binding; binary data has no safe correlation identity and
-                // is deliberately dropped until a binding exists.
-                if (binding != null || turnInFlight.get()) {
-                    enqueue(InboundFrame.Text(text, connectionId.get(), binding))
-                }
+            if (binding == null) {
+                // Frames before acknowledgement have no validated current turn yet.
+                if (turnInFlight.get()) enqueue(InboundFrame.Text(text, connectionId.get(), null))
                 return
             }
-            if (currentObserver.binding != binding) return
             val events = normalizer.get()?.normalize(text, binding).orEmpty()
-            events.forEach { event -> handleEvent(event, currentObserver) }
+            events.forEach { event ->
+                if (event.binding == binding) {
+                    when (event) {
+                        is AndroidNormalizedEvent.TurnAlive -> controlLease.activity(binding, event.phase)
+                        is AndroidNormalizedEvent.StructuredPrompt -> controlLease.promptPending(binding)
+                        is AndroidNormalizedEvent.AudioStarted -> {
+                            ingressAudioBinding = if (ingressAudioBinding != binding &&
+                                capabilities.get().audio && event.format?.isSupported == true
+                            ) binding else null
+                            controlLease.activity(binding)
+                        }
+                        is AndroidNormalizedEvent.AudioEnded,
+                        is AndroidNormalizedEvent.AudioFailed -> {
+                            ingressAudioBinding = null
+                            controlLease.activity(binding)
+                        }
+                        is AndroidNormalizedEvent.TurnCompleted,
+                        is AndroidNormalizedEvent.TurnInterrupted,
+                        is AndroidNormalizedEvent.TurnFailed -> controlLease.cancel()
+                        else -> Unit
+                    }
+                }
+                // Control is consumed on arrival, not when a presentation observer attaches.
+                if (event !is AndroidNormalizedEvent.TurnAlive) {
+                    if (currentObserver?.binding == binding) handleEvent(event, currentObserver)
+                    else enqueue(InboundFrame.Event(event))
+                }
+            }
         }
     }
 
     private fun dispatch(
         bytes: ByteString,
         taggedBinding: AndroidTurnBinding? = null,
+        sourceSocket: WebSocket? = null,
+        sourceGeneration: Long = transportGeneration.get(),
     ) {
         synchronized(inboundLock) {
+            if (sourceGeneration != transportGeneration.get() ||
+                (sourceSocket != null && activeSocket.get() !== sourceSocket)
+            ) return
             val binding = activeTurn.get()
             val currentObserver = observer.get()
             if (taggedBinding != null && taggedBinding != binding) return
+            if (binding != null && ingressAudioBinding == binding && taggedBinding == null && !interruptRequested.get()) {
+                controlLease.activity(binding)
+            }
             if (binding == null || currentObserver == null) {
                 if (binding != null) {
                     enqueue(InboundFrame.Binary(bytes, connectionId.get(), binding))
@@ -1780,10 +1852,12 @@ internal class OkHttpRelaySessionClient(
         currentObserver: TurnObserver,
     ) {
         when (event) {
+            is AndroidNormalizedEvent.TurnAlive -> return
             is AndroidNormalizedEvent.AudioStarted -> {
                 if (terminalObserved.get() || interruptRequested.get()) return
                 audioSeenThisTurn.set(true)
                 if (audioActive.get() || audioDrainPending.get()) {
+                    ingressAudioBinding = null
                     audioActive.set(false)
                     audioDrainPending.set(false)
                     audioBytesRemainder = 0
@@ -1815,6 +1889,7 @@ internal class OkHttpRelaySessionClient(
                         }
                     }
                 ) {
+                    ingressAudioBinding = null
                     audioActive.set(false)
                     audioBytesRemainder = 0
                     audioRemainder = ByteArray(0)
@@ -1827,6 +1902,7 @@ internal class OkHttpRelaySessionClient(
                     )
                     if (settleAwaitedAudio()) clearTurnIfTerminal(event.binding)
                 } else {
+                    ingressAudioBinding = event.binding
                     audioActive.set(true)
                     audioBytesPerFrame = bytesPerFrame(format.channels)
                     audioBytesRemainder = 0
@@ -1841,6 +1917,7 @@ internal class OkHttpRelaySessionClient(
                 }
             }
             is AndroidNormalizedEvent.AudioEnded -> {
+                ingressAudioBinding = null
                 if (interruptRequested.get() && !audioActive.get() && !audioDrainPending.get()) {
                     // The user already stopped this speech. Home ending its sidecar is the
                     // expected echo of that stop, not a stream that ended before it began.
@@ -1910,6 +1987,7 @@ internal class OkHttpRelaySessionClient(
                 }
             }
             is AndroidNormalizedEvent.AudioFailed -> {
+                ingressAudioBinding = null
                 audioActive.set(false)
                 audioDrainPending.set(false)
                 audioBytesRemainder = 0
@@ -1922,9 +2000,10 @@ internal class OkHttpRelaySessionClient(
                 clearTurnIfTerminal(event.binding)
             }
             is AndroidNormalizedEvent.TurnCompleted -> {
+                controlLease.cancel()
                 // Home synthesises speech once the text is done, so audio may start well
                 // after this terminal. Advertised audio that has not started keeps the turn
-                // open (no timer is armed here; HOME-10's idle rules own any later expiry).
+                // open; the separate post-text audio wait is not a control lease.
                 val waitForAudio = capabilities.get().audio &&
                     !audioSeenThisTurn.get() &&
                     !audioActive.get() &&
@@ -1948,6 +2027,7 @@ internal class OkHttpRelaySessionClient(
             is AndroidNormalizedEvent.TurnFailed,
             is AndroidNormalizedEvent.TurnInterrupted,
             -> {
+                controlLease.cancel()
                 interruptTelemetry.recordTerminal()
                 journal.record(
                     if (event is AndroidNormalizedEvent.TurnInterrupted) {
@@ -1978,6 +2058,7 @@ internal class OkHttpRelaySessionClient(
         if (binding == null) return
         val current = activeTurn.get()
         if (current == binding && activeTurn.compareAndSet(current, null)) {
+            controlLease.cancel()
             terminalObserved.set(false)
         }
     }
@@ -2008,8 +2089,8 @@ internal class OkHttpRelaySessionClient(
     private fun flushQueued() {
         val currentConnection = connectionId.get()
         val currentBinding = activeTurn.get()
-        while (true) {
-            when (val frame = queuedFrames.poll() ?: break) {
+        repeat(queuedFrames.size) {
+            when (val frame = queuedFrames.poll() ?: return) {
                 is InboundFrame.Text -> if (
                     frame.connectionId == currentConnection &&
                     (frame.binding == null || frame.binding == currentBinding)
@@ -2022,12 +2103,22 @@ internal class OkHttpRelaySessionClient(
                 ) {
                     dispatch(frame.value, frame.binding)
                 }
+                is InboundFrame.Event -> {
+                    val liveBinding = activeTurn.get()
+                    val currentObserver = observer.get()
+                    if (frame.value.binding == liveBinding && currentObserver != null && currentObserver.binding == liveBinding) {
+                        handleEvent(frame.value, currentObserver)
+                    } else if (liveBinding != null && frame.value.binding == liveBinding) {
+                        enqueue(frame)
+                    }
+                }
             }
         }
     }
 
-    private fun reportDisconnect(socket: WebSocket, reason: String) {
-        if (activeSocket.get() !== socket) return
+    private fun reportDisconnect(socket: WebSocket, reason: String): Unit = synchronized(inboundLock) {
+        if (activeSocket.get() !== socket) return@synchronized
+        controlLease.cancel()
         journal.record("home bridge transport lost")
         awaitingAudio.set(false)
         synchronized(turnAdmissionLock) {
@@ -2260,6 +2351,7 @@ internal class OkHttpRelaySessionClient(
             commands = commandNames,
             interrupt = interrupt,
             audio = audio,
+            turnKeepalive = exactBoolean(json, "turn_keepalive") ?: false,
         )
     }
 

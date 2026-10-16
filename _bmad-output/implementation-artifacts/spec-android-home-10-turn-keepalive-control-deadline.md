@@ -1,7 +1,10 @@
 ---
 id: ANDROID-HOME-10
 title: Idle-based Home control deadline driven by turn.alive keep-alives
-status: backlog
+status: in-progress
+route: dispatch
+baseline_commit: 526ecbaeaf3a3f494aeeaa7afa5ed38ea7827c0a
+review_loop_iteration: 0
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -106,3 +109,97 @@ With Home `0effbf9`: submit a prompt that runs >60 s (and one with a long silent
 ## References
 
 iOS: `spec-ios-home-07-slow-turn-control-deadline.md`, `validation-ios-home-07.md` ("Follow-up: activity-based control deadline…"); `HomeTurnAudioDeadlines` in `HermesRelay/Models/HomeBridgeModels.swift` and `scheduleHomeControlDeadline` in `ConversationStore.swift`; `HomeBridgeClientOptIn` in `HomeBridgeSessionClient.swift`; Home: `_bmad-output/specs/spec-home-bridge-route-roaming/bridge-contract.md`, `src/hermes_home/bridge/endpoint.py` (`TURN_KEEPALIVE_INTERVAL_SECONDS`).
+
+## Implementation scope — 2026-10-15
+
+Both specified parts are approved for local software implementation. Hardware acceptance and live Home evidence remain separate from deterministic and disposable-emulator acceptance. No push or PR is authorized.
+
+## Code Map
+
+- `app/src/main/java/com/achappell/hermesrelay/OkHttpRelaySessionClient.kt`: Home upgrade, capability parsing, acceptance, event dispatch, transport generation and existing uncertain-disconnect path.
+- `app/src/main/java/com/achappell/hermesrelay/HermesEventNormalizer.kt`: strict Home envelope normalization; isolate malformed liveness from protocol failure.
+- `app/src/main/java/com/achappell/hermesrelay/AndroidClientPort.kt` and `AndroidTurnState.kt`: capability and internal event types; no liveness presentation.
+- `app/src/main/java/com/achappell/hermesrelay/HermesRelayApplication.kt` and `HomeRuntime.kt`: process-runtime timer ownership and teardown.
+- `app/src/test/java/com/achappell/hermesrelay/ManualAudioScheduler.kt`: deterministic scheduled-executor precedent.
+
+## Tasks & Acceptance
+
+- [x] Implement Home-only opt-in, optional strict capability and scoped typed liveness without UI/history delivery.
+- [x] Implement injectable control deadlines, acceptance-time scheduling, matching activity renewal, input suspension and immutable backstop.
+- [x] Integrate expiry with existing uncertain/reconnect path and cancellation with terminal/transport/runtime lifecycle.
+- [x] Cover every software acceptance criterion above, plus stale callback and terminal races, with deterministic tests.
+- [x] Verify actual production-client changed path on a newly created empty disposable emulator; assess live gate prerequisites separately.
+- [x] Complete three formal reviews, final local verification, evidence and delivery-record updates.
+
+## Design Notes
+
+iOS `ConversationStore.swift` control-lease implementation confirms correlation IDs belong to individual events: conversation handle and turn ID identify the response. Control completion cancels the lease even while the distinct post-text audio wait remains active. A runtime-owned single-thread scheduled executor runs lease callbacks off-main; client inbound serialization and identity/generation checks arbitrate stale callbacks and terminal races. No existing audio, background-retention or socket timeout changes.
+
+## Implementation Notes
+
+Both software parts are delivered. `HomeControlLease` uses the client-owned off-main scheduler, owned transitively by the single process `HomeRuntime`; runtime port teardown shuts it down. Frequent activity updates timestamps without allocating replacement alarms. Structured-prompt pending state and heartbeat input-wait state are independent. Control is consumed at ingress, even without a UI observer; buffered presentation cannot renew from stale arrival evidence or resurrect a completed turn. A recovered unresolved turn remains uncertain rather than receiving a fabricated new acceptance anchor.
+
+The story remains `in-progress` solely because live Home/physical acceptance below is unverified. No HOME09 hardware/acoustic/Pixel/natural-OS-death/unknown-route gate is closed by this work. Fresh-driver zero-head behavior, no pre-first-play query, and 1000/1500 ms audio defaults are unchanged.
+
+## Spec Change Log
+
+## Review Triage Log
+
+| Finding | Verdict | Evidence and disposition |
+|---|---|---|
+| B1: reconnect restores an unresolved binding without a new lease | false | A lease is granted by accepted `prompt.submit`, not by recovery of an already uncertain turn. iOS `ConversationStore.swift` reconnect lines 918–940 restores `.uncertain`; only accepted submission at 2273 schedules a lease. Restarting here would invent an acceptance anchor and could cause repeated expired-turn reconnects. Recovered unresolved turns are not claimed as newly leased. |
+| B2: observer absence prevents heartbeat renewal and terminal cancellation | high | Accepted binding exists before `observeTurn`; raw-frame buffering deferred control consumption. Normalize and consume control on arrival, buffer only presentation events, and process pre-ack frames at acknowledgement. Production-client regression covers five minutes before observer attachment and pre-ack terminal delivery. |
+| B3: scoped audio fallback does not renew an active control lease | medium | `AudioFailed` can arrive before control terminal, so it is current-turn evidence. Matching audio start/end/fallback now renew at ingress; canceled post-terminal leases remain canceled. Production transport test sends fallback at 44 seconds and expires at renewed 89-second boundary. |
+| Edge1: control processing is incorrectly coupled to observer registration | high | Same verified path as B2; retained as its own finding before grouping. Normalization/control processing now precede optional observer delivery. |
+| G1: production text/PCM renewal coverage missing | medium | Accepted verification gap. Added real TLS WebSocket client tests for text and active PCM at 44 seconds, survival past 45/88 seconds and expiry at 89 without heartbeats. |
+| G2: post-text audio wait lacks control-deadline separation proof | medium | Accepted verification gap. Added both capability modes: text completes, audio remains pending past 45/120 seconds without disconnect or lost text, then real PCM/end delivers once with one submission. |
+| P1: activity cancels/allocates scheduled work per PCM chunk | medium | Verified allocation churn. One outstanding alarm now rechecks the latest activity timestamp; only an earlier deadline (input-wait exit) requires replacement. A thousand activity calls retain the same alarm and expiry still follows the renewed boundary. |
+| P2: capability constructor/default-only test is incidental | low | Deleted constructor-only assertions; real ready-capability parsing covers true/false/absent/malformed values and transport tests exercise negotiated behavior. |
+| Parent fast-terminal concern after B2 correction | medium | Prevented by buffering normalized presentation terminal until observer attachment while canceling control immediately; no `clearTurn` occurs during observer-free control consumption. A server terminal preceding its acknowledgement must still yield Accepted, remain non-disconnected past the backstop, then render one preserved terminal when observed. |
+| Focused blind: buffered event replay retains a stale active-binding snapshot | high | A terminal can clear `activeTurn` while the replay loop still holds its initial binding. Recheck live binding for every buffered presentation event. Pre-ack terminal followed by late audio and duplicate terminal must render once and never start the sink. |
+| Focused edge: buffered terminal permits late queued presentation events | high | Same replay defect as focused blind, retained independently before grouping. Live per-event binding prevents replay after a terminal winner. |
+| Focused blind: out-of-stream binary renews idle | medium | Renewal was ahead of stream validation. Track validated wire audio-start independently from observer attachment; only PCM in that stream renews. Binary at 30 seconds without start must still expire at 45 with zero sink bytes. |
+| Focused edge: old-socket callback can rebound to a new turn after its early listener guard | high | Listener identity checks happened before acquiring inbound serialization. Dispatch now revalidates source socket and generation under that lock. Regression replays the controlled delayed-callback cut point into a real newly accepted TLS session; it asserts no audio bytes and no idle extension, not a naturally reproduced race. |
+| Parent: Running heartbeat overwrites pending structured-prompt suspension | medium | iOS independently checks `pendingHomePrompt` and last keepalive phase. Android stores a prompt and displays an unavailable surface, with no response/clear operation. Lease now retains a separate pending-prompt flag until terminal/cancel/new acceptance; Running cannot clear it. Regression remains suspended at 300 seconds and expires at the 1800-second cap. |
+| Parent: duplicate/rejected native audio start leaves wire PCM eligibility active | medium | Duplicate wire starts now invalidate ingress stream eligibility; playback admission success/rejection and audio end/failure keep it aligned when buffered events are presented. Tests cover duplicate starts both before and after observer attachment, plus native admission rejection; later rejected PCM must not extend the deadline or write bytes. |
+| Final coverage: duplicate-start test attaches observer before rejected PCM | medium | Accepted gap: native presentation rejection could hide a missing wire-side guard. Added a variant that keeps observation detached through two starts and PCM at 44 seconds, uses the existing buffer-admission cut point as a nonrenewing receipt barrier, and asserts expiry at 55 seconds and zero sink bytes before attaching. No production test hook was added. |
+
+## Verification history
+
+- Initial implementation: full JVM 756 tests / 54 suites passed, debug and instrumentation APK assembly and lint passed. Original XML/log preserved under `/tmp/hermes-home10-20261015-evidence/initial`.
+- First review correction: compilation failed before tests because a nullable observer guard could compare two null bindings. This is compile-only evidence, not a red behavioral test. Full log and explicitly labeled preexisting XML preserved under `targeted-compile-failure`; explicit non-null guard corrected the cause.
+- Next targeted run: 142 tests, one new fixture failure waiting for `AudioStarted` before sending any PCM. `RecordingAudioSink` signals audible start on first write, so admission correctly produces `AudioBuffering`. Full failing XML/log preserved under `targeted-pcm-failure`; corrected the causal fixture barrier, not production behavior.
+- Corrected first-review targeted run: 142 tests passed; full XML/log preserved under `targeted-first-review-pass`. Subsequent focused-review changes require their own verification.
+- Focused ingress run: 145 tests, one terminal-fixture oracle failure expecting one total event. `completeEvents` legitimately emits final response text followed by a terminal. Full failing XML/log preserved under `focused-terminal-failure`; the corrected assertion requires exactly that text-plus-terminal sequence and still excludes duplicate terminal, duplicate text and late audio. No production change was made for this failure.
+- Corrected focused ingress run: 145 tests passed; full XML/log preserved under `focused-ingress-pass`. All three formal reviewers closed their prior findings; the final parent audio-admission eligibility correction is separately tested and reviewed.
+- Final eligibility targeted run: 147 tests passed; full XML/log in `audio-eligibility-pass`. The additional detached-observer wire-admission case passed independently in `detached-wire-pass`, using a nonrenewing queue-admission barrier.
+- Approved mutation proof: temporarily removing only the binary ingress socket/generation guard made the saved-old-socket regression fail on real sink bytes (`expected 0, actual 2`). One test ran and failed as expected; full XML/log in `expected-origin-mutation-red`. The exact guard was restored before final verification. This proves the controlled callback cut point, not a naturally reproduced race.
+- First actual Android smoke: runner reported **2 tests, 3 failures**. One fixture incorrectly expected final text on the terminal rather than its preceding text event; two teardown failures came from calling client-side `cancel()` on MockWebServer's server-side WebSocket. Raw runner output and APK identities are preserved in `native-first-failure`. Corrected only the text oracle and invalid teardown call; production client/server cleanup remains. Rebuilt instrumentation APK and reran lint, then actual Android smoke passed **2 tests**.
+
+## Final local verification — 2026-10-15
+
+Baseline: `526ecbaeaf3a3f494aeeaa7afa5ed38ea7827c0a` (fresh `origin/main`, PR167 merged). Worktree: `/Users/amanda/Development/hermes/hermes-relay-android/.worktrees/home-next-emulator-slice`, branch `home-next-emulator-slice`.
+
+Evidence root: `/tmp/hermes-home10-20261015-evidence`.
+
+| Gate | Observed result | Evidence |
+|---|---|---|
+| Full JVM suite | 767 tests, 54 suites, zero failures/errors/skips | `final-full/jvm-xml/`, `final-full/gradle.log` |
+| Debug build, instrumentation build, lint | Passed; instrumentation fixture correction separately rebuilt and linted | `final-full/gradle.log`, `final-full/native-fixture-build-lint.log` |
+| APK metadata | min SDK26, version0.3.1/code301, backup disabled/extraction rules, 16KB alignment passed; signer comparison skipped because expected signer unset | `final-full/apk-metadata.log` |
+| Actual Android runtime | Production `OkHttpRelaySessionClient` over loopback TLS: exact feature upgrade, invisible scoped/malformed/stale keepalives, real response/terminal once, idle expiry and one submission. 2 tests passed | `final-full/android-production-tls-smoke-corrected.log` |
+| Repetition | 30 separate fail-fast `N=1` invocations; 174 tests each, 5220 executions, zero failures | `repetition/01` through `repetition/30`, each with full XML and both logs; `repetition/summary.json` |
+| Formal review | Blind, edge-case and verification-gap reviews closed, including focused follow-ups and parent findings | Per-finding triage above |
+
+Repetition classes: `HomeControlLeaseTest`, `OkHttpRelaySessionClientTest`, `HermesEventNormalizerTest`, `AndroidTurnStateTest`, `AndroidRecoveryControllerTest`, `HomeRuntimeBackgroundTransportTest`. Full-suite XML was archived before repetition; every repetition's XML was archived before the next invocation. The historical Standard iteration23 failure remains unattributed and is not rewritten by these results.
+
+Native device was a newly created **empty** API36 Google APIs arm64 AVD `hermes_home10_20261015`, private home `/tmp/hermes-home10-20261015-avds`, exclusively claimed free port5562 / explicit serial `emulator-5562`. Owner emulator5554, its userdata and protected HOME08B recovery state were not touched or copied. After proof, only this owned emulator was stopped and its private AVD directory/port claim removed. No `Gradle connected*` task ran.
+
+Final installed APK SHA256:
+- App: `6ef809126db4517a7e54a2c762a96f370afcd266ac9b391d01731b3885b582b8`.
+- Corrected instrumentation: `b92612233f555293e35e4a8672e44a8619fe5b3c2ea10aa1ab2b9db5f12df80a`.
+- Exact paths, lengths and hashes: `final-full/final-apk-identities.json`; earlier pre-correction identities remain preserved separately.
+
+### Acceptance limits
+
+The live Home gate was **not run**. Its wrapper requires a physical Pixel6a (rejects emulators), signed deployment/trace provenance and an authorized disposable Home binding, and uses `connectedDebugAndroidTest`, prohibited for this assignment. Pixel is unavailable; no owner credentials or AVD state were inspected/copied to bypass that limitation. The TLS emulator fixture is not live Home evidence. Real >60-second Home turn, live silent-tool cadence, airplane-mode recovery and physical audio remain unverified. This is complete local software delivery, not full live/hardware story acceptance. Local commit only; no push, PR, issue mutation or deployment was authorized.

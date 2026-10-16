@@ -480,6 +480,7 @@ stories:
     parity_epic: ANDROID-PARITY-01
     parity_stream: S2
     spec: _bmad-output/implementation-artifacts/spec-android-home-10-turn-keepalive-control-deadline.md
+    scope_note: '2026-10-15: Both HOME10 software parts locally implemented: exact Home-only opt-in/capability/liveness and accepted-turn 45s idle/120s legacy/1800s cap, pending-input suspension, off-main single-alarm timer, scoped ingress and no-replay uncertain recovery. Final 767 JVM tests/54 suites; build/lint/APKs/metadata; 30 separate N=1 gates x174=5220 passes; 2 production-client TLS tests passed on exclusively owned empty API36 emulator. Three formal reviews and parent findings closed. Live Home gate requires unavailable physical Pixel6a and signed authorized disposable binding; not run or claimed. HOME09 hardware acceptance and historical Standard iteration23 attribution unchanged. Local commit only, no push/PR.'
     depends_on:
       - android:ANDROID-HOME-05
       - android:ANDROID-HOME-06

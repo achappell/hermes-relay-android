@@ -7,6 +7,40 @@ import org.junit.Test
 
 class AndroidTurnStateTest {
     @Test
+    fun turn_alive_never_changes_presentation_or_retained_turn_content() {
+        HomeTurnAlivePhase.entries.forEach { alivePhase ->
+            AndroidTurnPhase.entries.forEach { phase ->
+                val state = AndroidTurnState(
+                    binding = binding,
+                    phase = phase,
+                    responseText = "Existing response",
+                    audio = AndroidAudioDelivery.Buffering,
+                    structuredPrompt = AndroidStructuredPrompt("approval.request", "prompt-1", false, 2),
+                    availableCommands = setOf("cancel"),
+                )
+                listOf(binding, binding.copy(turnId = "other")).forEach { eventBinding ->
+                    org.junit.Assert.assertSame(
+                        state,
+                        AndroidTurnStateReducer.reduce(
+                            state,
+                            AndroidNormalizedEvent.TurnAlive(eventBinding, alivePhase, "correlation-1"),
+                        ),
+                    )
+                }
+            }
+        }
+        val idle = AndroidTurnState()
+        org.junit.Assert.assertSame(
+            idle,
+            AndroidTurnStateReducer.reduce(
+                idle,
+                AndroidNormalizedEvent.TurnAlive(binding, HomeTurnAlivePhase.Running, "correlation-1"),
+            ),
+        )
+    }
+
+
+    @Test
     fun an_interrupted_turn_is_terminal_and_keeps_the_partial_response() {
         val binding = AndroidTurnBinding("amanda", "session-1", "turn-1")
         var state = AndroidTurnState.awaitingEvents(binding)
