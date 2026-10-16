@@ -156,6 +156,8 @@ dependencies {
     // Android stubs org.json in local unit tests; supply a real implementation.
     testImplementation(libs.org.json)
     androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.okhttp.mockwebserver)
+    androidTestImplementation(libs.okhttp.tls)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.test.espresso.core)

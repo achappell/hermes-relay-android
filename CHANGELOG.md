@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Features
+- Protect accepted Home turns with negotiated `turn.alive` keep-alives: a 45-second activity lease, independent 30-minute cap, and 120-second fallback for older Homes. Pending input suspends only idle expiry; a missing reply enters existing uncertain-turn recovery without replay. Heartbeats never enter transcript/history, and text completion leaves the separate audio wait intact. Software and disposable-emulator verification are complete; live Home/physical acceptance remains open.
 - Add content-free reply playback diagnostics: current-driver queued response-audio lead, actual native playing state, a bounded background-entry sampling window, the first playback-cushion release reason, and final underrun counts. Preserve the 1000 ms cushion / 1500 ms cap; physical-device tuning remains open.
 - Deduplicate native MediaSession playback-state writes on the existing background worker while preserving notification updates and Pause/Play/Stop controls. Response-end diagnostics include successful native writes since the latest background entry, frozen at audio end alongside underruns; service recreation preserves the entry window.
 - Recover an invalid reply AudioTrack once, continuing only PCM not yet accepted by Android. Preserve pause/focus/duck safety and release the replacement cushion without a fresh hold. Never replay accepted speech; uncertain loss of Android's old native queue remains a playback failure with response text available.

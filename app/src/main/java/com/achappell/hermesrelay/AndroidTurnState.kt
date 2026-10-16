@@ -26,6 +26,12 @@ internal enum class AndroidAudioDelivery {
     Unavailable,
 }
 
+/** Home control-channel liveness; never a presentation phase. */
+internal enum class HomeTurnAlivePhase {
+    Running,
+    AwaitingInput,
+}
+
 /** Structured Home input is kept typed until an explicit response surface exists. */
 internal data class AndroidStructuredPrompt(
     val type: String,
@@ -82,6 +88,13 @@ internal data class AndroidTurnState(
  */
 internal sealed interface AndroidNormalizedEvent {
     val binding: AndroidTurnBinding?
+
+    /** Consumed by the control lease, not rendered or retained in history. */
+    data class TurnAlive(
+        override val binding: AndroidTurnBinding,
+        val phase: HomeTurnAlivePhase,
+        val correlationId: String,
+    ) : AndroidNormalizedEvent
 
     data class CaptureStarted(
         override val binding: AndroidTurnBinding,
@@ -309,6 +322,7 @@ internal object AndroidTurnStateReducer {
                 turnCompleteObserved = true,
             )
 
+            is AndroidNormalizedEvent.TurnAlive -> state
             is AndroidNormalizedEvent.Unknown -> state
             is AndroidNormalizedEvent.StructuredPrompt -> state.copy(
                 structuredPrompt = AndroidStructuredPrompt(

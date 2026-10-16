@@ -16,6 +16,7 @@ internal class HermesEventNormalizer(
     private val clientId: String,
     /** Legacy fixtures are useful in unit tests, but the live client is Home-only. */
     private val allowLegacyFrames: Boolean = true,
+    private val onScopedActivity: (AndroidTurnBinding) -> Unit = {},
 ) {
     private var rendered = ""
     private var streamed = false
@@ -42,6 +43,14 @@ internal class HermesEventNormalizer(
         val frame = runCatching { JSONObject(text) }.getOrNull()
             ?: return listOf(AndroidNormalizedEvent.Unknown(fallback, "malformed"))
 
+        // Recognize liveness before validating the envelope: a malformed beat
+        // must never turn an otherwise healthy turn into a protocol failure.
+        val params = frame.optJSONObject("params")
+        val event = params?.optJSONObject("event")
+        if (params != null && event != null && exactString(event, "type") == "turn.alive") {
+            return normalizeTurnAlive(frame, params, event, fallback)
+        }
+
         val method = exactString(frame, "method")
         return when {
             method == "event" -> normalizeEndpointEvent(frame, fallback)
@@ -56,6 +65,36 @@ internal class HermesEventNormalizer(
                 }
             }
         }
+    }
+
+    private fun normalizeTurnAlive(
+        frame: JSONObject,
+        params: JSONObject,
+        event: JSONObject,
+        binding: AndroidTurnBinding,
+    ): List<AndroidNormalizedEvent> {
+        if (exactString(frame, "method") != "event" ||
+            !isHomeEnvelope(frame) ||
+            !hasExactInt(params, "schema", SCHEMA_VERSION)
+        ) {
+            return emptyList()
+        }
+        val handle = exactString(params, "conversation_handle")
+        val turnId = exactString(params, "turn_id")
+        val correlationId = exactString(params, "correlation_id")
+        if (handle.isNullOrBlank() || handle != binding.conversationHandle ||
+            turnId.isNullOrBlank() || turnId != binding.turnId ||
+            correlationId.isNullOrBlank()
+        ) {
+            return emptyList()
+        }
+        val payload = event.optJSONObject("payload") ?: return emptyList()
+        val phase = when (exactString(payload, "phase")) {
+            "running" -> HomeTurnAlivePhase.Running
+            "awaiting_input" -> HomeTurnAlivePhase.AwaitingInput
+            else -> return emptyList()
+        }
+        return listOf(AndroidNormalizedEvent.TurnAlive(binding, phase, correlationId))
     }
 
     private fun normalizeEndpointEvent(
@@ -116,7 +155,11 @@ internal class HermesEventNormalizer(
             "correlation_id",
         ) ?: firstExactNonBlank(payload, "correlation_id", "request_id", "prompt_id", "id")
 
-        return standardEvents(type, payload, binding, correlationId)
+        val events = standardEvents(type, payload, binding, correlationId)
+        if (events.none { it is AndroidNormalizedEvent.Unknown && it.type == "protocol_error" }) {
+            onScopedActivity(binding)
+        }
+        return events
     }
 
     private fun normalizeEndpointAudio(

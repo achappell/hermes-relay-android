@@ -88,6 +88,7 @@ class OkHttpRelaySessionClientTest {
         assertNotNull(request)
         assertEquals("/api/v1/bridge/ws", request!!.path)
         assertEquals("Device $VALID_HOME_CREDENTIAL", request.getHeader("Authorization"))
+        assertEquals(listOf("turn_keepalive"), request.headers.values("X-Hermes-Home-Client-Features"))
         assertNull(request.getHeader("X-Hermes-Live-Run-Id"))
 
         val open = JSONObject(openFrame.get()!!)
@@ -1793,6 +1794,12 @@ class OkHttpRelaySessionClientTest {
         val recovered = client.reconnect()
         assertTrue(recovered is AndroidReconnectOutcome.Connected)
         assertEquals(listOf("conversation.reconnect"), secondMethods)
+        repeat(2) {
+            assertEquals(
+                listOf("turn_keepalive"),
+                server.takeRequest(5, TimeUnit.SECONDS)!!.headers.values("X-Hermes-Home-Client-Features"),
+            )
+        }
         client.close()
     }
 
@@ -3287,6 +3294,519 @@ class OkHttpRelaySessionClientTest {
         return PairedClient(client, store, claims, choices, closedClaims, claimProvider, collection)
     }
 
+    @Test
+    fun optional_keepalive_capability_requires_an_exact_boolean_without_failing_ready() {
+        val client = client()
+        try {
+            for (value in listOf(true, false, "true", 1, JSONObject.NULL)) {
+                val capabilities = JSONObject()
+                    .put("heartbeat", true).put("timing", "absent")
+                    .put("commands", JSONArray()).put("interrupt", true).put("audio", false)
+                    .put("turn_keepalive", value)
+                val frame = JSONObject(readyResponse("ready-test", audio = false))
+                frame.getJSONObject("result").put("capabilities", capabilities)
+                val connected = client.readOpenResult(frame, "ready-test", CONVERSATION_HANDLE, "connection-test")
+                    as AndroidReconnectOutcome.Connected
+                assertEquals(value == true, connected.capabilities.turnKeepalive)
+                capabilities.remove("turn_keepalive")
+                val absent = client.readOpenResult(frame, "ready-test", CONVERSATION_HANDLE, "connection-test")
+                    as AndroidReconnectOutcome.Connected
+                assertFalse(absent.capabilities.turnKeepalive)
+            }
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
+    fun keepalive_turn_runs_five_minutes_then_completes_once_without_rendering_beats() {
+        val fixture = leaseFixture(true)
+        try {
+            repeat(20) {
+                fixture.timer.advanceMillis(15_000)
+                fixture.beat("running")
+            }
+            fixture.complete()
+            fixture.timer.advanceMillis(1_800_000)
+            assertEquals(0, fixture.disconnects.get())
+            assertEquals(1, fixture.submissions.get())
+            assertEquals(1, fixture.events.filterIsInstance<AndroidNormalizedEvent.TurnCompleted>().size)
+            assertTrue(fixture.events.none { it is AndroidNormalizedEvent.TurnAlive })
+        } finally { fixture.client.close() }
+    }
+
+    @Test
+    fun silent_keepalive_expires_at_45_seconds_and_reconnect_never_replays() {
+        val fixture = leaseFixture(true)
+        try {
+            fixture.timer.advanceMillis(44_000)
+            assertEquals(0, fixture.disconnects.get())
+            fixture.timer.advanceMillis(1_000)
+            assertEquals(1, fixture.disconnects.get())
+            assertTrue(fixture.journal.lines.any { it == "store Home deadline expired kind=controlIdle" })
+            server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    val frame = JSONObject(text)
+                    assertEquals("conversation.reconnect", frame.getString("method"))
+                    webSocket.send(readyResponse(frame.getString("id"), audio = false))
+                }
+            }))
+            assertTrue(fixture.client.reconnect() is AndroidReconnectOutcome.Connected)
+            assertEquals(1, fixture.submissions.get())
+        } finally { fixture.client.close() }
+    }
+
+    @Test
+    fun old_home_finishes_at_63_seconds_but_silent_turn_expires_only_at_120() {
+        val completed = leaseFixture(false)
+        try {
+            completed.timer.advanceMillis(63_000)
+            completed.complete()
+            completed.timer.advanceMillis(120_000)
+            assertEquals(0, completed.disconnects.get())
+            assertEquals(1, completed.submissions.get())
+        } finally { completed.client.close() }
+        val silent = leaseFixture(false)
+        try {
+            silent.timer.advanceMillis(119_000)
+            assertEquals(0, silent.disconnects.get())
+            silent.timer.advanceMillis(1_000)
+            assertEquals(1, silent.disconnects.get())
+            assertTrue(silent.journal.lines.any { it == "store Home deadline expired kind=controlTerminalMissing" })
+            assertEquals(1, silent.submissions.get())
+        } finally { silent.client.close() }
+    }
+
+    @Test
+    fun awaiting_input_and_continuous_beats_cannot_extend_the_acceptance_backstop() {
+        val pending = leaseFixture(true)
+        try {
+            pending.beat("awaiting_input")
+            pending.timer.advanceMillis(300_000)
+            assertEquals(0, pending.disconnects.get())
+            pending.timer.advanceMillis(1_500_000)
+            assertEquals(1, pending.disconnects.get())
+            assertEquals(1, pending.submissions.get())
+        } finally { pending.client.close() }
+        val running = leaseFixture(true)
+        try {
+            repeat(119) {
+                running.timer.advanceMillis(15_000)
+                running.beat("running")
+            }
+            running.timer.advanceMillis(15_000)
+            assertEquals(1, running.disconnects.get())
+            assertEquals(1, running.submissions.get())
+        } finally { running.client.close() }
+    }
+
+    @Test
+    fun current_turn_text_renews_control_idle_without_heartbeats() {
+        val f = leaseFixture(true)
+        try {
+            f.timer.advanceMillis(44_000)
+            assertTrue(f.peer.send(eventFrame("lease-turn", "message.delta", JSONObject().put("text", "working"))))
+            f.awaitEvent<AndroidNormalizedEvent.ResponseTextDelta>()
+            f.timer.advanceMillis(1_000)
+            assertEquals(0, f.disconnects.get())
+            f.timer.advanceMillis(43_000)
+            assertEquals(0, f.disconnects.get())
+            f.timer.advanceMillis(1_000)
+            assertEquals(1, f.disconnects.get())
+            assertEquals(1, f.submissions.get())
+            assertTrue(f.journal.lines.contains("store Home deadline expired kind=controlIdle"))
+        } finally { f.client.close() }
+    }
+
+    @Test
+    fun active_pcm_renews_control_idle_without_heartbeats() {
+        val f = leaseFixture(true, audio = true)
+        try {
+            assertTrue(f.peer.send(audioStartFrame("lease-turn")))
+            f.awaitEvent<AndroidNormalizedEvent.AudioBuffering>()
+            f.timer.advanceMillis(44_000)
+            assertTrue(f.peer.send(ByteString.of(*byteArrayOf(1, 0, 2, 0))))
+            f.awaitEvent<AndroidNormalizedEvent.AudioChunkReceived>()
+            f.timer.advanceMillis(1_000)
+            assertEquals(0, f.disconnects.get())
+            f.timer.advanceMillis(43_000)
+            assertEquals(0, f.disconnects.get())
+            assertEquals(4, f.sink.bytesWritten)
+            f.timer.advanceMillis(1_000)
+            assertEquals(1, f.disconnects.get())
+            assertEquals(1, f.submissions.get())
+            assertTrue(f.journal.lines.contains("store Home deadline expired kind=controlIdle"))
+        } finally { f.client.close() }
+    }
+
+    @Test
+    fun audio_fallback_renews_control_idle_while_text_turn_remains_active() {
+        val f = leaseFixture(true, audio = true)
+        try {
+            f.timer.advanceMillis(44_000)
+            assertTrue(f.peer.send(audioFallbackFrame("lease-turn", "speech unavailable")))
+            f.awaitEvent<AndroidNormalizedEvent.AudioFailed>()
+            f.timer.advanceMillis(1_000)
+            assertEquals(0, f.disconnects.get())
+            f.timer.advanceMillis(43_000)
+            assertEquals(0, f.disconnects.get())
+            f.timer.advanceMillis(1_000)
+            assertEquals(1, f.disconnects.get())
+            assertEquals(1, f.submissions.get())
+        } finally { f.client.close() }
+    }
+
+    @Test
+    fun text_completion_cancels_control_deadline_while_advertised_audio_is_pending() {
+        for (keepalive in listOf(true, false)) {
+            val f = leaseFixture(keepalive, audio = true)
+            try {
+                assertTrue(f.peer.send(eventFrame("lease-turn", "message.complete",
+                    JSONObject().put("rendered", "Preserved answer").put("status", "complete"))))
+                f.awaitEvent<AndroidNormalizedEvent.TextCompleted>()
+                f.timer.advanceMillis(if (keepalive) 46_000 else 121_000)
+                assertEquals(0, f.disconnects.get())
+                assertEquals("Preserved answer", f.state.get().responseText)
+                assertFalse(f.state.get().isTerminal)
+                assertTrue(f.client.hasActiveTurn())
+                assertTrue(f.peer.send(audioStartFrame("lease-turn")))
+                assertTrue(f.peer.send(ByteString.of(*byteArrayOf(1, 0, 2, 0))))
+                assertTrue(f.peer.send(audioEndFrame("lease-turn")))
+                f.awaitEvent<AndroidNormalizedEvent.AudioEnded>()
+                assertEquals(AndroidTurnPhase.Complete, f.state.get().phase)
+                assertEquals(AndroidAudioDelivery.Delivered, f.state.get().audio)
+                assertEquals("Preserved answer", f.state.get().responseText)
+                assertEquals(4, f.sink.bytesWritten)
+                assertEquals(1, f.events.filterIsInstance<AndroidNormalizedEvent.TextCompleted>().size)
+                assertEquals(1, f.events.filterIsInstance<AndroidNormalizedEvent.AudioEnded>().size)
+                assertEquals(1, f.submissions.get())
+                assertEquals(0, f.disconnects.get())
+                assertFalse(f.events.any { it is AndroidNormalizedEvent.AudioFailed })
+            } finally { f.client.close() }
+        }
+    }
+
+    @Test
+    fun accepted_turn_renews_from_heartbeats_before_observer_attachment() {
+        val f = leaseFixture(true, observe = false)
+        try {
+            repeat(20) {
+                f.timer.advanceMillis(15_000)
+                f.beat("running")
+            }
+            assertEquals(0, f.disconnects.get())
+            assertTrue(f.events.isEmpty())
+            f.observe()
+            f.complete()
+            f.timer.advanceMillis(1_800_000)
+            assertEquals(0, f.disconnects.get())
+            assertEquals(1, f.submissions.get())
+            assertEquals(1, f.events.filterIsInstance<AndroidNormalizedEvent.TurnCompleted>().size)
+            assertFalse(f.events.any { it is AndroidNormalizedEvent.TurnAlive })
+        } finally { f.client.close() }
+    }
+
+    @Test
+    fun terminal_before_acknowledgement_cancels_lease_without_losing_accepted_result_or_presentation() {
+        val f = leaseFixture(true, observe = false, terminalBeforeAck = true)
+        try {
+            // Acknowledgement is an ordered reader barrier: the earlier terminal
+            // was buffered, normalized and consumed before beginTurn returned.
+            f.timer.advanceMillis(1_800_000)
+            assertEquals(0, f.disconnects.get())
+            assertTrue(f.events.isEmpty())
+            f.observe()
+            assertTrue(f.completed.await(5, TimeUnit.SECONDS))
+            assertEquals(1, f.events.filterIsInstance<AndroidNormalizedEvent.TurnCompleted>().size)
+            assertEquals("finished", f.state.get().responseText)
+            assertFalse(f.client.hasActiveTurn())
+            assertEquals(1, f.submissions.get())
+            assertEquals(
+                listOf(AndroidNormalizedEvent.ResponseTextDelta(f.binding, "finished"), AndroidNormalizedEvent.TurnCompleted(f.binding)),
+                f.events,
+            )
+            assertNull(f.sink.startedFormat)
+        } finally { f.client.close() }
+    }
+
+    @Test
+    fun running_heartbeat_cannot_clear_a_still_pending_structured_prompt() {
+        val f = leaseFixture(true)
+        try {
+            val prompt = JSONObject(eventFrame("lease-turn", "approval.request", JSONObject()))
+            prompt.getJSONObject("params").put("correlation_id", "approval-1")
+            assertTrue(f.peer.send(prompt.toString()))
+            f.awaitEvent<AndroidNormalizedEvent.StructuredPrompt>()
+            f.beat("running")
+            f.timer.advanceMillis(300_000)
+            assertEquals(0, f.disconnects.get())
+            f.timer.advanceMillis(1_500_000)
+            assertEquals(1, f.disconnects.get())
+            assertTrue(f.journal.lines.contains("store Home deadline expired kind=controlBackstop"))
+            assertEquals(1, f.submissions.get())
+        } finally { f.client.close() }
+    }
+
+    @Test
+    fun binary_without_a_valid_audio_stream_does_not_renew_control_lease() {
+        val f = leaseFixture(true, audio = true)
+        try {
+            f.timer.advanceMillis(30_000)
+            assertTrue(f.peer.send(ByteString.of(*byteArrayOf(1, 0, 2, 0))))
+            f.awaitEvent<AndroidNormalizedEvent.AudioFailed>()
+            f.timer.advanceMillis(14_000)
+            assertEquals(0, f.disconnects.get())
+            f.timer.advanceMillis(1_000)
+            assertEquals(1, f.disconnects.get())
+            assertEquals(0, f.sink.bytesWritten)
+            assertEquals(1, f.submissions.get())
+        } finally { f.client.close() }
+    }
+
+    @Test
+    fun duplicate_audio_start_invalidates_pcm_liveness_even_before_observation() {
+        for (observeInitially in listOf(true, false)) {
+            val f = leaseFixture(true, audio = true, observe = observeInitially)
+            try {
+                fun startAndAwaitIngress() {
+                    val received = CountDownLatch(1)
+                    f.clockRead.set(received)
+                    assertTrue(f.peer.send(audioStartFrame("lease-turn")))
+                    assertTrue(received.await(5, TimeUnit.SECONDS))
+                }
+                startAndAwaitIngress()
+                f.timer.advanceMillis(10_000)
+                startAndAwaitIngress()
+                if (!observeInitially) f.observe()
+                f.awaitEvent<AndroidNormalizedEvent.AudioFailed>()
+                f.timer.advanceMillis(34_000)
+                assertTrue(f.peer.send(ByteString.of(*byteArrayOf(1, 0))))
+                f.awaitEvent<AndroidNormalizedEvent.AudioFailed>()
+                f.timer.advanceMillis(10_000)
+                assertEquals(0, f.disconnects.get())
+                f.timer.advanceMillis(1_000)
+                assertEquals(1, f.disconnects.get())
+                assertEquals(0, f.sink.bytesWritten)
+            } finally { f.client.close() }
+        }
+    }
+
+    @Test
+    fun duplicate_wire_start_rejects_pcm_liveness_while_observer_stays_detached() {
+        val f = leaseFixture(true, audio = true, observe = false)
+        try {
+            // Observe the existing buffer admission cut point, not a synthetic
+            // turn event: two starts plus PCM must reach the reader before time
+            // advances. No observer or renewing control frame supplies the barrier.
+            val buffered = CountDownLatch(3)
+            val queue = object : java.util.concurrent.ConcurrentLinkedQueue<Any>() {
+                override fun add(element: Any): Boolean =
+                    super.add(element).also { buffered.countDown() }
+            }
+            OkHttpRelaySessionClient::class.java.getDeclaredField("queuedFrames").apply {
+                isAccessible = true
+                set(f.client, queue)
+            }
+            fun startAndAwaitIngress() {
+                val receipt = CountDownLatch(1)
+                f.clockRead.set(receipt)
+                assertTrue(f.peer.send(audioStartFrame("lease-turn")))
+                assertTrue(receipt.await(5, TimeUnit.SECONDS))
+            }
+            startAndAwaitIngress()
+            f.timer.advanceMillis(10_000)
+            startAndAwaitIngress()
+            f.timer.advanceMillis(34_000)
+            assertTrue(f.peer.send(ByteString.of(*byteArrayOf(1, 0))))
+            assertTrue("all three frames must be processed without an observer", buffered.await(5, TimeUnit.SECONDS))
+            f.timer.advanceMillis(10_000)
+            assertEquals(0, f.disconnects.get())
+            f.timer.advanceMillis(1_000)
+            assertEquals(1, f.disconnects.get())
+            assertEquals(0, f.sink.bytesWritten)
+            assertTrue(f.events.isEmpty())
+            f.observe()
+            assertTrue(f.events.isEmpty())
+        } finally { f.client.close() }
+    }
+
+    @Test
+    fun rejected_native_audio_start_invalidates_pcm_liveness() {
+        val f = leaseFixture(true, audio = true, acceptAudio = false)
+        try {
+            assertTrue(f.peer.send(audioStartFrame("lease-turn")))
+            f.awaitEvent<AndroidNormalizedEvent.AudioFailed>()
+            f.timer.advanceMillis(30_000)
+            assertTrue(f.peer.send(ByteString.of(*byteArrayOf(1, 0))))
+            f.awaitEvent<AndroidNormalizedEvent.AudioFailed>()
+            f.timer.advanceMillis(14_000)
+            assertEquals(0, f.disconnects.get())
+            f.timer.advanceMillis(1_000)
+            assertEquals(1, f.disconnects.get())
+            assertEquals(0, f.sink.bytesWritten)
+        } finally { f.client.close() }
+    }
+
+    @Test
+    fun delayed_old_socket_binary_cannot_feed_or_renew_a_new_turn() {
+        val f = leaseFixture(true, audio = true)
+        try {
+            val socketField = OkHttpRelaySessionClient::class.java.getDeclaredField("activeSocket").apply { isAccessible = true }
+            val generationField = OkHttpRelaySessionClient::class.java.getDeclaredField("transportGeneration").apply { isAccessible = true }
+            val oldSocket = (socketField.get(f.client) as AtomicReference<*>).get() as WebSocket
+            val oldGeneration = (generationField.get(f.client) as java.util.concurrent.atomic.AtomicLong).get()
+            // Replay a callback that already passed the listener's early guard but
+            // was delayed before acquiring inboundLock. Reflection targets actual
+            // production ingress, without adding a production-only test hook.
+            val ingress = OkHttpRelaySessionClient::class.java.getDeclaredMethod(
+                "dispatch", ByteString::class.java, AndroidTurnBinding::class.java,
+                WebSocket::class.java, java.lang.Long.TYPE,
+            ).apply { isAccessible = true }
+            // Text terminal with advertised audio is pending until the fallback settles.
+            assertTrue(f.peer.send(audioFallbackFrame("lease-turn", "unavailable")))
+            f.awaitEvent<AndroidNormalizedEvent.AudioFailed>()
+            f.complete()
+            val nextPeer = AtomicReference<WebSocket>()
+            server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    nextPeer.set(webSocket)
+                    val request = JSONObject(text)
+                    when (request.getString("method")) {
+                        "conversation.reconnect" -> {
+                            val ready = JSONObject(readyResponse(request.getString("id"), audio = true))
+                            ready.getJSONObject("result").getJSONObject("capabilities").put("turn_keepalive", true)
+                            webSocket.send(ready.toString())
+                        }
+                        "prompt.submit" -> webSocket.send(rpcResult(request.getString("id"), JSONObject()
+                            .put("schema", 1).put("status", "submitted")
+                            .put("conversation_handle", CONVERSATION_HANDLE).put("turn_id", "next-turn")))
+                    }
+                }
+            }))
+            assertTrue(f.client.reconnect() is AndroidReconnectOutcome.Connected)
+            val next = f.client.beginTurn(AndroidTurnRequest(AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("next")))
+                as AndroidInitiationResult.Accepted
+            f.timer.awaitScheduled()
+            val buffering = CountDownLatch(1)
+            f.client.observeTurn(next.binding) { if (it is AndroidNormalizedEvent.AudioBuffering) buffering.countDown() }
+            assertTrue(nextPeer.get().send(audioStartFrame("next-turn")))
+            assertTrue(buffering.await(5, TimeUnit.SECONDS))
+            f.timer.advanceMillis(44_000)
+            ingress.invoke(f.client, ByteString.of(*byteArrayOf(1, 0)), null, oldSocket, oldGeneration)
+            assertEquals(0, f.sink.bytesWritten)
+            f.timer.advanceMillis(1_000)
+            assertEquals(1, f.disconnects.get())
+            assertEquals(2, f.client.snapshotRequestTelemetry().promptSubmitCount)
+        } finally { f.client.close() }
+    }
+
+    private inner class LeaseFixture(
+        val client: OkHttpRelaySessionClient,
+        val peer: WebSocket,
+        val timer: ManualAudioScheduler,
+        val submissions: AtomicInteger,
+        val disconnects: AtomicInteger,
+        val events: MutableList<AndroidNormalizedEvent>,
+        val journal: RecordingJournal,
+        val completed: CountDownLatch,
+        val clockRead: AtomicReference<CountDownLatch?>,
+        val received: java.util.concurrent.LinkedBlockingQueue<AndroidNormalizedEvent>,
+        val state: AtomicReference<AndroidTurnState>,
+        val sink: RecordingAudioSink,
+        val binding: AndroidTurnBinding,
+    ) {
+        fun observe() {
+            client.observeTurn(binding) {
+                events += it
+                state.set(AndroidTurnStateReducer.reduce(state.get(), it))
+                received.put(it)
+                if (it is AndroidNormalizedEvent.TurnCompleted) completed.countDown()
+            }
+        }
+
+        fun beat(phase: String) {
+            val frame = JSONObject(eventFrame("lease-turn", "turn.alive", JSONObject().put("phase", phase)))
+            frame.getJSONObject("params").put("correlation_id", "event-specific")
+            val receipt = CountDownLatch(1)
+            clockRead.set(receipt)
+            assertTrue(peer.send(frame.toString()))
+            assertTrue("heartbeat did not reach lease clock", receipt.await(5, TimeUnit.SECONDS))
+            clockRead.set(null)
+        }
+
+        fun complete() {
+            assertTrue(peer.send(eventFrame("lease-turn", "turn.complete", JSONObject().put("text", "finished"))))
+            assertTrue(completed.await(5, TimeUnit.SECONDS))
+        }
+
+        inline fun <reified T : AndroidNormalizedEvent> awaitEvent(): T {
+            while (true) {
+                val event = received.poll(5, TimeUnit.SECONDS)
+                assertNotNull("expected ${T::class.simpleName}", event)
+                if (event is T) return event
+            }
+        }
+    }
+
+    private fun leaseFixture(
+        keepalive: Boolean,
+        audio: Boolean = false,
+        observe: Boolean = true,
+        terminalBeforeAck: Boolean = false,
+        acceptAudio: Boolean = true,
+    ): LeaseFixture {
+        val peer = AtomicReference<WebSocket>()
+        val submissions = AtomicInteger()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                peer.set(webSocket)
+                val frame = JSONObject(text)
+                when (frame.getString("method")) {
+                    "conversation.open" -> {
+                        val ready = JSONObject(readyResponse(frame.getString("id"), audio = audio))
+                        if (keepalive) ready.getJSONObject("result").getJSONObject("capabilities").put("turn_keepalive", true)
+                        webSocket.send(ready.toString())
+                    }
+                    "prompt.submit" -> {
+                        submissions.incrementAndGet()
+                        if (terminalBeforeAck) {
+                            webSocket.send(eventFrame("lease-turn", "turn.complete", JSONObject().put("text", "finished")))
+                            webSocket.send(audioStartFrame("lease-turn"))
+                            webSocket.send(eventFrame("lease-turn", "turn.complete", JSONObject().put("text", "duplicate")))
+                        }
+                        webSocket.send(rpcResult(frame.getString("id"), JSONObject()
+                            .put("schema", 1).put("status", "submitted")
+                            .put("conversation_handle", CONVERSATION_HANDLE).put("turn_id", "lease-turn")))
+                    }
+                }
+            }
+        }))
+        val timer = ManualAudioScheduler()
+        val journal = RecordingJournal()
+        val clockRead = AtomicReference<CountDownLatch?>(null)
+        val clock = MonotonicClock {
+            val now = timer.clock.nanoTime()
+            clockRead.getAndSet(null)?.countDown()
+            now
+        }
+        val sink = RecordingAudioSink(acceptFormat = acceptAudio)
+        val client = client(scheduler = timer, clock = clock, journal = journal, audioSink = sink)
+        assertTrue(client.reconnect() is AndroidReconnectOutcome.Connected)
+        val disconnects = AtomicInteger()
+        client.observeConnection { disconnects.incrementAndGet() }
+        val accepted = client.beginTurn(AndroidTurnRequest(AndroidProfile(PROFILE_ID, "Amanda"), AndroidTurnInput.Typed("send once")))
+            as AndroidInitiationResult.Accepted
+        timer.awaitScheduled()
+        val events = Collections.synchronizedList(mutableListOf<AndroidNormalizedEvent>())
+        val completed = CountDownLatch(1)
+        val received = java.util.concurrent.LinkedBlockingQueue<AndroidNormalizedEvent>()
+        val state = AtomicReference(AndroidTurnState.awaitingEvents(accepted.binding))
+        val fixture = LeaseFixture(client, peer.get(), timer, submissions, disconnects, events, journal, completed,
+            clockRead, received, state, sink, accepted.binding)
+        if (observe) fixture.observe()
+        return fixture
+    }
+
     private fun client(
         homeBinding: RelayHomeBinding? = RelayHomeBinding(
             approvedRoute = bridgeRoute(),
@@ -3299,6 +3819,8 @@ class OkHttpRelaySessionClientTest {
         audioSink: AndroidAudioSink = RecordingAudioSink(),
         liveHomeGateTrace: AndroidLiveHomeGateTrace? = null,
         journal: DiagnosticsJournal = DiagnosticsJournal.None,
+        scheduler: java.util.concurrent.ScheduledExecutorService = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(),
+        clock: MonotonicClock = MonotonicClock.Real,
     ): OkHttpRelaySessionClient = OkHttpRelaySessionClient(
         collection = {
             collectionFor(
@@ -3317,6 +3839,8 @@ class OkHttpRelaySessionClientTest {
         audioSink = audioSink,
         liveHomeGateTrace = liveHomeGateTrace,
         journal = journal,
+        controlScheduler = scheduler,
+        clock = clock,
     )
 
     private fun collectionFor(

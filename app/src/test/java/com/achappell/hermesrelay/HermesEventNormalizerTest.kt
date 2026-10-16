@@ -526,6 +526,124 @@ class HermesEventNormalizerTest {
         )
     }
 
+    @Test
+    fun scoped_activity_includes_deduplicated_and_unknown_events_but_not_invalid_or_alive_frames() {
+        val activity = mutableListOf<AndroidTurnBinding>()
+        val normalizer = HermesEventNormalizer(
+            "amanda-laptop",
+            allowLegacyFrames = false,
+            onScopedActivity = { activity += it },
+        )
+        val text = homeEvent("text", org.json.JSONObject().put("text", "Answer"))
+        normalizer.normalize(text.toString(), binding)
+        assertTrue(normalizer.normalize(text.toString(), binding).isEmpty())
+        normalizer.normalize(homeEvent("activity", org.json.JSONObject()).toString(), binding)
+        assertEquals(listOf(binding, binding, binding), activity)
+
+        val wrongTurn = homeEvent("activity", org.json.JSONObject()).apply {
+            getJSONObject("params").put("turn_id", "other")
+        }
+        val wrongHandle = homeEvent("activity", org.json.JSONObject()).apply {
+            getJSONObject("params").put("conversation_handle", "other")
+        }
+        val malformed = homeEvent("activity", org.json.JSONObject()).put("schema", "1")
+        val missingCorrelation = homeEvent("approval.request", org.json.JSONObject())
+        listOf(wrongTurn, wrongHandle, malformed, missingCorrelation, turnAlive()).forEach {
+            normalizer.normalize(it.toString(), binding)
+        }
+        normalizer.normalizeStandard("activity", org.json.JSONObject(), binding)
+        assertEquals(listOf(binding, binding, binding), activity)
+    }
+
+    @Test
+    fun home_turn_alive_decodes_only_the_exact_control_envelope() {
+        val normalizer = HermesEventNormalizer("amanda-laptop", allowLegacyFrames = false)
+        listOf(
+            "running" to HomeTurnAlivePhase.Running,
+            "awaiting_input" to HomeTurnAlivePhase.AwaitingInput,
+        ).forEach { (wirePhase, phase) ->
+            assertEquals(
+                listOf(AndroidNormalizedEvent.TurnAlive(binding, phase, "correlation-1")),
+                normalizer.normalize(turnAlive(wirePhase).toString(), binding),
+            )
+        }
+    }
+
+    @Test
+    fun recognizable_malformed_heartbeats_drop_without_protocol_failure() {
+        val invalid = listOf<Any>("", " ", 7, true, org.json.JSONObject.NULL)
+        val mutations = mutableListOf<(org.json.JSONObject) -> Unit>()
+        listOf("schema", "jsonrpc", "method").forEach { key ->
+            mutations += { it.remove(key); Unit }
+            (invalid + listOf("wrong", 2)).forEach { value ->
+                mutations += { it.put(key, value); Unit }
+            }
+        }
+        listOf("schema", "conversation_handle", "turn_id", "correlation_id").forEach { key ->
+            mutations += { it.getJSONObject("params").remove(key); Unit }
+            invalid.forEach { value ->
+                mutations += { it.getJSONObject("params").put(key, value); Unit }
+            }
+        }
+        listOf("conversation_handle", "turn_id").forEach { key ->
+            mutations += { it.getJSONObject("params").put(key, "other"); Unit }
+        }
+        mutations += { it.getJSONObject("params").put("schema", 2); Unit }
+        mutations += { it.getJSONObject("params").put("schema", "1"); Unit }
+        mutations += { it.put("schema", "1"); Unit }
+        mutations += { it.getJSONObject("params").getJSONObject("event").remove("payload"); Unit }
+        (invalid + org.json.JSONArray()).forEach { value ->
+            mutations += {
+                it.getJSONObject("params").getJSONObject("event").put("payload", value)
+                Unit
+            }
+        }
+        mutations += {
+            it.getJSONObject("params").getJSONObject("event").getJSONObject("payload").remove("phase")
+            Unit
+        }
+        (invalid + listOf("unknown", "Running", " running", "awaiting_input ")).forEach { value ->
+            mutations += {
+                it.getJSONObject("params").getJSONObject("event").getJSONObject("payload").put("phase", value)
+                Unit
+            }
+        }
+        mutations += {
+            val params = it.getJSONObject("params")
+            params.remove("correlation_id")
+            params.getJSONObject("event").getJSONObject("payload").put("correlation_id", "payload-only")
+            Unit
+        }
+        mutations.forEach { mutate ->
+            val frame = turnAlive().apply(mutate)
+            assertTrue(
+                "Malformed heartbeat must drop: $frame",
+                HermesEventNormalizer("amanda-laptop", allowLegacyFrames = false)
+                    .normalize(frame.toString(), binding).isEmpty(),
+            )
+        }
+    }
+
+    @Test
+    fun heartbeat_control_does_not_change_text_accumulation_or_direct_standard_behavior() {
+        val normalizer = normalizer()
+        normalizer.normalize(homeEvent("message.delta", org.json.JSONObject().put("text", "Hello")).toString(), binding)
+        normalizer.normalize(turnAlive().toString(), binding)
+        assertEquals(
+            listOf(AndroidNormalizedEvent.ResponseTextDelta(binding, " world")),
+            normalizer.normalizeStandard("message.delta", org.json.JSONObject().put("text", " world"), binding),
+        )
+        assertEquals(
+            listOf(AndroidNormalizedEvent.Unknown(binding, "turn.alive")),
+            normalizer.normalizeStandard("turn.alive", org.json.JSONObject().put("phase", "running"), binding),
+        )
+    }
+
+    private fun turnAlive(phase: String = "running"): org.json.JSONObject =
+        homeEvent("turn.alive", org.json.JSONObject().put("phase", phase)).apply {
+            getJSONObject("params").put("correlation_id", "correlation-1")
+        }
+
     private fun homeEvent(type: String, payload: org.json.JSONObject): org.json.JSONObject =
         org.json.JSONObject()
             .put("schema", 1)

@@ -32,6 +32,7 @@ internal data class AndroidHomeCapabilities(
     val commands: Set<String> = emptySet(),
     val interrupt: Boolean = false,
     val audio: Boolean = false,
+    val turnKeepalive: Boolean = false,
 )
 
 internal enum class AndroidHomeUnavailableReason {
