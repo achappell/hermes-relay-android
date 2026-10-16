@@ -46,6 +46,7 @@ internal class HomeRuntime(
     private val retentionTimers: VoiceTimers = NoVoiceTimers,
     private val retentionTimings: RetentionTimings = RetentionTimings.Default,
     leadScheduler: java.util.concurrent.ScheduledExecutorService? = null,
+    private val mediaSessionWrites: MediaSessionWrites = MediaSessionWrites(),
 ) {
     private val leadSampler = AudioLeadSampler(
         clientPort::playbackLead, journal, clock, leadScheduler, clientPort::playbackLeadStream,
@@ -331,6 +332,7 @@ internal class HomeRuntime(
      */
     fun appBackgrounded(isChangingConfigurations: Boolean) {
         if (isChangingConfigurations) return
+        if (lifecycle.isForeground) mediaSessionWrites.backgroundEntered()
         val stopped = lifecycle.enterBackground()
         recoveryController.cancelRecovery()
         // A reply in flight stays alive under the foreground service until its
@@ -363,6 +365,7 @@ internal class HomeRuntime(
     }
 
     private fun foregroundEntered() {
+        mediaSessionWrites.foregroundEntered()
         leadSampler.stop()
         if (inBackgroundRetention) {
             inBackgroundRetention = false

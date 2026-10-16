@@ -313,6 +313,7 @@ internal class AudioTrackAudioSink(
     private val maximumHoldMillis: Long = 1_500,
     startupScheduler: ScheduledExecutorService? = null,
     private val journal: DiagnosticsJournal = DiagnosticsJournal.None,
+    private val mediaSessionWrites: MediaSessionWrites = MediaSessionWrites(),
     /**
      * Live-gate evidence requires gapless playback, so it fails on the first
      * underrun. Ordinary playback only counts them: AudioTrack resumes once
@@ -351,6 +352,8 @@ internal class AudioTrackAudioSink(
     private var startupReleaseReason = "resume"
     private var cushionReported = false
     private var responseReported = false
+    private var mediaResponse = mediaSessionWrites.current()
+    private var mediaResponsePrepared = false
     private var playbackStartedCallback: (() -> Unit)? = null
     // Only notification ordering is serialized here; never hold native/state locks in client code.
     private val notificationLock = Any()
@@ -456,6 +459,8 @@ internal class AudioTrackAudioSink(
         var expectedGeneration = 0L
         val previous = synchronized(deadlineLock) {
             reportResponseEnded()
+            if (!mediaResponsePrepared) mediaResponse = mediaSessionWrites.begin()
+            mediaResponsePrepared = false
             expectedGeneration = generation.incrementAndGet()
             responseWriteVersion++
             responseWriteInFlight = false
@@ -603,12 +608,19 @@ internal class AudioTrackAudioSink(
 
     override fun cancel() = cancelCurrent(onlyIfActive = false)
 
-    override fun prepareTurn() = cancelCurrent(onlyIfActive = true)
+    override fun prepareTurn() {
+        cancelCurrent(onlyIfActive = true)
+        synchronized(deadlineLock) {
+            mediaResponse = mediaSessionWrites.begin()
+            mediaResponsePrepared = true
+        }
+    }
 
     private fun cancelCurrent(onlyIfActive: Boolean) {
         val current = synchronized(deadlineLock) {
             if (onlyIfActive && !active.get()) return
             reportResponseEnded()
+            mediaResponsePrepared = false
             generation.incrementAndGet()
             responseWriteVersion++
             responseWriteInFlight = false
@@ -627,6 +639,7 @@ internal class AudioTrackAudioSink(
     private fun reportResponseEnded() {
         if (!active.get() || responseReported) return
         responseReported = true
+        val mediaWrites = mediaSessionWrites.end(mediaResponse)
         val current = driver.get()
         val observed = underrunCount.get()
         val baseline = underrunBaseline.get()
@@ -636,7 +649,7 @@ internal class AudioTrackAudioSink(
                 ?.let { (it - baseline).coerceAtLeast(0) } ?: 0
             val total = maxOf(observed.toLong(), retired.toLong() + finalDelta)
                 .coerceAtMost(Int.MAX_VALUE.toLong())
-            journal.record("voice response ended underruns=$total")
+            journal.record("voice response ended underruns=$total mediasession_writes=$mediaWrites")
         }
     }
 

@@ -34,11 +34,15 @@ class AudioPlaybackLeadTest {
         val driver = Driver()
         val timer = ManualAudioScheduler()
         val journal = RecordingJournal()
+        val mediaWrites = MediaSessionWrites()
+        var deferControls = false
+        val pendingControls = ArrayDeque<Runnable>()
         val started = CountDownLatch(1)
         val sink = AudioTrackAudioSink(
             driverFactory = factory ?: AudioTrackDriverFactory { _, _ -> driver },
             startupScheduler = timer, clock = timer.clock,
-            controlExecutor = Executor { it.run() }, journal = journal,
+            controlExecutor = Executor { if (deferControls) pendingControls.addLast(it) else it.run() }, journal = journal,
+            mediaSessionWrites = mediaWrites,
             minBufferSizeProvider = { 4 },
         )
         fun start() { assertTrue(sink.start(AndroidAudioFormat(16000, 1, 2, "pcm_s16le")) { started.countDown() }) }
@@ -123,8 +127,55 @@ class AudioPlaybackLeadTest {
             f.start(); f.queueShort()
             f.driver.underruns = 3 // No next PCM/drain poll has observed this count.
             f.sink.cancel(); f.sink.cancel()
-            assertEquals(listOf("voice response ended underruns=3"), f.journal.lines.filter { it.startsWith("voice response ended") })
+            assertEquals(listOf("voice response ended underruns=3 mediasession_writes=0"), f.journal.lines.filter { it.startsWith("voice response ended") })
             assertNull(f.sink.playbackLead())
+        }
+    }
+
+    @Test fun audio_end_freezes_media_count_before_later_service_updates_and_next_response() {
+        Fixture().use { f ->
+            f.sink.prepareTurn()
+            f.mediaWrites.backgroundEntered()
+            f.mediaWrites.written(onMainThread = false) // Card published before audio admission.
+            f.start()
+            f.driver.underruns = 4
+            f.mediaWrites.written(onMainThread = false)
+            f.sink.cancel()
+            f.mediaWrites.written(onMainThread = false) // Later terminal service work is excluded.
+            f.sink.prepareTurn()
+            f.start()
+            f.mediaWrites.written(onMainThread = false)
+            f.sink.cancel()
+            assertEquals(
+                listOf(
+                    "voice response ended underruns=4 mediasession_writes=2",
+                    "voice response ended underruns=0 mediasession_writes=4",
+                ),
+                f.journal.lines.filter { it.startsWith("voice response ended") },
+            )
+        }
+    }
+
+    @Test fun delayed_underrun_summary_uses_frozen_media_delta_after_reentry_and_new_admission() {
+        Fixture().use { f ->
+            f.start()
+            f.mediaWrites.backgroundEntered()
+            f.mediaWrites.written(false)
+            f.driver.underruns = 3
+            f.deferControls = true
+            f.sink.cancel()
+            assertEquals(0, f.journal.count("voice response ended"))
+            f.mediaWrites.written(false)
+            f.mediaWrites.foregroundEntered()
+            f.mediaWrites.backgroundEntered()
+            val next = f.mediaWrites.begin()
+            f.mediaWrites.written(false)
+            while (f.pendingControls.isNotEmpty()) f.pendingControls.removeFirst().run()
+            assertEquals(
+                listOf("voice response ended underruns=3 mediasession_writes=1"),
+                f.journal.lines.filter { it.startsWith("voice response ended") },
+            )
+            assertEquals(1L, f.mediaWrites.end(next))
         }
     }
 

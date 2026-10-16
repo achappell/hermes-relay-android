@@ -45,6 +45,7 @@ class HomeVoiceService : Service() {
     /** Snapshot the injectable lease when this service instance is created. */
     private val wakeLeaseMillis = wakeLockLeaseMillis
     private var shown: VoiceServiceState? = null
+    private var publishedPaused: Boolean? = null
     private var foregroundInstalled = false
     internal var microphoneInstalled = false
         private set
@@ -236,17 +237,24 @@ class HomeVoiceService : Service() {
             )
             fresh.isActive = true
             session = fresh
+            publishedPaused = null
         }
-        current.setPlaybackState(
-            PlaybackState.Builder()
-                .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_STOP)
-                .setState(
-                    if (state.paused) PlaybackState.STATE_PAUSED else PlaybackState.STATE_PLAYING,
-                    PlaybackState.PLAYBACK_POSITION_UNKNOWN,
-                    if (state.paused) 0f else 1f,
-                )
-                .build(),
-        )
+        if (publishedPaused != state.paused) {
+            current.setPlaybackState(
+                PlaybackState.Builder()
+                    .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_STOP)
+                    .setState(
+                        if (state.paused) PlaybackState.STATE_PAUSED else PlaybackState.STATE_PLAYING,
+                        PlaybackState.PLAYBACK_POSITION_UNKNOWN,
+                        if (state.paused) 0f else 1f,
+                    )
+                    .build(),
+            )
+            (application as HermesRelayApplication).mediaSessionWrites.written(
+                onMainThread = Looper.myLooper() === Looper.getMainLooper(),
+            )
+            publishedPaused = state.paused
+        }
         notify(mediaNotification(state, current))
         cardPublished = true
         if (created) {

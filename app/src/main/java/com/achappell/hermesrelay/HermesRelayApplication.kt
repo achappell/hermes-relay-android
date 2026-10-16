@@ -37,6 +37,7 @@ internal class HermesRelayServices(context: Context) {
 /** Owns the process-scoped Home runtime (`ANDROID-HOME-07`). */
 class HermesRelayApplication : Application() {
     internal val services: HermesRelayServices by lazy { HermesRelayServices(this) }
+    internal val mediaSessionWrites = MediaSessionWrites()
 
     /**
      * The content-free connection journal, kept in every build. Debug builds also
@@ -75,6 +76,7 @@ class HermesRelayApplication : Application() {
             credentials = services.credentials,
             audioSink = AudioTrackAudioSink(
                 driverFactory = platformAudioTrackDriverFactory(platform, audioRoutes), journal = journal,
+                mediaSessionWrites = mediaSessionWrites,
             ),
             clientClaims = HomeClientClaimProvider(
                 services.pairings,
@@ -92,6 +94,7 @@ class HermesRelayApplication : Application() {
                 restartStore = services.standardRestartStore,
                 audioSink = AudioTrackAudioSink(
                     driverFactory = platformAudioTrackDriverFactory(platform, audioRoutes), journal = journal,
+                    mediaSessionWrites = mediaSessionWrites,
                 ),
                 journal = journal,
             ),
@@ -112,6 +115,7 @@ class HermesRelayApplication : Application() {
             audioFocus = PlatformAudioFocusController(this),
             audioRoutes = audioRoutes,
             retentionTimers = MainLooperVoiceTimers,
+            mediaSessionWrites = mediaSessionWrites,
         )
     }
 }
