@@ -35,6 +35,7 @@
 - Exclude all app data from cloud backup and device transfer with Android 12+ extraction rules.
 
 ### Fixes
+- Repair all 18 retained instrumentation failures with physical-control reachability, actual runtime/observer readiness, a truthful interrupt fixture, and manual-clock coverage of the unchanged 1500 ms hands-free tail. Fresh-emulator non-LiveRelay discovery is 100: 98 pass, two existing opt-in live-speech cases remain unrequested, and none fail. This supersedes the initial non-green ARCH-01 comparison above without claiming live Home, pairing, or physical audio acceptance.
 - Stop displaying Speaking immediately when response audio fails before the text turn ends; continue receiving text and show the existing audio-unavailable warning.
 - Keep deliberate interruption distinct from response-audio failure: preserve partial text and actual earlier audio errors without showing a false audio-unavailable warning for stopped playback.
 - Preserve rejected Standard authentication as a terminal authorization failure instead of treating a failed WebSocket upgrade as a lost live connection; show credential-repair guidance without an automatic retry cascade.

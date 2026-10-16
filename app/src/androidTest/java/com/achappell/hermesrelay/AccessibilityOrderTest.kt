@@ -49,6 +49,8 @@ import org.junit.runner.RunWith
 class AccessibilityOrderTest {
     @get:Rule
     val composeRule = createComposeRule()
+    @get:Rule val notifications = turnFixtureNotifications()
+    private lateinit var runtime: HomeRuntime
 
     private var originalAccessibilityFlags: Int? = null
 
@@ -196,7 +198,7 @@ class AccessibilityOrderTest {
 
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(clientPort = port, speechInput = speech)
+                AndroidClientScreen(clientPort = port, speechInput = speech, onRuntime = { runtime = it })
             }
         }
 
@@ -209,13 +211,8 @@ class AccessibilityOrderTest {
             stateIndex < actionIndex,
         )
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Check the weather")
-        composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("Check the weather") { port.hasObserver }
 
         val binding = port.lastBinding!!
         composeRule.runOnIdle {
@@ -245,17 +242,12 @@ class AccessibilityOrderTest {
 
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(clientPort = port, speechInput = speech)
+                AndroidClientScreen(clientPort = port, speechInput = speech, onRuntime = { runtime = it })
             }
         }
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Tell me a story")
-        composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("Tell me a story") { port.hasObserver }
 
         val binding = port.lastBinding!!
         composeRule.runOnIdle { port.emit(AndroidNormalizedEvent.Thinking(binding)) }
@@ -277,7 +269,7 @@ class AccessibilityOrderTest {
 
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(clientPort = port, speechInput = speech)
+                AndroidClientScreen(clientPort = port, speechInput = speech, onRuntime = { runtime = it })
             }
         }
 
@@ -294,13 +286,8 @@ class AccessibilityOrderTest {
             .assertTextEquals(context.getString(R.string.android_capture_block_not_connected))
         composeRule.onNodeWithTag("android_conversation_rail").performScrollTo()
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Tell me a story")
-        composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("Tell me a story") { port.hasObserver }
 
         val binding = port.lastBinding!!
         composeRule.runOnIdle {
@@ -542,7 +529,8 @@ class AccessibilityOrderTest {
         val requests = mutableListOf<AndroidTurnRequest>()
         var lastBinding: AndroidTurnBinding? = null
             private set
-        private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        @Volatile private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        val hasObserver: Boolean get() = listener != null
 
         override fun snapshot() = AndroidClientSnapshot(
             titleRes = BootstrapState.titleRes,

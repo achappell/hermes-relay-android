@@ -90,3 +90,47 @@ the owned-emulator cleanup log records its shutdown. The cleanup receipt
 The separate config manifest remains in `E/owned-avd-config`. All logs,
 instrumentation XML, APKs and comparison evidence remain intact. Owner AVDs
 and recovery assets were untouched.
+
+## Authorized instrumentation repair — 2026-10-16
+
+This section supersedes only the earlier **instrumentation remains non-green** verdict. The historical baseline/final failures above and all `.local-evidence/arch01-20261016-071759` receipts remain unchanged. User authorization expanded the prior pure-refactor restriction to allow repairing all 18 tests. No production source was changed by this repair.
+
+Repair receipts (`R`):
+`/var/folders/cb/3pkc1ncx58j1xq63ktd8xftw0000gn/T/hermes-instrumentation-repair-7k410mm7`.
+
+### Traced causes and retained assertions
+
+- Typed-turn fixtures clicked a scrollable action surface after opening the IME and assumed Compose idle implied completion of a real worker plus main-handler handoff. The repair closes the IME before scrolling to, asserting visibility/enabled state of, and **physically clicking** Start. It waits for actual runtime connection state on the UI queue, then an installed fake observer before injecting events. Non-emitting fixtures wait for accepted state with initiation complete. The exact request/profile, coherent response, error, accessibility-order and recall assertions remain.
+- `InterruptControlTest.Port.hasActiveTurn()` returned `true` before any submission. `MainActivity` includes that value in accepted-turn/composer blocking, so Start was correctly disabled and the original click never submitted. The fake now becomes active only after `beginTurn` assigns its binding. These three tests do not emit terminal events, so no unused terminal simulation was added. Interrupt dispatch itself is synchronous (`ClientConversationRail` → `HomeRuntime.interruptAndListen` → `TurnInterruptCoordinator.interrupt` → fake `interruptTurn`), not an unawaited worker.
+- Claims-sheet visibility was a lower-row reachability issue in its actual vertically scrolling container. The third claim's unavailable-profile label and subsequent close actions are explicitly scrolled into view; server-count/current-marker/selective-close assertions are unchanged.
+- Disconnected draft visibility was IME occlusion of the bounded composer. Closing the keyboard before scrolling preserves the cached-draft visibility, disabled-send explanation and exact persisted draft assertions.
+- Prompt-history visibility depended on a submitted prompt, not merely entering text. The fixture now observes completed acceptance before seeking the existing Recent prompts label. It keeps both the label and text-display assertions.
+- Hands-free had **two distinct prerequisites**: an installed turn observer, and the unchanged output-tail scheduler. The composition fixture formerly omitted `retentionTimers`, inheriting **`NoVoiceTimers`**, while using a real clock. It was not simply a real timer running slowly: no tail callback could reopen capture. The test now injects a manual monotonic clock and timers through the existing runtime constructor, checks one capture through the last millisecond of `RetentionTimings.Default.outputTailMillis`, then exactly two after the deadline, and preserves “stop” never submitting. Default composition fixtures now use the real main-looper retention timers, matching a functioning runtime.
+- Fresh-empty-device verification exposed a separate permission prerequisite: the first reply launched Android `GrantPermissionsActivity`, leaving no resumed Compose hierarchy. `targeted-01-lifecycle.log` records the permission Activity at 08:26:51 before the failure; the crash buffer was empty. Five non-permission turn-fixture classes now use the existing conditional `GrantPermissionRule` pattern for notifications. No global adb grant and no microphone/notification-denial flow changes were made.
+- Parent formal reviews: blind and edge reviews reported no findings. Coverage review found a source-level Retry/Resend race, not an observed failure: after Retry the test now observes connected/non-recovering state before asserting no automatic replay; after Resend it observes completed resend, accepted replacement binding and installed observer on the UI queue before exact two-request/equality/cleared-warning assertions. Focused source closure confirmed the fix and the synchronous interrupt path. Static review is not physical/live acceptance.
+
+### Verification receipts and exact accounting
+
+| Receipt under R | Observed result |
+| --- | --- |
+| `full-jvm-build.log`, `full-jvm-xml/` | Initial repair build and instrumentation APK compiled; full JVM 784 tests / 57 suites, zero failures/errors; XML preserved before repetition. |
+| `repair-targeted-01.log`, `targeted-01-logcat.log`, `targeted-01-lifecycle.log` | 43 targeted cases, five failures: three unsuitable Ready-label predicates, one recognizer-unavailable Ready-label predicate, and the fresh-device notification permission Activity. These informative failed attempts are preserved. |
+| `repair-build-02.log`, `repair-targeted-02.log` | Build passes; targeted 43 has three failures, all interrupt Start correctly disabled by the fake's unconditional active-turn claim. All other retained failures pass. |
+| `repair-build-03.log`, `repair-focused-03.log`, corresponding derived XML | Build passes; all three interrupt cases and the reviewed explicit-resend case pass together: four cases, zero failures/skips. |
+| `full-nonlive-04.log`, `full-nonlive-04.derived.xml`, `repair-comparison.json` | **100 discovered: 98 passed, zero failed, two pre-existing opt-in liveSpeech assumption skips.** Every one of the 18 retained failure IDs passes; both new holder smoke tests pass in this same full invocation. Runner's `OK (100 tests)` is not misreported as 100 executed passes. |
+| `final-jvm-lint.log`, `final-full-jvm-xml/` | Fresh full JVM 784 / 57, both APKs and lint pass. Full XML archived before the repetition gate overwrote Gradle results. |
+| `repetition/01/` through `repetition/30/`, `repetition-summary.json` | Thirty separate fail-fast `scripts/run-flake-gate.sh <same14classes listed above> 1` invocations; each log and complete XML archived before the next. 206 tests per invocation, 6180 executions, zero failures. |
+| `runtime-screen-proof.log`, derived XML, `runtime-screens/` | The actual normalized-turn screen test passes again while serial-targeted screenshots record its running UI. Frame035 shows entered typed text; frame045 shows Buffering and “Rain later”; frame048 shows Complete, retained text and enabled Tap to speak. Screens are actual emulator output, not a mock rendering. |
+| `apk-metadata.log`, `apk-metadata-explicit-sdk.log` | First attempt failed because PATH selected Homebrew apkanalyzer without its build tools. Diagnosed before retry; explicit installed-SDK command-tools path passes minSDK26, version0.3.1/code301, backup exclusions and16KB alignment. Release signer comparison remains skipped because EXPECTED_SIGNER_SHA256 is unset. |
+
+The two existing assumption skips are `LiveEndpointingTest#a_phrase_followed_by_silence_is_sent_once_without_touching_the_screen` and `LiveSpeechRecognizerTest#the_recognizer_hears_one_spoken_phrase_and_reports_a_final_transcript`; both require the explicit `liveSpeech` opt-in and real speech prerequisites. No annotation, assumption, assertion or test-discovery exclusion was added to make this repair green.
+
+### Device ownership and remaining acceptance boundaries
+
+New **empty** AVD `hermes_instrumentation_repair`, claimed port5590 / explicit serial `emulator-5590`, API36 Google APIs arm64, 320×640 at density160 matches the prior comparison geometry. `avd-create.log`, `owned-port.txt`, `emulator.log` and `owned-device-metadata.txt` record provenance. The AVD and receipts live only under R; no owner credentials were copied. No Gradle connected task, owner emulator5554, original AVD/userdata, or recovery directory was touched.
+
+All 18 requested repairs are demonstrated by the full non-live run, not merely a narrowed pass. The two holder smokes still use pre-paired disposable fixtures; they do not exercise enrollment or prove live pairing. Normalized audio events and the screen recordings prove synthetic UI state only, not native speaker/microphone playback, echo rejection, recognizer timing, Pixel acceptance, or live Home connectivity. Those acceptance tracks remain separate and open. Publication remains the parent's responsibility after local review; this worker did not push or create a PR.
+
+**Historical accounting clarification (read-only analysis, no baseline rerun):** both original raw logs contain98 starts,78 status0 passes,18 status−2 failures and2 status−4 assumption skips. Thus “98 with18 failures” must not be read as80 passes. The skipped IDs and explicit `liveSpeech` requirement are the same two named above. `R/historical-status-accounting.json` records the corrected counts without rewriting prior raw/derived receipts.
+
+**Owned cleanup completed:** explicit `adb -s emulator-5590 emu kill` returned OK; the owned emulator process exited0. Only `R/empty-avd` was removed, with `exists_after_cleanup:false` in `owned-avd-cleanup.json`. Creation/config manifests, logs, screenshots, XML and all other receipts remain. Owner emulator5554 and recovery assets were never addressed.

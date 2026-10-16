@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
 import java.util.concurrent.atomic.AtomicReference
@@ -86,13 +87,16 @@ class HomeConversationsSheetTest {
         composeRule.onNodeWithText("Groceries", useUnmergedTree = true).assertIsDisplayed()
         // The current claim and the third claim both have no title.
         composeRule.onAllNodesWithText("Untitled conversation", useUnmergedTree = true).assertCountEquals(2)
-        composeRule.onNodeWithText("Profile name unavailable", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Profile name unavailable", useUnmergedTree = true)
+            .performScrollTo().assertIsDisplayed()
         composeRule.onAllNodesWithTag("android_home_claim_close_0").assertCountEquals(0)
         composeRule.onNodeWithTag("android_home_claim_close_1").assertIsEnabled()
-        composeRule.onNodeWithTag("android_home_claim_close_1").performClick()
+        composeRule.onNodeWithTag("android_home_claim_close_1").performScrollTo()
+            .assertIsDisplayed().performClick()
         assertEquals("pairing-1" to listOf("other-ref"), submitted.get())
 
-        composeRule.onNodeWithTag("android_home_claims_close_all_others").performClick()
+        composeRule.onNodeWithTag("android_home_claims_close_all_others").performScrollTo()
+            .assertIsDisplayed().performClick()
         assertEquals("pairing-1" to listOf("other-ref", "untitled-ref"), submitted.get())
     }
 

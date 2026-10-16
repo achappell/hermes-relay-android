@@ -23,6 +23,7 @@ import org.junit.runner.RunWith
 class MicrophoneCaptureTest {
     @get:Rule
     val composeRule = createComposeRule()
+    @get:Rule val notifications = turnFixtureNotifications()
 
     @Test
     fun the_platform_input_detects_the_installed_recognizer_without_claiming_permission() {
@@ -123,22 +124,18 @@ class MicrophoneCaptureTest {
     fun typed_turns_still_work_when_no_recognizer_exists() {
         val speech = FakeSpeechInput(AndroidSpeechAuthorization.Unavailable)
         val port = ConnectedFakePort()
+        lateinit var runtime: HomeRuntime
 
         composeRule.setContent {
             HermesRelayTheme {
                 // AndroidClientScreen scrolls internally; wrapping it in another
                 // scrolling column measures it with infinite height.
-                AndroidClientScreen(clientPort = port, speechInput = speech)
+                AndroidClientScreen(clientPort = port, speechInput = speech, onRuntime = { runtime = it })
             }
         }
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("typed instead")
-        composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("typed instead") { port.hasObserver }
 
         assertEquals(AndroidTurnInput.Typed("typed instead"), port.requests.single().input)
         assertEquals(0, speech.startCount)
@@ -187,16 +184,23 @@ class MicrophoneCaptureTest {
     fun hands_free_continues_after_a_completed_turn_and_stop_ends_it() {
         val speech = FakeSpeechInput()
         val port = ConnectedFakePort()
+        val timers = ManualVoiceTimers()
+        lateinit var runtime: HomeRuntime
 
         composeRule.setContent {
             HermesRelayTheme {
-                AndroidClientScreen(clientPort = port, speechInput = speech)
+                AndroidClientScreen(
+                    clientPort = port,
+                    speechInput = speech,
+                    clock = timers,
+                    voiceTimers = timers,
+                    retentionTimers = timers,
+                    onRuntime = { runtime = it },
+                )
             }
         }
 
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
         composeRule.onNodeWithTag("android_hands_free").performScrollTo().performClick()
         composeRule.waitForIdle()
 
@@ -205,16 +209,21 @@ class MicrophoneCaptureTest {
         composeRule.onNodeWithTag("android_hands_free_active").performScrollTo().assertIsDisplayed()
 
         composeRule.runOnIdle { speech.emit(AndroidSpeechEvent.Final("check the weather")) }
-        composeRule.waitForIdle()
+        composeRule.waitUntil { port.hasObserver }
         assertEquals(1, port.requests.size)
 
-        // Completing the turn reopens the window without another tap.
+        // Completion retains the production output tail before reopening.
         val binding = AndroidTurnBinding("amanda-laptop", "session-1", "turn-1")
         composeRule.runOnIdle {
             port.emit(AndroidNormalizedEvent.AudioStarted(binding))
             port.emit(AndroidNormalizedEvent.AudioEnded(binding))
             port.emit(AndroidNormalizedEvent.TurnCompleted(binding))
         }
+        composeRule.waitForIdle()
+        assertEquals("capture reopened during the output tail", 1, speech.startCount)
+        composeRule.runOnIdle { timers.advanceBy(RetentionTimings.Default.outputTailMillis - 1) }
+        assertEquals("capture reopened before the output tail ended", 1, speech.startCount)
+        composeRule.runOnIdle { timers.advanceBy(1) }
         composeRule.waitForIdle()
         assertEquals("the window did not reopen", 2, speech.startCount)
 
@@ -232,7 +241,8 @@ class MicrophoneCaptureTest {
     private class ConnectedFakePort : AndroidClientPort {
         private val profile = AndroidProfile("amanda-laptop", "Amanda")
         val requests = mutableListOf<AndroidTurnRequest>()
-        private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        @Volatile private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        val hasObserver: Boolean get() = listener != null
 
         override fun snapshot() = AndroidClientSnapshot(
             titleRes = BootstrapState.titleRes,

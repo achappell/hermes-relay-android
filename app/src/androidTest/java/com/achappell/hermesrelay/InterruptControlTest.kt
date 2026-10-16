@@ -10,8 +10,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performTextInput
-import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
@@ -25,6 +23,7 @@ import org.junit.runner.RunWith
 class InterruptControlTest {
     @get:Rule
     val composeRule = createComposeRule()
+    @get:Rule val notifications = turnFixtureNotifications()
 
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
@@ -32,7 +31,8 @@ class InterruptControlTest {
         private val profile = AndroidProfile("amanda-laptop", "Amanda")
         var interrupts = 0
         var lastBinding: AndroidTurnBinding? = null
-        private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        @Volatile private var listener: ((AndroidNormalizedEvent) -> Unit)? = null
+        val hasObserver: Boolean get() = listener != null
 
         override fun snapshot() = AndroidClientSnapshot(
             titleRes = BootstrapState.titleRes,
@@ -58,7 +58,7 @@ class InterruptControlTest {
 
         override fun reconnect() = AndroidReconnectOutcome.Connected("session-1")
 
-        override fun hasActiveTurn() = true
+        override fun hasActiveTurn() = lastBinding != null
 
         override fun supportsInterrupt() = true
 
@@ -73,16 +73,14 @@ class InterruptControlTest {
     }
 
     private fun startTurn(port: Port, speech: FakeSpeechInput = FakeSpeechInput()) {
+        lateinit var runtime: HomeRuntime
         composeRule.setContent {
-            HermesRelayTheme { AndroidClientScreen(clientPort = port, speechInput = speech) }
+            HermesRelayTheme {
+                AndroidClientScreen(clientPort = port, speechInput = speech, onRuntime = { runtime = it })
+            }
         }
-        composeRule.scrollToConversationTag("android_connect")
-        composeRule.onNodeWithTag("android_connect").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("Tell me a story")
-        composeRule.onNodeWithText("Start typed turn").performScrollTo().performClick()
-        closeSoftKeyboard()
-        composeRule.waitForIdle()
+        composeRule.connectToReady { runtime.recoveryState.connection == AndroidConnectionState.Connected }
+        composeRule.submitTypedPrompt("Tell me a story") { port.hasObserver }
         composeRule.runOnIdle { port.emit(AndroidNormalizedEvent.Thinking(port.lastBinding!!)) }
         composeRule.waitForIdle()
     }
