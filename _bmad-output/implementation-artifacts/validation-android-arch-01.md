@@ -45,7 +45,7 @@ Owned empty API36 arm64 Google APIs AVD `hermes_arch01_empty`, explicit serial `
 
 Repetition classes: HomeRuntimeHoldersTest, ConversationsHolderTest, ApprovalsHolderTest, HomeRuntimeReconnectTest, HomeRuntimeInterruptTest, HomeRuntimeBackgroundTransportTest, HomeRuntimeVoiceRetentionTest, HomeRuntimeTest, HomeRuntimeRetentionTest, AndroidRecoveryControllerTest, AndroidInitiationControllerTest, AndroidCaptureControllerTest, AndroidTurnStateTest, AndroidTurnStateLateAudioTest.
 
-New smoke prerequisites were corrected only after inspecting the actual surface/reducer: scroll the real lazy rail before Connect; fallback voice is labelled Tap to speak; synthetic AudioStarted/AudioEnded makes Complete an honest normalized **UI phase fixture**, not native playback proof. Readiness waits observe runtime/listener state rather than treating Compose idle as executor completion. Disposable interfaces provide pairing/connect, typed turn, conversation resume, approval, history and Activity recreation without owner credentials or live Home.
+New smoke prerequisites were corrected only after inspecting the actual surface/reducer: scroll the real lazy rail before Connect; fallback voice is labelled Tap to speak; synthetic AudioStarted/AudioEnded makes Complete an honest normalized **UI phase fixture**, not native playback proof. Readiness waits observe runtime/listener state rather than treating Compose idle as executor completion. The smoke uses a pre-paired fixture (`selectedIsPaired = true`) for Connect; it does not exercise Home pairing/enrollment or prove live pairing. Disposable fixture interfaces exercise typed turn, conversation resume, approval, history and Activity recreation without owner credentials or live Home.
 
 ## Exact retained failures
 
@@ -82,9 +82,11 @@ The first Accessibility fixture calls Connect→waitForIdle→type→Start→clo
 
 Existing instrumentation remains non-green; it is not waived or relabelled as accepted. This is a locally implemented/reviewed refactor with bounded emulator proof and preserved baseline exceptions, not whole-story acceptance. Physical/live limitations from HOME09/HOME10 remain unchanged. Publishing and any broader baseline remediation require separate authorization.
 
-Owned emulator5588 was identified by its AVD name, shut down after proof, and its
-exclusive port claim released (`E/owned-emulator-cleanup.log`). After shutdown,
-only its disposable `E/avd` home was removed; absence is recorded in
-`E/owned-avd-disk-cleanup.json`. Reproduction configuration remains in
-`E/owned-avd-config`; all logs/XML/APKs/comparison receipts remain intact.
-Owner AVDs and recovery assets were untouched.
+The owned AVD was `hermes_arch01_empty` (emulator serial `emulator-5588` in
+`E/baseline-final-comparison.json`). The emulator log identifies that AVD and
+the owned-emulator cleanup log records its shutdown. The cleanup receipt
+`E/owned-avd-disk-cleanup.json` records removal of only
+`E/avd` with `exists_after_cleanup: false`; I confirmed that path is absent.
+The separate config manifest remains in `E/owned-avd-config`. All logs,
+instrumentation XML, APKs and comparison evidence remain intact. Owner AVDs
+and recovery assets were untouched.
