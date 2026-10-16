@@ -10,6 +10,8 @@ dead_track_slice_baseline: e0af503e3dbd13b8fc6ef75f14280f482bb72763
 dead_track_slice_status: software-verified
 lead_slice_baseline: aeb470ff656c27b55aed9012b08a2bedcd5e069b
 lead_slice_status: software-verified
+media_session_slice_baseline: 62987da8d10bde71918a1bd95666a80d502a0caf
+media_session_slice_status: software-verified
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-01
@@ -880,3 +882,155 @@ on any failed iteration rather than allowing its ordinary N-run loop to continue
   OS-death and API-specific unknown-route acceptance remain open. The historical
   unattributed Standard iteration-23 failure is still unattributed; this clean
   gate does not rewrite that history or the current slice's preserved failures.
+
+## Approved media-session accounting slice — 2026-10-15
+
+Requirement **7** only. Playback-state writes remain on `hermes-voice-card`;
+notification-only changes do not rewrite the unchanged native playback state.
+Initial publication and each actual Pause/Play transition retain the existing
+Play/Pause/Stop actions. Buffering defaults remain **1000/1500 ms**.
+
+### Observation window and terminal ordering
+
+- One application-owned monotonic counter increments only after a successful
+  native `MediaSession.setPlaybackState` return, never for UI requests,
+  notifications, metadata, PCM chunks or lead-sampling ticks.
+- Actual background entry captures a counter baseline before entry-triggered
+  service work. A native write queued before entry but completed afterward
+  counts. Duplicate stop and configuration recreation do not reset the baseline.
+- Foreground return retains the last entry's observation window. Re-entry resets
+  its baseline; a new response admitted while backgrounded inherits the current
+  entry baseline. Counts are cumulative within a background stay, not per reply;
+  arbitrarily many manual state changes need not produce only a handful of writes.
+  A foreground-only response has no observation window and reports zero scoped
+  writes; this differs from a background observation window with zero writes.
+- Service recreation does not reset the process counter. A fresh native session
+  requires its first state write, which counts naturally if within the window.
+- The audio sink freezes the delta at its existing completion/cancellation
+  boundary. It explicitly **excludes** a later adapter/runtime `AudioEnded`
+  terminal service update and native writes completing after that boundary.
+  There is no service barrier that could incorrectly precede that update.
+  Final underrun collection stays on the existing sink control worker and emits
+  the same single `voice response ended underruns=N mediasession_writes=N` line.
+- Per-response handles own baselines and frozen results, not write admission.
+  Old finalization cannot reset a new response. No main/audio/feed thread waits
+  for the service or a native call; counter monitors protect scalar state only.
+
+### Implementation and acceptance
+
+- `MediaSessionWrites.kt`, `HermesRelayApplication.kt`: injected process counter,
+  response-owned baseline/finalization and read-only native-write/thread evidence.
+- `HomeRuntime.kt`: baseline before background service dispatch, foreground and
+  duplicate/configuration lifecycle behavior.
+- `HomeVoiceService.kt`: native success recording and playback-state-only cache.
+- `AndroidAudioSink.kt`: admission ownership and frozen count on its existing
+  once-only underrun summary; no new summary or per-chunk work.
+- Given queued pre-entry work, when it successfully writes after entry, then its
+  native write counts. Given re-entry, only writes after the newest baseline count.
+- Given metadata-only updates, when the card changes, then controller state and
+  actions remain valid without a playback-state write.
+- Given cancellation or completion, when later terminal service work and a new
+  response arrive, then the old summary remains frozen and the new count is owned
+  independently. Underruns remain present exactly once.
+- Permanent JVM boundary/sink/runtime tests and native production-service
+  instrumentation exercise these consumers. Emulator evidence is controlled
+  input, not physical headset, Bluetooth, acoustic or Pixel tuning acceptance.
+
+### Formal review triage — media-session slice
+
+| Finding | Disposition | Repair and evidence |
+| --- | --- | --- |
+| Blind review | No actionable finding | Parent reviewed the initial complete diff. |
+| Edge-case review | No actionable finding | Parent reviewed the initial complete diff. |
+| Coverage 1: counter-only dedup oracle | Medium; repaired and verified | The native test independently reads the stored **Paused** `PlaybackState.lastPositionUpdateTime` after the changed notification is observed, crossing the OS clock's millisecond boundary before the update. A mutation moving only the native call outside the guard while keeping accounting guarded failed this independent oracle. Playing getters synthesize timestamps and are deliberately not used as a publication oracle. |
+| Coverage 2: service recreation not exercised | Medium; repaired and verified | Native instrumentation stops and recreates the actual service with the same response handle and entry baseline, checks a fresh controller/token and initialized actions/state, and includes both sessions' initial successful writes in the one final summary (`mediasession_writes=4`). Controlled lifecycle input is not natural OS-death recovery proof. |
+
+The proposed delayed-card `shown == latest` guard was removed from this slice:
+it addresses a pre-existing lifecycle race rather than the measured identical
+native projection writes, and no new production behavior is justified by the
+two accepted coverage findings.
+
+### Observed verification chronology and receipts
+
+All receipts below are under the private evidence directory
+`/var/folders/cb/3pkc1ncx58j1xq63ktd8xftw0000gn/T/home09-media-evidence-lptzkq3j/`.
+The fresh baseline was PR166 merge `62987da8d10bde71918a1bd95666a80d502a0caf`;
+GitHub confirmed its merged head `0bf19fdc6e662f4413df1de8601a0bf008dc2106`.
+
+1. Initial focused JVM verification passed **39 tests / 3 suites** (`focused/`);
+   the later queued-summary regression brought focused coverage to **40 tests**.
+   `coverage-repairs/xml/` retains those full XML results.
+2. Initial actual production-service native proof passed **1 test**
+   (`native-initial.log`), with the real controller Playing→Paused→Playing,
+   notification actions/token, metadata-only dedup, zero main-thread writes and
+   `voice response ended underruns=0 mediasession_writes=3`.
+3. Deliberately restoring the old unconditional setter and counter call failed
+   the metadata-only count: **expected 1, actual 2**, one native test failure
+   (`native-unconditional-mutation/instrument.log`). The condition was restored.
+4. The first independent oracle attempt failed on a **Playing getter timestamp**
+   (`coverage-repairs/instrument.log`, expected 247873, actual 247904).
+   Android 16 `MediaSessionRecord.getStateWithUpdatedPosition()` synthesizes a
+   current timestamp for Playing getters; it returns stored native state for
+   Paused. The exact framework source is saved as
+   `MediaSessionRecord-android16.java:971-1003`, fetched from the
+   [Android 16 framework source](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android16-release/services/core/java/com/android/server/media/MediaSessionRecord.java).
+   This was a test-oracle assumption, not a production defect. The corrected
+   Paused oracle plus real service recreation passed (`paused-native-oracle/`).
+5. The stronger deliberate mutation moved **only** the native setter outside the
+   dedup guard, keeping accounting/cache guarded. The independent Paused oracle
+   failed **expected 376973, actual 376990**, while preceding counter assertions
+   passed (`native-counter-blindspot-mutation/instrument.log`). The native setter
+   was restored inside the guard. Both deliberate mutation failures are evidence,
+   not shipped changes or a fabricated API compile-red claim.
+6. A subsequent native run failed because its pause barrier accepted the previous
+   **Listening** notification after native state had already changed to Paused
+   (`full-final/instrument.log`). The predicate now requires the new notification's
+   expected text and actions as well as controller state; all original
+   post-barrier assertions remain. No production behavior was changed for either
+   test-observation failure. Every failure stopped further Gradle work until its
+   actual cause was diagnosed and the test/mutation repaired.
+7. Final fixture-free full JVM/build/lint/Android-test APK verification passed:
+   **729 tests / 53 suites, zero failures/errors/skips** (`full-final/gradle.log`,
+   `full-final/xml/`). After the notification-test repair, the full command
+   passed again with unchanged JVM results retained in
+   `final-barrier-repair/xml/` and `counts.json` **before** the repetition gate.
+   Metadata passed: min SDK26, version0.3.1 (301), backup/extraction rules and
+   16KB alignment. Signer comparison was not exercised because
+   `EXPECTED_SIGNER_SHA256` was unset.
+8. Final restored native proof passed **1 test** on the exclusively owned new
+   empty API36 AVD, serial `emulator-5560`
+   (`final-barrier-repair/instrument.log`). The actual diagnostic receipt
+   `final-barrier-repair/native-diagnostics.log:18` is
+   **`voice response ended underruns=0 mediasession_writes=4`**; lines6/16 show
+   both native session registrations. Assertions independently preserve Paused
+   native state on notification-only changes, verify real Pause/Play/actions,
+   fresh session/controller initialization, four successful writes and zero
+   main-thread writes across controlled service recreation.
+9. The fail-fast gate passed **30 consecutive single-iteration invocations ×
+   265 tests = 7950 executions**, zero failures/errors/skips. Every invocation
+   used `scripts/run-flake-gate.sh … 1`; all XML, Gradle logs and counts were
+   archived before the next invocation, under `flake-final/iteration-01/`
+   through `iteration-30/`. `flake-final/summary.json` retains the exact filters.
+   The **12 exercised JVM suites** were `MediaSessionWritesTest`,
+   `AudioPlaybackLeadTest`, `AudioLeadSamplerTest`, `AudioSinkBufferingTest`,
+   `AudioSinkRecoveryTest`, `AudioSinkPauseTest`, `AndroidAudioSinkFramesTest`,
+   `ResponseAudioPlaybackTest`, `HomeRuntimeRetentionTest`,
+   `HomeRuntimeVoiceRetentionTest`, `OkHttpRelaySessionClientTest` and
+   `OkHttpStandardSessionClientTest`. The additional requested
+   `HomeRuntimeRecreationTest` filter names an instrumentation class, so it
+   contributed no JVM suite and is not claimed as repetition coverage.
+10. No temporary repository fixtures were introduced; permanent native behavior
+    coverage remains. Both mutation edits were removed before the final build.
+    `final-apks.json` records both fixture-free APK hashes. After production,
+    native and all gates passed, the owned AVD
+    `hermes-home09-media-20261015210903` was stopped (exit0), deleted (exit0),
+    and only its isolated empty home and `/tmp/hermes-emulator-5560.claim` removed.
+    No Gradle connected task was used. Owner emulator5554, original AVD/data,
+    recovery copies and other worktrees were untouched.
+
+All three formal review lenses and the coverage follow-ups are closed.
+Requirement7 is software/native-emulator verified; HOME09 remains **in-progress**
+for physical/acoustic/Pixel tuning, natural OS-death and API-specific unknown-route
+acceptance. Historical Standard iteration23 remains unattributed. This gate
+does not reinterpret that history or the preserved PR166 preplay-query evidence;
+the fresh-driver zero-head fix and original regression assertions are unchanged.

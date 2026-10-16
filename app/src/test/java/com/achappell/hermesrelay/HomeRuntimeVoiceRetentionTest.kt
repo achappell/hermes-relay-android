@@ -12,11 +12,13 @@ class HomeRuntimeVoiceRetentionTest {
     private val service = Service()
     private val home = Home()
     private val focus = Focus()
+    private val mediaWrites = MediaSessionWrites()
     private val runtime = HomeRuntime(
         clientPort = home, speechInput = speech, historyStore = null,
         postToMain = { it.run() }, workExecutor = work, journal = journal,
         clock = timers, voiceTimers = timers, retentionTimers = timers,
         foregroundService = service, audioFocus = focus,
+        mediaSessionWrites = mediaWrites,
     )
     private val capture get() = runtime.captureController!!
 
@@ -35,7 +37,8 @@ class HomeRuntimeVoiceRetentionTest {
         val states = mutableListOf<VoiceServiceState>()
         var ready = true
         var pending: ((Boolean) -> Unit)? = null
-        override fun sync(state: VoiceServiceState) { states += state }
+        var onSync: (VoiceServiceState) -> Unit = {}
+        override fun sync(state: VoiceServiceState) { states += state; onSync(state) }
         override fun awaitMicrophone(onReady: (Boolean) -> Unit) {
             if (ready) onReady(true) else pending = onReady
         }
@@ -108,6 +111,20 @@ class HomeRuntimeVoiceRetentionTest {
         home.emit(AndroidNormalizedEvent.AudioEnded(home.binding))
         home.complete()
         timers.advanceBy(1_000) // terminal callback and client active flag may be ordered either way
+    }
+
+    @Test fun background_baseline_precedes_entry_work_and_ignores_duplicate_stop_and_rotation() {
+        connect()
+        reply()
+        val response = mediaWrites.begin()
+        mediaWrites.written(false)
+        service.onSync = { if (it.appStopped) mediaWrites.written(false) }
+        runtime.appBackgrounded(isChangingConfigurations = true)
+        assertNull(response.baseline)
+        runtime.appBackgrounded(isChangingConfigurations = false)
+        runtime.appBackgrounded(isChangingConfigurations = false)
+        mediaWrites.written(false)
+        assertEquals(2L, mediaWrites.end(response))
     }
 
     @Test fun audio_admission_acquires_focus_while_buffering_not_while_waiting_for_synthesis() {
