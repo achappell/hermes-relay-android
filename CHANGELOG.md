@@ -34,6 +34,9 @@
 - Enable R8/resource shrinking for signed release APKs, retain their mapping artifact, and check CameraX libraries for 16 KB page alignment.
 - Exclude all app data from cloud backup and device transfer with Android 12+ extraction rules.
 
+### Tests
+- Add the ANDROID-HOME-11 real-window layout matrix: `DoorwayRealWindowMatrixTest` and `DoorwaySplitWindowMatrixTest` run the real `MainActivity` on emulator AVDs with real font scale, rotation, navigation mode, OS keyboard and WM Shell split-screen. All 144 manifest cells (small/large phone, 10" tablet, Fold inner, 50 % split on both phones × font 1.0/1.3/2.0 × keyboard × orientation × navigation) pass with every primary control, every menu sheet, the four-line status block and a 40-line transcript reachable. No layout defect was found, so production code is unchanged; the physical-Pixel gate remains open.
+
 ### Fixes
 - Repair all 18 retained instrumentation failures with physical-control reachability, actual runtime/observer readiness, a truthful interrupt fixture, and manual-clock coverage of the unchanged 1500 ms hands-free tail. Fresh-emulator non-LiveRelay discovery is 100: 98 pass, two existing opt-in live-speech cases remain unrequested, and none fail. This supersedes the initial non-green ARCH-01 comparison above without claiming live Home, pairing, or physical audio acceptance.
 - Stop displaying Speaking immediately when response audio fails before the text turn ends; continue receiving text and show the existing audio-unavailable warning.

@@ -2,6 +2,7 @@
 id: ANDROID-HOME-11
 title: Keep the Home conversation reachable at large font scales, with the keyboard, and on every screen size
 status: in-progress
+baseline_commit: edac2f6ec7f25deaeca5650110c515ecc4cb852a
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-03
@@ -90,3 +91,27 @@ response whose final line remained visible above the composer after rotation.
 These are targeted bugfix checks, not completion of the matrix above.
 The physical Pixel, tablet/Fold, split-screen and unsampled matrix cells remain
 open; no acceptance requirement or historical evidence is replaced.
+
+## 2026-10-17 — emulator layout matrix
+
+`validation-android-home-11.md` records the full emulator matrix against the
+real window on four owned API 36 AVDs (phone 360×640 dp, pixel_6, 10.1" WXGA,
+pixel_fold inner): 144 of 144 manifest cells pass (both phones, tablet, Fold
+inner, and real WM Shell split on both phones × font 1.0/1.3/2.0 × keyboard ×
+orientation × gesture/three-button navigation). No layout defect was found and
+no production code changed. An earlier "landscape Recover unreachable" note was
+a fixture error and is retracted there.
+
+For the spec owner:
+
+- The acceptance line's `LocalDensity` + simulated-insets technique was tried
+  and retired: a synthetic viewport larger than the host phone window cannot be
+  judged by the platform's display checks. The real-window tests assert the
+  same things with real font scale and real insets.
+- In landscape, Android's split is side by side, so the landscape split cells
+  are half-width windows, recorded as such.
+- A settled turn returns focus to the prompt and raises the keyboard; on a
+  small landscape phone that leaves ≈ 97 dp of doorway, in which the composer
+  and Send remain reachable by scrolling.
+
+Still open: the physical Pixel 2.0× / keyboard screenshots.

@@ -33,7 +33,7 @@ development_status:
   android-home-08: in-progress # 08a/08b software implemented, emulator-verified 2026-10-14; physical microphone/echo gates open. Verification incident/history recovery limits in validation.
   android-home-09: in-progress # PR163/164/165/166 merged; req7 change-only off-main native media writes + since-entry accounting software/native-emulator verified. Final729 JVM/53suites, build/lint/androidTest/metadata,30x265=7950 gate; actual production service/controller recreation and single underruns=0 mediasession_writes=4 summary passed. Three reviews closed; mutation/oracle/barrier failures preserved. Historical Standard iteration23 unattributed. Physical/OS-death/Pixel tuning and unknown-route acceptance remain open.
   android-home-10: in-progress # Both software parts verified 2026-10-15: 767 JVM/54 suites, build/lint/APKs/metadata, 30x174=5220 fail-fast repetitions, 2 actual Android production-TLS fixture tests. Three reviews closed; expected mutation and fixture/compile failures preserved. Live Home/physical Pixel acceptance unavailable, not passed; no push/PR.
-  android-home-11: in-progress # Compact-viewport/IME bugfix emulator-verified 2026-10-13; full matrix and physical Pixel gate remain open.
+  android-home-11: in-progress # Full emulator matrix 144/144 cells pass on the real window 2026-10-17, no layout defect; physical Pixel gate remains open.
   android-test-01: done
   # Umbrella epics (kind: epic in story-index.yaml): not stories; exclude from story counts.
   android-parity-01: backlog
