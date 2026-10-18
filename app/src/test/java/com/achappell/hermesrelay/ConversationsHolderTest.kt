@@ -19,6 +19,26 @@ class ConversationsHolderTest {
         fun finish() { while (work.isNotEmpty() || main.isNotEmpty()) { if (work.isNotEmpty()) work(); if (main.isNotEmpty()) main() } }
     }
 
+
+    @Test fun headerTitleUsesTheCurrentSessionTitleAndRejectsChangedConversation() {
+        val f = Fixture()
+        f.port.currentRef = "current"
+        f.port.sessions = HomeClientClaimProvider.Sessions.Listed(
+            listOf(
+                HomeClientSession("other", "Other title", 0.0, 0, false),
+                HomeClientSession("current", "Current session title", 0.0, 0, false),
+            ),
+        )
+        f.holder.loadHeaderTitle()
+        f.work()
+        f.port.currentRef = "other"
+        f.main()
+        assertNull(f.holder.state.value.headerTitle)
+
+        f.holder.loadHeaderTitle()
+        f.finish()
+        assertEquals("Other title", f.holder.state.value.headerTitle)
+    }
     @Test fun conversationGenerationAndProfileRejectObsoleteLists() {
         val f = Fixture()
         f.port.sessions = HomeClientClaimProvider.Sessions.Unavailable("old")
@@ -161,6 +181,7 @@ class ConversationsHolderTest {
         var explicitListing: String? = null
         var renameSuccess = true
         var notice: HomeClaimedConversation? = null
+        var currentRef: String? = null
         override fun selectedIsPaired() = paired
         override fun selectedPairingId() = "pairing"
         override fun listConversations() = sessions
@@ -176,7 +197,7 @@ class ConversationsHolderTest {
             return HomeClientClaimProvider.CloseAndList(HomeClientClaimProvider.CloseClaims.Completed(claimRefs.size, 1), claims)
         }
         override fun currentClaimRef(): String? = null
-        override fun currentConversationRef(): String? = null
+        override fun currentConversationRef() = currentRef
         override fun requestConversation(intent: HomeConversationIntent) = Unit
         override fun takeConversationNotice() = notice.also { notice = null }
         override fun learnCurrentConversation(): String? = null

@@ -23,29 +23,65 @@ internal class ConversationsHolder(
         val conversationsState: HomeConversationsState = HomeConversationsState.Loading,
         val openClaimsState: HomeOpenClaimsState = HomeOpenClaimsState.Hidden,
         val claimManagementMessage: String? = null,
+        val conversationMessage: String? = null,
         val renameMessage: String? = null,
         val pendingDivider: String? = null,
-        val conversationMessage: String? = null,
+        val headerTitle: String? = null,
     )
 
     private val mutableState = MutableStateFlow(State())
     val state: StateFlow<State> = mutableState.asStateFlow()
     private var generation = 0
     private val openClaimsRequests = HomeProfileRequestGate()
+    private var headerTitleGeneration = 0
 
     fun loadConversations() {
         val conversations = conversations ?: return
         val profileId = selectedProfileId()
         val requestId = ++generation
+        val conversationRef = conversations.currentConversationRef()
         mutableState.value = state.value.copy(conversationsState = HomeConversationsState.Loading)
         runOnWork {
             val listed = when (val result = conversations.listConversations()) {
                 is HomeClientClaimProvider.Sessions.Listed -> HomeConversationsState.Listed(result.sessions)
                 is HomeClientClaimProvider.Sessions.Unavailable -> HomeConversationsState.Unavailable(result.message)
             }
+            val headerTitle = (listed as? HomeConversationsState.Listed)?.sessions
+                ?.firstOrNull { it.sessionRef == conversationRef }?.title?.takeIf(String::isNotBlank)
             runOnMain {
-                if (requestId == generation && profileId == selectedProfileId()) {
-                    mutableState.value = state.value.copy(conversationsState = listed)
+                if (requestId == generation && profileId == selectedProfileId() &&
+                    conversations.currentConversationRef() == conversationRef
+                ) {
+                    mutableState.value = state.value.copy(
+                        conversationsState = listed,
+                        headerTitle = headerTitle,
+                    )
+            }
+            }
+        }
+    }
+    fun loadHeaderTitle() {
+        val conversations = conversations ?: return
+        val profileId = selectedProfileId()
+        val conversationRef = conversations.currentConversationRef()
+        val requestId = ++headerTitleGeneration
+        if (conversationRef == null) {
+            mutableState.value = state.value.copy(headerTitle = null)
+            return
+        }
+        runOnWork {
+            val title = runCatching {
+                when (val result = conversations.listConversations()) {
+                    is HomeClientClaimProvider.Sessions.Listed ->
+                        result.sessions.firstOrNull { it.sessionRef == conversationRef }?.title
+                    is HomeClientClaimProvider.Sessions.Unavailable -> null
+                }
+            }.getOrNull()?.takeIf(String::isNotBlank)
+            runOnMain {
+                if (requestId == headerTitleGeneration && profileId == selectedProfileId() &&
+                    conversations.currentConversationRef() == conversationRef
+                ) {
+                    mutableState.value = state.value.copy(headerTitle = title)
                 }
             }
         }

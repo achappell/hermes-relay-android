@@ -6,6 +6,7 @@
 - Extract immutable turn, capture, recovery, conversations and approvals state holders from `AndroidClientScreen`, retaining the existing runtime/controller owners and lifecycle-aware rendering. Disposable-emulator surface/lifecycle smoke and 784 JVM tests pass; the unchanged 98-case instrumentation comparison retains the same 18 pre-existing failing test IDs. ARCH-01 remains in local review, not fully accepted.
 
 ### Features
+- Implement the ANDROID-UX-03 SessionHeaderCard: show the current Home conversation title, one-line accessible Profile, state-colored connection dot, status-only polite live region, and a runtime-owned connection duration that survives Activity recreation. Add settings/title actions and retain HOME-12 Disconnect; add JVM state/clock tests and instrumentation coverage. JVM suite passed and instrumentation compiled; on-device tests and HOME-11 matrix remain unrun, and physical-device spoken-announcement/TalkBack gates remain open.
 - Protect accepted Home turns with negotiated `turn.alive` keep-alives: a 45-second activity lease, independent 30-minute cap, and 120-second fallback for older Homes. Pending input suspends only idle expiry; a missing reply enters existing uncertain-turn recovery without replay. Heartbeats never enter transcript/history, and text completion leaves the separate audio wait intact. Software and disposable-emulator verification are complete; live Home/physical acceptance remains open.
 - Add content-free reply playback diagnostics: current-driver queued response-audio lead, actual native playing state, a bounded background-entry sampling window, the first playback-cushion release reason, and final underrun counts. Preserve the 1000 ms cushion / 1500 ms cap; physical-device tuning remains open.
 - Deduplicate native MediaSession playback-state writes on the existing background worker while preserving notification updates and Pause/Play/Stop controls. Response-end diagnostics include successful native writes since the latest background entry, frozen at audio end alongside underruns; service recreation preserves the entry window.
@@ -23,6 +24,7 @@
 - Request audio focus once for active reply/voice-session work, end capture and pause the reply on transient focus loss, and stop on permanent loss; focus gain never re-arms the microphone.
 - Request `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `WAKE_LOCK` and (Android 13+) `POST_NOTIFICATIONS` for the reply notification; a denied notification permission never blocks a reply.
 - Offer Disconnect while Home is reconnecting, and reconnect automatically (never resend) after a transport loss with an unconfirmed turn.
+- Add a compact SessionHeaderCard with connection-state indicator and status, accessible Profile name, tappable conversation title, connection elapsed time, and existing Settings action.
 - Request the normal `ACCESS_NETWORK_STATE` permission to notice the network returning.
 - Add deliberate Home Disconnect with user-only attribution and mid-reply confirmation.
 - Add 2-second interrupt acknowledgement and interrupt-and-listen behavior to Android voice controls.

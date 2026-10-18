@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -168,6 +169,16 @@ internal fun AndroidClientScreen(
     val isAuthorized = snapshot.authorizationState == AndroidAuthorizationState.Verified &&
         snapshot.selectedProfile != null
     val isConnected = recoveryState.connection == AndroidConnectionState.Connected
+    var connectionTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(isConnected) {
+        while (isConnected) {
+            kotlinx.coroutines.delay(1_000)
+            connectionTick += 1
+        }
+    }
+    val connectionElapsed = remember(runtime, connectionTick, isConnected) {
+        runtime.connectionElapsedMillis()?.let(::formatSessionDuration)
+    }
     val availabilityBlock = resolveAndroidAvailabilityBlock(snapshot, recoveryState.connection)
     val hasUnresolvedTurn = recoveryState.hasUnconfirmedTurn ||
         recoveryState.unresolvedHomeTurn || clientPort.hasUncertainTurn()
@@ -253,11 +264,10 @@ internal fun AndroidClientScreen(
                 .semantics { isTraversalGroup = true },
             header = {
                 DoorwayHeaderZone(
+                    connectionState = recoveryState.connection,
+                    elapsedLabel = connectionElapsed,
+                    conversationTitle = conversationsUi.headerTitle,
                     snapshot = snapshot,
-                    authorizationState = if (
-                        snapshot.authorizationState == AndroidAuthorizationState.Verifying &&
-                        availabilityBlock == AndroidAvailabilityBlock.Authorization
-                    ) AndroidAuthorizationState.Unavailable else snapshot.authorizationState,
                     canConfigure = configuration != null,
                     canShowHistory = recorder != null && snapshot.selectedProfile != null,
                     onConfigure = {

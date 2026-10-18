@@ -12,15 +12,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
@@ -28,6 +31,7 @@ import java.io.File
 import java.io.FileOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,16 +45,11 @@ class DoorwayHeaderLayoutTest {
     fun long_profile_and_header_menu_remain_reachable_at_one_and_two_x_in_both_themes() {
         val profileName = "Long synthetic profile name for layout testing"
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val title = context.getString(R.string.bootstrap_title)
-        val description = context.getString(R.string.bootstrap_description)
-        val profileLabel = context.getString(R.string.android_profile_label)
         val menuDescription = context.getString(R.string.android_menu_content_description)
-        val authorization = context.getString(
-            R.string.android_authorization_label,
-            context.getString(AndroidAuthorizationState.Verified.labelRes()),
-        )
+        val stateText = context.getString(R.string.android_connection_connected)
         val baseConfiguration = Configuration(context.resources.configuration)
         val density = context.resources.displayMetrics.density
+        val settingsClicks = mutableStateOf(0)
 
         val darkTheme = mutableStateOf(false)
         val fontScale = mutableStateOf(1f)
@@ -81,8 +80,12 @@ class DoorwayHeaderLayoutTest {
                                     selectedProfile = AndroidProfile("layout-test", profileName),
                                     authorizationState = AndroidAuthorizationState.Verified,
                                 ),
-                                authorizationState = AndroidAuthorizationState.Verified,
+                                connectionState = AndroidConnectionState.Connected,
+                                elapsedLabel = "01:23",
+                                conversationTitle = "Long synthetic conversation title for ellipsis and accessibility",
+                                canConfigure = true,
                                 canShowConversations = true,
+                                onConfigure = { settingsClicks.value += 1 },
                             )
                         },
                     ) { insets ->
@@ -106,50 +109,53 @@ class DoorwayHeaderLayoutTest {
                 }
                 composeRule.waitForIdle()
 
-                composeRule.onNodeWithText(title, useUnmergedTree = true).assertIsDisplayed()
-                composeRule.onNodeWithText(description, useUnmergedTree = true).assertIsDisplayed()
+                val longTitle = "Long synthetic conversation title for ellipsis and accessibility"
+                composeRule.onNodeWithText(longTitle, useUnmergedTree = true).assertIsDisplayed()
                 composeRule.onNodeWithText(profileName, useUnmergedTree = true).assertIsDisplayed()
-                composeRule.onNodeWithText(authorization, useUnmergedTree = true).assertIsDisplayed()
+                composeRule.onNodeWithText(stateText, useUnmergedTree = true).assertIsDisplayed()
+                composeRule.onNodeWithText("01:23", useUnmergedTree = true).assertIsDisplayed()
                 composeRule.onNodeWithText("Synthetic conversation content").assertIsDisplayed()
 
-                val titleBounds = composeRule
-                    .onNodeWithText(title, useUnmergedTree = true)
-                    .fetchSemanticsNode().boundsInRoot
-                val descriptionBounds = composeRule
-                    .onNodeWithText(description, useUnmergedTree = true)
-                    .fetchSemanticsNode().boundsInRoot
-                val profileLabelBounds = composeRule
-                    .onNodeWithText(profileLabel, useUnmergedTree = true)
-                    .fetchSemanticsNode().boundsInRoot
-                val profileBounds = composeRule
-                    .onNodeWithText(profileName, useUnmergedTree = true)
-                    .fetchSemanticsNode().boundsInRoot
-                val authorizationBounds = composeRule
-                    .onNodeWithText(authorization, useUnmergedTree = true)
-                    .fetchSemanticsNode().boundsInRoot
-                assertTrue(
-                    "subtitle must be below the title",
-                    descriptionBounds.top >= titleBounds.bottom,
-                )
-                assertTrue(
-                    "profile must be below the subtitle",
-                    profileLabelBounds.top >= descriptionBounds.bottom,
-                )
-                assertTrue(
-                    "profile value must be below its label",
-                    profileBounds.top >= profileLabelBounds.bottom,
-                )
-                assertTrue(
-                    "authorization remains below the profile name",
-                    authorizationBounds.top >= profileBounds.bottom,
-                )
-                val accessibleProfileName = composeRule
-                    .onNodeWithText(profileName, useUnmergedTree = true)
-                    .fetchSemanticsNode().config[SemanticsProperties.Text].single().text
+                val titleNode = composeRule.onNodeWithTag("android_session_title")
+                titleNode.assertIsDisplayed().assertHasClickAction()
                 assertEquals(
-                    "the complete profile name remains in the accessible text",
-                    profileName,
-                    accessibleProfileName,
+                    listOf(context.getString(R.string.android_session_title_content_description, longTitle)),
+                    titleNode.fetchSemanticsNode().config[SemanticsProperties.ContentDescription],
+                )
+                composeRule.onNodeWithTag("android_session_settings")
+                    .assertIsDisplayed()
+                    .performClick()
+                composeRule.runOnIdle { assertEquals(1, settingsClicks.value) }
+                composeRule.runOnIdle { settingsClicks.value = 0 }
+                val titleBounds = titleNode.fetchSemanticsNode().boundsInRoot
+                val profileNode = composeRule.onNodeWithTag("android_session_profile")
+                val profileBounds = profileNode.fetchSemanticsNode().boundsInRoot
+                assertTrue("Profile follows title row", profileBounds.top >= titleBounds.bottom)
+                val profileDescription = profileNode.fetchSemanticsNode().config[
+                    SemanticsProperties.ContentDescription
+                ]!!.single()
+                assertEquals(
+                    context.getString(
+                        R.string.android_session_profile_content_description,
+                        context.getString(R.string.android_profile_label),
+                        profileName,
+                    ),
+                    profileDescription,
+                )
+                val titleLines = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                titleNode.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(titleLines) }
+                assertEquals("conversation title stays on one line", 1, titleLines.single().lineCount)
+                val profileLines = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                profileNode.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(profileLines) }
+                assertEquals("Profile stays on one line", 1, profileLines.single().lineCount)
+
+                val statusNode = composeRule.onNodeWithTag("android_session_status")
+                assertEquals(LiveRegionMode.Polite, statusNode.fetchSemanticsNode()
+                    .config[SemanticsProperties.LiveRegion])
+                assertFalse(
+                    "elapsed ticks are not live regions",
+                    composeRule.onNodeWithTag("android_session_elapsed").fetchSemanticsNode()
+                        .config.contains(SemanticsProperties.LiveRegion),
                 )
 
                 val rootBounds = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
@@ -171,25 +177,11 @@ class DoorwayHeaderLayoutTest {
                         titleBounds.bottom <= headerBounds.bottom,
                 )
                 assertTrue(
-                    "subtitle remains inside the header",
-                    descriptionBounds.left >= headerBounds.left &&
-                        descriptionBounds.right <= headerBounds.right &&
-                        descriptionBounds.top >= headerBounds.top &&
-                        descriptionBounds.bottom <= headerBounds.bottom,
-                )
-                assertTrue(
-                    "profile remains inside the header",
+                    "Profile remains inside the header",
                     profileBounds.left >= headerBounds.left &&
                         profileBounds.right <= headerBounds.right &&
                         profileBounds.top >= headerBounds.top &&
                         profileBounds.bottom <= headerBounds.bottom,
-                )
-                assertTrue(
-                    "authorization remains inside the header",
-                    authorizationBounds.left >= headerBounds.left &&
-                        authorizationBounds.right <= headerBounds.right &&
-                        authorizationBounds.top >= headerBounds.top &&
-                        authorizationBounds.bottom <= headerBounds.bottom,
                 )
                 val menu = composeRule.onNodeWithTag("android_more_menu")
                 menu.assertIsDisplayed().assertHasClickAction()

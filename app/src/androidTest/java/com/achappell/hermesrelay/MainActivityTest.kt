@@ -54,6 +54,16 @@ class MainActivityTest {
     }
 
     @Test
+    fun tapping_session_title_opens_the_existing_conversations_sheet() {
+        composeRule.setContent {
+            HermesRelayTheme { AndroidClientScreen(clientPort = ConversationNavigationPort()) }
+        }
+        composeRule.onNodeWithTag("android_session_title").performClick()
+        composeRule.onNodeWithTag("android_conversations_sheet").assertIsDisplayed()
+        composeRule.onNodeWithText("Conversations").assertIsDisplayed()
+    }
+
+    @Test
     fun no_profile_exposes_configuration_as_the_primary_path() {
         composeRule.setContent {
             HermesRelayTheme {
@@ -77,6 +87,22 @@ class MainActivityTest {
         composeRule.onNodeWithTag("android_menu_configure_relay").performClick()
         composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
         composeRule.onAllNodesWithText("Ready").assertCountEquals(0)
+    }
+
+    @Test
+    fun session_header_settings_icon_opens_existing_relay_settings() {
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(
+                    clientPort = BootstrapClientPort,
+                    configuration = emptyConfiguration(),
+                )
+            }
+        }
+        composeRule.onNodeWithTag("android_session_settings")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
     }
 
     @Test
@@ -654,5 +680,39 @@ class MainActivityTest {
                 connectionListener?.invoke(event)
             }
         }
+    }
+    private class ConversationNavigationPort : AndroidClientPort, AndroidHomeConversations {
+        override fun snapshot() = AndroidClientSnapshot(
+            titleRes = BootstrapState.titleRes,
+            descriptionRes = BootstrapState.descriptionRes,
+            boundaryRes = BootstrapState.boundaryRes,
+            selectedProfile = AndroidProfile("paired", "Long paired Profile"),
+            authorizationState = AndroidAuthorizationState.Verified,
+        )
+
+        override fun beginTurn(request: AndroidTurnRequest) =
+            AndroidInitiationResult.Rejected(AndroidInitiationFailure.SessionUnavailable)
+
+        override fun selectedIsPaired() = true
+        override fun selectedPairingId() = "pairing"
+        override fun listConversations() = HomeClientClaimProvider.Sessions.Listed(
+            listOf(HomeClientSession("current-ref", "Current conversation", 0.0, 1, false)),
+        )
+        override fun supportsOpenClaims() = false
+        override fun listOpenClaims(pairingId: String?) =
+            HomeClientClaimProvider.OpenClaims.Unsupported
+        override fun enrichOpenClaimTitles(pairingId: String, claims: List<HomeClientClaim>) = claims
+        override fun closeAndListOpenClaims(pairingId: String, claimRefs: List<String>) =
+            HomeClientClaimProvider.CloseAndList(
+                HomeClientClaimProvider.CloseClaims.Unsupported,
+                HomeClientClaimProvider.OpenClaims.Unsupported,
+            )
+        override fun currentClaimRef(): String? = null
+        override fun currentConversationRef() = "current-ref"
+        override fun requestConversation(intent: HomeConversationIntent) = Unit
+        override fun takeConversationNotice(): HomeClaimedConversation? = null
+        override fun learnCurrentConversation() = "current-ref"
+        override fun canRenameConversation() = false
+        override fun renameConversation(title: String) = false
     }
 }

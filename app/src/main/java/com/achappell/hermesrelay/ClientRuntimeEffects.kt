@@ -65,6 +65,11 @@ internal fun ClientRuntimeEffects(
     LaunchedEffect(recoveryState.connectionId, selectedProfileId) {
         if (recoveryState.connection == AndroidConnectionState.Connected) approvalsHolder.refresh(false)
     }
+    LaunchedEffect(recoveryState.connectionId, selectedProfileId) {
+        if (recoveryState.connection == AndroidConnectionState.Connected) {
+            conversationsHolder.loadHeaderTitle()
+        }
+    }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val latestRefreshApprovals by rememberUpdatedState({ approvalsHolder.refresh(false) })
     val latestResumeConnection by rememberUpdatedState({

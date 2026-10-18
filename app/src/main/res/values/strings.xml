@@ -5,6 +5,10 @@
     <string name="bootstrap_boundary">Current turn and recovery state stay visible here. Local History is kept on this device.</string>
     <string name="android_profile_label">Selected Hermes Profile</string>
     <string name="android_profile_none">No Profile selected</string>
+    <string name="android_session_title_content_description">Conversation: %1$s. Open conversations.</string>
+    <string name="android_session_settings_description">Settings</string>
+    <string name="android_session_profile_content_description">%1$s: %2$s</string>
+    <string name="android_session_title_description">Conversation: %1$s.</string>
     <string name="android_authorization_label">Authorization: %1$s</string>
     <string name="android_authorization_not_configured">Not configured</string>
     <string name="android_authorization_verifying">Verifying</string>

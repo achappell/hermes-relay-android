@@ -157,6 +157,14 @@ internal class HomeRuntime(
     private var tailTimer: VoiceTimer? = null
     private var tailDeadline: Long? = null
     private var outputWasActive = false
+    @Volatile
+    private var connectionStartedAtNanos: Long? = null
+
+    fun connectionElapsedMillis(): Long? {
+        val startedAt = connectionStartedAtNanos ?: return null
+        if (recoveryState.connection != AndroidConnectionState.Connected) return null
+        return ((clock.nanoTime() - startedAt).coerceAtLeast(0L) / 1_000_000L)
+    }
     private var syncingRetention = false
     private var endingVoice = false
 
@@ -181,6 +189,11 @@ internal class HomeRuntime(
     ) { changed ->
         postToMain {
             recoveryState = changed
+            if (changed.connection == AndroidConnectionState.Connected) {
+                if (connectionStartedAtNanos == null) connectionStartedAtNanos = clock.nanoTime()
+            } else {
+                connectionStartedAtNanos = null
+            }
             changed.resumedTurnBinding?.let { binding ->
                 updateInitiation(AndroidInitiationState.Accepted(binding))
                 updateTurn(AndroidTurnState.awaitingEvents(binding))

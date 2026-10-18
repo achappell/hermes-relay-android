@@ -98,12 +98,8 @@ class StandardCaptureRecoveryTest {
             }
         }
         waitForFailure()
-        composeRule.onNodeWithText(
-            context.getString(
-                R.string.android_authorization_label,
-                context.getString(R.string.android_authorization_unavailable),
-            ),
-        ).assertIsDisplayed()
+        composeRule.onNodeWithTag("android_session_status")
+            .assertTextEquals(context.getString(R.string.android_connection_failed, "Synthetic refusal"))
         composeRule.onNodeWithTag("android_doorway_state_description")
             .assertTextEquals(context.getString(R.string.android_state_unavailable_authorization))
         composeRule.onNodeWithTag("android_send_blocked")

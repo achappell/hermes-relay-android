@@ -12,6 +12,7 @@ depends_on:
   - android:ANDROID-HOME-12
 parity_source: 'PX-19 (matrix C1)'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/99
+baseline_commit: 48218efd9c8ae615cc42b51b23177ce2a09c9c01
 validation: _bmad-output/implementation-artifacts/validation-android-ux-03.md
 ---
 
@@ -28,13 +29,13 @@ The iOS header is a card: status dot, Profile name, session title (tap opens Con
 - `DoorwayHeaderZone` (`DoorwayZones.kt:87`) is a `TopAppBar` with title, `maxLines = 2` description and an actions row (profile label/name, menu).
 - No status dot, no timer, no conversation title, no tap target for Conversations other than the menu.
 
-## Current header reachability delivery
+## PR #134 header reachability delivery
 
-This PR addresses clipping in the existing `DoorwayHeaderZone` as the first UX-03 delivery. It stacks the Profile block below the title/description and keeps the existing overflow menu as a dedicated trailing action. The header grows vertically instead of dropping text or the menu; the broader screen/scroll matrix remains owned by ANDROID-HOME-11.
+PR #134 addressed clipping in the existing `DoorwayHeaderZone` as the first UX-03 delivery. It stacked the Profile block below the title/description and retained the overflow menu as a dedicated trailing action; the broader screen/scroll matrix remained owned by ANDROID-HOME-11.
 
-This does not complete the planned `SessionHeaderCard`: the status dot, elapsed timer, title-to-Conversations action, settings gear, and the final two-line card layout remain open UX-03 acceptance.
+PR #134 delivered only the prior reachability layout. The remaining SessionHeaderCard behavior in this spec is implemented on the UX-03 branch; validation and the still-open physical-device gate are recorded below.
 
-PR #134's header reachability slice is ready for review (`review`), not done; this parent story remains `in-progress`. Amanda accepted on 2026-10-07 that manual physical TalkBack spoken-output/focus-gesture acceptance is waived for this slice. Actual spoken output/focus gestures remain unverified, with known residual spoken-label/focus-order/gesture risk. This supersedes the earlier blocking manual gate, not the evidence limitation or the full-card acceptance below. Existing font 1x/2x light/dark layout and automatic-order evidence remains in the validation record. No other gates are waived; the metadata-only closeout is explicitly exempt from bmad-build.
+PR #134's header reachability slice is ready for review (`review`), not done. Its 2026-10-07 manual TalkBack waiver applies only to that slice; it does not waive this story's physical Pixel 1x/2x or TalkBack status-announcement acceptance. Spoken output and focus gestures remain unverified, and ANDROID-UX-03 stays `in-progress`.
 
 ## Required behavior
 
@@ -46,9 +47,10 @@ PR #134's header reachability slice is ready for review (`review`), not done; th
 ## Acceptance criteria
 
 - State-to-dot/colour/text table with JVM tests; timer formatting tests (mm:ss, h:mm:ss) with a fake clock.
-- `AccessibilityOrderTest` passes with the new header; the live region fires on status change and not per second (instrumented test).
-- Header remains reachable and unclipped at font scale 2.0 (`ANDROID-HOME-11` matrix row).
-- Tapping the title opens Conversations; the settings icon opens settings.
+- `AccessibilityOrderTest` passes and verifies a single polite region for status changes; elapsed-time ticks have no live region and do not announce.
+- Header is two rows at 2.0x and remains reachable in the complete ANDROID-HOME-11 real/split window matrix.
+- Tapping the title opens Conversations; the settings icon opens existing Settings.
+- Physical Pixel 1.0x/2.0x and manual TalkBack status-change announcements remain open. Semantics instrumentation does not substitute for spoken-output verification.
 
 ## Android design notes
 
@@ -61,8 +63,4 @@ PR #134's header reachability slice is ready for review (`review`), not done; th
 
 ## Test notes
 
-JVM for table and timer; instrumented for order and live-region behavior.
-
-## Device verification
-
-Pixel: header at 1.0x and 2.0x, long Profile name, TalkBack announcements while connecting and disconnecting.
+JVM tests cover state mapping and fake-clock elapsed formatting. Instrumented tests cover traversal, status-versus-timer live-region semantics, title and Settings navigation, and long-name accessibility. The full 144-cell HOME-11 matrix and emulator screenshots are recorded in `validation-android-ux-03.md`; physical Pixel/TalkBack acceptance remains open.

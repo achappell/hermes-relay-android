@@ -55,9 +55,9 @@ development_status:
   android-ux-01: done # Explicit outdoor waiver 2026-10-07 CDT/2026-10-08 UTC; prior TalkBack waiver/header exemption retained, no physical pass implied.
   android-ux-02: backlog
   android-ux-03: in-progress
-  # PR #134 header reachability slice is ready for review (review), not done; broader story stays in-progress.
-  # Amanda 2026-10-07 waived manual physical TalkBack spoken-output/focus-gesture acceptance only.
-  # Spoken output/focus gestures unverified; residual spoken-label/focus-order/gesture risk remains.
+  # PR #134's TalkBack waiver applies only to its header-reachability slice, not this story.
+  # ANDROID-UX-03 emulator/JVM gates are recorded; physical Pixel 1x/2x and manual TalkBack status-announcement gates remain open.
+  # Complete emulator matrix and automated gates passed; physical-device gates remain open.
   android-ux-04: backlog
   android-ux-05: backlog
   android-ux-06: backlog
