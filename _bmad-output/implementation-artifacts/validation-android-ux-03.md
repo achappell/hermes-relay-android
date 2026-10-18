@@ -24,7 +24,7 @@ Status: SessionHeaderCard behavior and automated coverage are implemented. The s
 
 Decision: run the full matrix because UX-03 replaces the previous stacked title/description/Profile/authorization header with a compact two-row card. That changes header height and the available real/split window area used by HOME-11's reachability assertions.
 
-`scripts/run-home11-layout-matrix.sh` ran both HOME-11 classes on four newly created, empty API 36 arm64 AVDs. It stopped at the first failed cell and verified each declared configuration. **96/96 unique instrumentation runs passed (240 test executions), 144/144 logical cells passed, 0 failures, 0 unexecuted cells, 0 configuration mismatches.** Each row had 12/12 real-window runs (4 tests each) and 12/12 split-window runs (1 test each).
+`scripts/run-home11-layout-matrix.sh` ran both HOME-11 classes on four newly created, empty API 36 arm64 AVDs. It stopped at the first failed cell and verified each declared configuration. All **96/96 instrumentation invocations passed (240 test executions), with 144/144 HOME-11 logical cells passed, 0 failures, 0 unexecuted cells, and 0 configuration mismatches**. HOME-11 defines 144 cells as 6 viewports × 3 scales × 2 IME states × 2 orientations × 2 navigation modes: 96 full-window cells across the small/large phone, tablet and Fold viewports, plus 48 split-window cells across small/large phone viewports. The runner also exercised split-window on tablet and Fold, adding 24 passing test executions outside those 144 logical cells. Each of the four AVD rows had 12/12 real-window and 12/12 split-window invocations (four real-window tests per invocation, one split-window test).
 
 | Row | Real-window | Split-window | Result |
 | --- | ---: | ---: | --- |
@@ -33,7 +33,7 @@ Decision: run the full matrix because UX-03 replaces the previous stacked title/
 | 10.1-inch tablet (1280×800 natural) | 12/12 (48 tests) | 12/12 | pass |
 | Fold inner (2208×1840) | 12/12 (48 tests) | 12/12 | pass |
 
-Two small-phone 1.0x/portrait/gestural smoke runs were performed before the full row and are not counted separately. The screenshots and per-cell receipts/logs are preserved under the evidence directory.
+Two small-phone 1.0x/portrait/gestural smoke invocations were performed before the full row and are not included in the 96/96 or 240-test totals. The screenshots and per-cell receipts/logs are preserved under the evidence directory.
 
 ## Evidence and remaining gates
 
