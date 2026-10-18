@@ -95,7 +95,7 @@ open; no acceptance requirement or historical evidence is replaced.
 ## 2026-10-17 — emulator layout matrix
 
 `validation-android-home-11.md` records the counted emulator matrix. It ran on
-the real window of four new owned API 36 AVDs (360×640 dp phone, pixel_6,
+the final APK on the real window of four new owned API 36 AVDs (2026-10-18) (360×640 dp phone, pixel_6,
 10.1" WXGA, pixel_fold inner). Every cell's font scale, rotation, navigation
 mode and display were read back by the driver and asserted by the tests. All
 96 runs pass, covering 144/144 manifest cells. The portrait split cells are the

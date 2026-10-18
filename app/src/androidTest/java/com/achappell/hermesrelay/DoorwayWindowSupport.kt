@@ -181,7 +181,6 @@ internal fun ComposeContentTestRule.revealAboveKeyboard(
     preferUp: Boolean,
     nodes: () -> List<SemanticsNode>,
 ) {
-    val ui = InstrumentationRegistry.getInstrumentation().uiAutomation
     val density = activity.resources.displayMetrics.density
     fun band(): Pair<Float, Float> {
         val dp = checkNotNull(unobscuredBand) { "$label: the unobscured band is not installed" }()
@@ -239,9 +238,17 @@ internal fun ComposeContentTestRule.revealAboveKeyboard(
         val fromY = rawFrom.coerceIn(top, bottom)
         val toY = rawTo.coerceIn(top, bottom)
         if (abs(toY - fromY) < 4f * density) return
-        ui.executeShellCommand(
-            "input swipe $x ${origin[1] + fromY.toInt()} $x ${origin[1] + toY.toInt()} $millis",
-        ).close()
+        // The stroke must land on this Activity: never on whatever replaced it.
+        check(activity.hasWindowFocus() || keyboardShown(activity)) {
+            "$label: this window lost focus before a stroke; refusing to stroke another app"
+        }
+        val command = "input swipe $x ${origin[1] + fromY.toInt()} $x ${origin[1] + toY.toInt()} $millis"
+        println("HOME11-STROKE $label $command band=$bandTop..$bandBottom gestures=$gestureTop..$gestureBottom")
+        // Wait for the stroke to finish: closing the command's stream returns
+        // at once while `input swipe` is still running, so strokes would
+        // overlap each other and the reads below, and still-queued strokes
+        // would run after the test ended (on the launcher).
+        shell(command)
         // A drag with the keyboard up can leave the test clock reading two
         // alternating layouts (the focused field asking to be brought into
         // view against the drag); the real display was checked to stay still.

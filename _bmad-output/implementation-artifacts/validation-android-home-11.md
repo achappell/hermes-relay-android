@@ -104,10 +104,10 @@ touched. Each `adb` invocation names its serial explicitly.
 
 | AVD | Device profile | Native display | Port | Used for |
 | --- | --- | --- | --- | --- |
-| `hermes_home11_phone_20261017` | `small_phone` | 720×1280 @ 320 dpi = 360×640 dp | 5556 | R1, R5 |
-| `hermes_home11_large_20261017` | `pixel_6` | 1080×2400 @ 420 dpi ≈ 411×914 dp | 5558 | R2, R6 |
-| `hermes_home11_tablet_20261017` | `10.1in WXGA (Tablet)` | 1280×800 @ 160 dpi = 1280×800 dp (natural landscape) | 5560 | R3 |
-| `hermes_home11_fold_20261017` | `pixel_fold` (inner display) | 2208×1840 @ 420 dpi ≈ 841×701 dp | 5562 | R4 |
+| `hermes_home11_phone_20261018` | `small_phone` | 720×1280 @ 320 dpi = 360×640 dp | 5556 | R1, R5 |
+| `hermes_home11_large_20261018` | `pixel_6` | 1080×2400 @ 420 dpi ≈ 411×914 dp | 5558 | R2, R6 |
+| `hermes_home11_tablet_20261018` | `10.1in WXGA (Tablet)` | 1280×800 @ 160 dpi = 1280×800 dp (natural landscape) | 5560 | R3 |
+| `hermes_home11_fold_20261018` | `pixel_fold` (inner display) | 2208×1840 @ 420 dpi ≈ 841×701 dp | 5562 | R4 |
 
 Per-row receipts captured: `wm size`, `wm density`, `dumpsys window displays`,
 `settings get system font_scale`, `settings get secure navigation_mode`,
@@ -140,10 +140,12 @@ four-line status block is claimed). Per cell the driver:
    first asserts the running font scale, display rotation, `navigation_mode`
    and natural display size match the declaration (`HOME11-ROW` line).
 
-## 5. Results (counted run, 2026-10-17)
+## 5. Results (counted run on the final APK, 2026-10-18)
 
-One run of one APK pair on four new, empty, owned API 36 AVDs
-(`hermes_home11_{phone,large,tablet,fold}_20261017`). Every cell is
+One run of the **final** APK pair on four new, empty, owned API 36 AVDs
+(`hermes_home11_{phone,large,tablet,fold}_20261018`): debug `165c3c1c…`,
+androidTest `2f77b7a6…`. The committed source builds these test classes. The
+2026-10-17 run (androidTest `d48938c1…`) is superseded and not counted. Every cell is
 `nav 2 × font 3 × rotation 2 × class 2` per AVD. There were **0 configuration
 mismatches**.
 
@@ -184,108 +186,110 @@ other 10 it is reached by scrolling the rail alone (finding 3).
 
 ### Per-run table
 
-`Status lines`, `Fitting` and `Split` come from each run's own log lines
-(`HOME11-WINDOW`, `HOME11-SPLIT`). `Row checks` is the number of tests in the
-run that asserted the declared row.
+`Status lines`, `Fitting` and `Split` come from each run's own log lines.
+`Row checks` is the number of tests that asserted the declared row. `Real
+strokes` is the number of `input swipe` strokes the keyboard reveals used.
+Every stroke is logged as `HOME11-STROKE`, and every stroke checked that the
+window still held focus first.
 
-| Row | Nav | Font | Rot | Class | Result | Window (no IME) | IME px | Status lines | Fitting: newest item shown unscrolled | Split axis / window / ratio | Row checks |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| small-phone | gestural | 1.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 3 | false |  | 4 |
-| small-phone | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
-| small-phone | gestural | 1.0 | 1 | RealWindow | OK 4 | 1280x720 | 478 | 2 | n/a |  | 4 |
-| small-phone | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 478 |  | n/a | width 630x720 of 1280x720 (0.49) | 1 |
-| small-phone | gestural | 1.3 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 4 | n/a |  | 4 |
-| small-phone | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
-| small-phone | gestural | 1.3 | 1 | RealWindow | OK 4 | 1280x720 | 478 | 2 | n/a |  | 4 |
-| small-phone | gestural | 1.3 | 1 | SplitWindow | OK 1 |  |  |  | n/a |  | 0 |
-| small-phone | gestural | 2.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 6 | n/a |  | 4 |
-| small-phone | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
-| small-phone | gestural | 2.0 | 1 | RealWindow | OK 4 |  |  |  | n/a |  | 0 |
-| small-phone | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 478 |  | n/a | width 630x720 of 1280x720 (0.49) | 1 |
-| small-phone | threebutton | 1.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 3 | n/a |  | 4 |
-| small-phone | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
-| small-phone | threebutton | 1.0 | 1 | RealWindow | OK 4 | 1280x720 | 400 | 2 | n/a |  | 4 |
-| small-phone | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 400 |  | n/a | width 678x720 of 1280x720 (0.53) | 1 |
-| small-phone | threebutton | 1.3 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 4 | n/a |  | 4 |
-| small-phone | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
-| small-phone | threebutton | 1.3 | 1 | RealWindow | OK 4 | 1280x720 | 400 | 2 | n/a |  | 4 |
-| small-phone | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 400 |  | n/a | width 678x720 of 1280x720 (0.53) | 1 |
-| small-phone | threebutton | 2.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 6 | n/a |  | 4 |
-| small-phone | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
-| small-phone | threebutton | 2.0 | 1 | RealWindow | OK 4 | 1280x720 | 400 | 3 | n/a |  | 4 |
-| small-phone | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 400 |  | n/a | width 678x720 of 1280x720 (0.53) | 1 |
-| large-phone | gestural | 1.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 |
-| large-phone | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
-| large-phone | gestural | 1.0 | 1 | RealWindow | OK 4 | 2400x1080 | 686 | 1 | n/a |  | 4 |
-| large-phone | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 686 |  | n/a | width 1123x1080 of 2400x1080 (0.47) | 1 |
-| large-phone | gestural | 1.3 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 |
-| large-phone | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
-| large-phone | gestural | 1.3 | 1 | RealWindow | OK 4 | 2400x1080 | 686 | 2 | n/a |  | 4 |
-| large-phone | gestural | 1.3 | 1 | SplitWindow | OK 1 |  | 686 |  | n/a | width 1123x1080 of 2400x1080 (0.47) | 1 |
-| large-phone | gestural | 2.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 4 | false |  | 4 |
-| large-phone | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
-| large-phone | gestural | 2.0 | 1 | RealWindow | OK 4 | 2400x1080 | 686 | 2 | n/a |  | 4 |
-| large-phone | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 686 |  | n/a | width 1123x1080 of 2400x1080 (0.47) | 1 |
-| large-phone | threebutton | 1.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 |
-| large-phone | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
-| large-phone | threebutton | 1.0 | 1 | RealWindow | OK 4 | 2400x1080 | 560 | 1 | n/a |  | 4 |
-| large-phone | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 560 |  | n/a | width 1186x1080 of 2400x1080 (0.49) | 1 |
-| large-phone | threebutton | 1.3 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 |
-| large-phone | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
-| large-phone | threebutton | 1.3 | 1 | RealWindow | OK 4 | 2400x1080 | 560 | 2 | n/a |  | 4 |
-| large-phone | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 560 |  | n/a | width 1186x1080 of 2400x1080 (0.49) | 1 |
-| large-phone | threebutton | 2.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 4 | false |  | 4 |
-| large-phone | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
-| large-phone | threebutton | 2.0 | 1 | RealWindow | OK 4 | 2400x1080 | 560 | 2 | n/a |  | 4 |
-| large-phone | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 560 |  | n/a | width 1186x1080 of 2400x1080 (0.49) | 1 |
-| tablet-10in | gestural | 1.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 |
-| tablet-10in | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
-| tablet-10in | gestural | 1.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 1 | true |  | 4 |
-| tablet-10in | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
-| tablet-10in | gestural | 1.3 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 |
-| tablet-10in | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
-| tablet-10in | gestural | 1.3 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 |
-| tablet-10in | gestural | 1.3 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
-| tablet-10in | gestural | 2.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 2 | false |  | 4 |
-| tablet-10in | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
-| tablet-10in | gestural | 2.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 |
-| tablet-10in | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
-| tablet-10in | threebutton | 1.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 |
-| tablet-10in | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
-| tablet-10in | threebutton | 1.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 1 | true |  | 4 |
-| tablet-10in | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
-| tablet-10in | threebutton | 1.3 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 |
-| tablet-10in | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
-| tablet-10in | threebutton | 1.3 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 |
-| tablet-10in | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
-| tablet-10in | threebutton | 2.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 2 | false |  | 4 |
-| tablet-10in | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
-| tablet-10in | threebutton | 2.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 |
-| tablet-10in | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
-| fold-inner | gestural | 1.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 1 | true |  | 4 |
-| fold-inner | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
-| fold-inner | gestural | 1.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 |
-| fold-inner | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
-| fold-inner | gestural | 1.3 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | false |  | 4 |
-| fold-inner | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
-| fold-inner | gestural | 1.3 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 |
-| fold-inner | gestural | 1.3 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
-| fold-inner | gestural | 2.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | false |  | 4 |
-| fold-inner | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
-| fold-inner | gestural | 2.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 3 | false |  | 4 |
-| fold-inner | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
-| fold-inner | threebutton | 1.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 1 | true |  | 4 |
-| fold-inner | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
-| fold-inner | threebutton | 1.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 |
-| fold-inner | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
-| fold-inner | threebutton | 1.3 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | false |  | 4 |
-| fold-inner | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
-| fold-inner | threebutton | 1.3 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 |
-| fold-inner | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
-| fold-inner | threebutton | 2.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | n/a |  | 4 |
-| fold-inner | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
-| fold-inner | threebutton | 2.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 3 | false |  | 4 |
-| fold-inner | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
+| Row | Nav | Font | Rot | Class | Result | Window (no IME) | IME px | Status lines | Fitting: newest item shown unscrolled | Split axis / window / ratio | Row checks | Real strokes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| small-phone | gestural | 1.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 3 | false |  | 4 | 425 |
+| small-phone | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 | 395 |
+| small-phone | gestural | 1.0 | 1 | RealWindow | OK 4 | 1280x720 | 478 | 2 | n/a |  | 4 | 88 |
+| small-phone | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 478 |  | n/a | width 630x720 of 1280x720 (0.49) | 1 | 89 |
+| small-phone | gestural | 1.3 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 4 | n/a |  | 4 | 28 |
+| small-phone | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 | 45 |
+| small-phone | gestural | 1.3 | 1 | RealWindow | OK 4 | 1280x720 | 478 | 2 | n/a |  | 4 | 103 |
+| small-phone | gestural | 1.3 | 1 | SplitWindow | OK 1 |  | 478 |  | n/a | width 630x720 of 1280x720 (0.49) | 1 | 215 |
+| small-phone | gestural | 2.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 6 | n/a |  | 4 | 44 |
+| small-phone | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 | 63 |
+| small-phone | gestural | 2.0 | 1 | RealWindow | OK 4 | 1280x720 | 478 | 3 | n/a |  | 4 | 133 |
+| small-phone | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 478 |  | n/a | width 630x720 of 1280x720 (0.49) | 1 | 233 |
+| small-phone | threebutton | 1.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 3 | n/a |  | 4 | 425 |
+| small-phone | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 | 395 |
+| small-phone | threebutton | 1.0 | 1 | RealWindow | OK 4 | 1280x720 | 400 | 2 | n/a |  | 4 | 16 |
+| small-phone | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 400 |  | n/a | width 678x720 of 1280x720 (0.53) | 1 | 19 |
+| small-phone | threebutton | 1.3 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 4 | n/a |  | 4 | 28 |
+| small-phone | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 | 44 |
+| small-phone | threebutton | 1.3 | 1 | RealWindow | OK 4 | 1280x720 | 400 | 2 | n/a |  | 4 | 49 |
+| small-phone | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 400 |  | n/a | width 678x720 of 1280x720 (0.53) | 1 | 35 |
+| small-phone | threebutton | 2.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 6 | n/a |  | 4 | 566 |
+| small-phone | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 | 64 |
+| small-phone | threebutton | 2.0 | 1 | RealWindow | OK 4 | 1280x720 | 400 | 3 | n/a |  | 4 | 53 |
+| small-phone | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 400 |  | n/a | width 678x720 of 1280x720 (0.53) | 1 | 66 |
+| large-phone | gestural | 1.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 | 0 |
+| large-phone | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 | 7 |
+| large-phone | gestural | 1.0 | 1 | RealWindow | OK 4 | 2400x1080 | 686 | 1 | n/a |  | 4 | 55 |
+| large-phone | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 686 |  | n/a | width 1123x1080 of 2400x1080 (0.47) | 1 | 59 |
+| large-phone | gestural | 1.3 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 | 2 |
+| large-phone | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 | 9 |
+| large-phone | gestural | 1.3 | 1 | RealWindow | OK 4 | 2400x1080 | 686 | 2 | n/a |  | 4 | 99 |
+| large-phone | gestural | 1.3 | 1 | SplitWindow | OK 1 |  | 686 |  | n/a | width 1123x1080 of 2400x1080 (0.47) | 1 | 62 |
+| large-phone | gestural | 2.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 4 | false |  | 4 | 5 |
+| large-phone | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 | 24 |
+| large-phone | gestural | 2.0 | 1 | RealWindow | OK 4 | 2400x1080 | 686 | 2 | n/a |  | 4 | 85 |
+| large-phone | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 686 |  | n/a | width 1123x1080 of 2400x1080 (0.47) | 1 | 155 |
+| large-phone | threebutton | 1.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 | 0 |
+| large-phone | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 | 7 |
+| large-phone | threebutton | 1.0 | 1 | RealWindow | OK 4 | 2400x1080 | 560 | 1 | n/a |  | 4 | 36 |
+| large-phone | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 560 |  | n/a | width 1186x1080 of 2400x1080 (0.49) | 1 | 32 |
+| large-phone | threebutton | 1.3 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 | 2 |
+| large-phone | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 | 9 |
+| large-phone | threebutton | 1.3 | 1 | RealWindow | OK 4 | 2400x1080 | 560 | 2 | n/a |  | 4 | 36 |
+| large-phone | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 560 |  | n/a | width 1186x1080 of 2400x1080 (0.49) | 1 | 38 |
+| large-phone | threebutton | 2.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 4 | false |  | 4 | 5 |
+| large-phone | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 | 24 |
+| large-phone | threebutton | 2.0 | 1 | RealWindow | OK 4 | 2400x1080 | 560 | 2 | n/a |  | 4 | 68 |
+| large-phone | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 560 |  | n/a | width 1186x1080 of 2400x1080 (0.49) | 1 | 104 |
+| tablet-10in | gestural | 1.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 | 10 |
+| tablet-10in | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 | 10 |
+| tablet-10in | gestural | 1.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 1 | true |  | 4 | 0 |
+| tablet-10in | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 | 0 |
+| tablet-10in | gestural | 1.3 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 | 13 |
+| tablet-10in | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 | 12 |
+| tablet-10in | gestural | 1.3 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 | 0 |
+| tablet-10in | gestural | 1.3 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 | 0 |
+| tablet-10in | gestural | 2.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 2 | false |  | 4 | 22 |
+| tablet-10in | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 | 21 |
+| tablet-10in | gestural | 2.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 | 1 |
+| tablet-10in | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 | 2 |
+| tablet-10in | threebutton | 1.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 | 10 |
+| tablet-10in | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 | 10 |
+| tablet-10in | threebutton | 1.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 1 | true |  | 4 | 0 |
+| tablet-10in | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 | 0 |
+| tablet-10in | threebutton | 1.3 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 | 13 |
+| tablet-10in | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 | 12 |
+| tablet-10in | threebutton | 1.3 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 | 0 |
+| tablet-10in | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 | 0 |
+| tablet-10in | threebutton | 2.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 2 | false |  | 4 | 22 |
+| tablet-10in | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 | 21 |
+| tablet-10in | threebutton | 2.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 | 1 |
+| tablet-10in | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 | 2 |
+| fold-inner | gestural | 1.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 1 | true |  | 4 | 13 |
+| fold-inner | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 | 12 |
+| fold-inner | gestural | 1.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 | 0 |
+| fold-inner | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 | 13 |
+| fold-inner | gestural | 1.3 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | false |  | 4 | 15 |
+| fold-inner | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 | 14 |
+| fold-inner | gestural | 1.3 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 | 2 |
+| fold-inner | gestural | 1.3 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 | 12 |
+| fold-inner | gestural | 2.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | false |  | 4 | 31 |
+| fold-inner | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 | 38 |
+| fold-inner | gestural | 2.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 3 | false |  | 4 | 5 |
+| fold-inner | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 | 16 |
+| fold-inner | threebutton | 1.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 1 | true |  | 4 | 13 |
+| fold-inner | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 | 12 |
+| fold-inner | threebutton | 1.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 | 0 |
+| fold-inner | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 | 10 |
+| fold-inner | threebutton | 1.3 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | false |  | 4 | 15 |
+| fold-inner | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 | 14 |
+| fold-inner | threebutton | 1.3 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 | 2 |
+| fold-inner | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 | 12 |
+| fold-inner | threebutton | 2.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | n/a |  | 4 | 26 |
+| fold-inner | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 | 38 |
+| fold-inner | threebutton | 2.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 3 | false |  | 4 | 5 |
+| fold-inner | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 | 16 |
 
 ## 6. Findings
 
@@ -349,24 +353,46 @@ run that asserted the declared row.
      not clear it, and the experiment was reverted. In suite order other
      classes run between the two, which clears the request. That test is left
      unchanged and recorded here.
-7. `AccessibilityOrderTest` passes within the branch full suite.
+7. **The intermittent keyboard-cell failure: two harness causes, both fixed.**
+   The post-repair smoke failed once ("doorway state … after 185 real
+   drags", launcher app drawer open at the end).
+   - **Asynchronous strokes.** `UiAutomation.executeShellCommand("input
+     swipe …").close()` returns at once while the swipe is still running. So
+     strokes overlapped each other and the geometry reads after them, and
+     strokes still queued when the test ended ran on the launcher, which is
+     how the app drawer opened. Strokes now wait for the command to finish.
+     Each one is logged with its coordinates, band and gesture insets, and
+     refuses to run unless this window still has focus (or the keyboard is
+     up), so a stroke can never land on another app.
+   - **Notification-permission dialog on a fresh install.** On a new AVD, the
+     first completed turn makes the app ask for `POST_NOTIFICATIONS`. That
+     system dialog covers the window: in 1 of 10 reruns every region read
+     "absent", and the end screenshot shows "Allow Hermes Relay to send you
+     notifications?". Both real-window classes now grant the permission with
+     the `GrantPermissionRule` the existing suite already uses
+     (`ClientHolderLifecycleSmokeTest`). The prompt is product behaviour and
+     not a layout defect.
+   - The strokes' coordinates were always inside the band and the
+     gesture-safe area (`HOME11-STROKE … gestures=48..656` for landscape),
+     so gesture-navigation edges were not the cause.
+   - After both fixes, the same cell passed on a fresh install, and the
+     counted matrix below ran on the final APK.
+8. `AccessibilityOrderTest` passes within the branch full suite.
 
 ## 7. Gates (final tree)
 
 | Gate | Result |
 | --- | --- |
-| JVM `testDebugUnitTest --rerun-tasks` (XML archived first) | 57 suites, 784 tests, 0 failures/errors/skips |
+| JVM `testDebugUnitTest --rerun-tasks` (XML archived) | 57 suites, 784 tests, 0 failures/errors/skips |
 | `assembleDebug lintDebug assembleDebugAndroidTest` | BUILD SUCCESSFUL |
 | `scripts/check-apk-metadata.sh` | "APK metadata is correct: min SDK 26, version 0.3.1 (301), backup off with extraction rules, 16 KB aligned, signing skipped (EXPECTED_SIGNER_SHA256 unset)." |
 | Flake gate N=1 (four classes) | 1 consecutive run, 0 failures |
 | Full non-live instrumentation, baseline `edac2f6` | 100 run, 0 failures |
-| Full non-live instrumentation, branch (after the finding-6 repair) | 105/105 on three consecutive runs (was 103/105 before the repair) |
+| Full non-live instrumentation, branch, final APK | **105/105 on three consecutive runs** |
 
-APK SHA-256 values:
-- Counted matrix: debug `7bedc1cd…`, androidTest `d48938c1…`.
-- Gate rebuild: androidTest `d48938c1…` (identical) and debug `8f1b26a5…`.
-  No `app/src/main` file differs from `edac2f6`; the debug bytes differ only
-  by rebuild.
+APK identity: the gate rebuild produced debug `165c3c1c…` and androidTest
+`2f77b7a6…`, byte-identical to the APKs installed for the counted matrix and
+for the three full-suite runs.
 
 ## 8. Open gates and limits
 
@@ -376,7 +402,6 @@ APK SHA-256 values:
 - The spec's `LocalDensity` technique is replaced by real-window evidence
   (section 2); this needs the spec owner's acceptance.
 - `HomeRuntimeRecreationTest` → `ModalSheetBackTest` adjacency fails at baseline (finding 6); not in suite order.
-- The counted 96-run matrix used androidTest `d48938c1…`. The suite repair changed only `@After` keyboard cleanup, with no assertion change; a post-repair smoke on the small phone (`final/post-repair-smoke/`) passed 7 of 8 runs. The failing run was the keyboard test at 2.0 landscape gestural ("the doorway state must come into view above the keyboard after 185 real drags"); the launcher's app drawer was open at its end screenshot. Five immediate reruns of that cell passed. The cause of that one run is not established; it is recorded as an intermittent harness failure, not a pass.
 - After a drag with the keyboard up, the test clock can read two alternating
   layouts (logged as `unsettled-after-drag`). The real display was sampled as
   still: unchanged screenshots and stable semantics. Visibility after drags is
@@ -384,7 +409,7 @@ APK SHA-256 values:
 
 ## 9. Evidence location
 
-`~/Library/Application Support/Hermes Recovery/home11-20261017/`:
+`~/Library/Application Support/Hermes Recovery/home11-20261018/` (counted matrix, final suites, gates, the flaky-cell diagnosis in `flaky-cell/`). The suite-repair diagnosis and baseline controls are in `home11-20261017/final/`; that day's matrix is superseded. Layout of `home11-20261018/`:
 - `matrix/<row>/`: per cell, the post-apply receipt, the instrumentation
   output, logcat with `HOME11-ROW/WINDOW/SPLIT` lines, start/end screenshots
   and the split keyboard screenshot; also `results-<row>.txt`,

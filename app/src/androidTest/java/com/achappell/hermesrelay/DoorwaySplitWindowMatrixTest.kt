@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -34,6 +35,13 @@ class DoorwaySplitWindowMatrixTest {
 
     private val fixtureRuntime = InstallSplitRuntime()
     private val composeRule = createAndroidComposeRule<MainActivity>()
+
+    // A fresh install's first turn asks for notifications; that system dialog
+    // would cover the window under test. Decide it up front, as the existing
+    // suite does.
+    @get:Rule val notifications: GrantPermissionRule = GrantPermissionRule.grant(
+        *if (android.os.Build.VERSION.SDK_INT >= 33) arrayOf(android.Manifest.permission.POST_NOTIFICATIONS) else emptyArray(),
+    )
 
     @get:Rule
     val rules: RuleChain = RuleChain.outerRule(fixtureRuntime).around(composeRule)
