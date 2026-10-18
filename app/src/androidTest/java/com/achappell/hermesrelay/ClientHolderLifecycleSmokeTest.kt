@@ -4,6 +4,8 @@ import android.Manifest
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.lifecycle.Lifecycle
@@ -72,6 +74,7 @@ class ClientHolderLifecycleSmokeTest {
                 port.emit(AndroidNormalizedEvent.TurnCompleted(port.binding, "Final visible reply"))
                 compose.waitUntil(10_000) { runtime.turnState.isTerminal }
                 assertEquals("terminal response stays in runtime", "Final visible reply", runtime.turnState.responseText)
+                awaitSettlementKeyboard(scenario)
                 showResponse("Final visible reply")
                 compose.onNodeWithTag("android_conversation_rail").performScrollToNode(hasTestTag("android_turn_phase"))
                 compose.onNodeWithTag("android_turn_phase").assertTextEquals("Turn phase: Complete").assertIsDisplayed()
@@ -86,6 +89,25 @@ class ClientHolderLifecycleSmokeTest {
 
     private fun click(tag: String) {
         compose.onNodeWithTag(tag).assertIsEnabled().performSemanticsAction(SemanticsActions.OnClick) { it() }
+    }
+
+    /**
+     * Settlement focuses the composer (`ClientRuntimeEffects`), which raises the
+     * keyboard. Its inset animation resizes the doorway rail outside Compose
+     * idleness, so wait for the focus, the IME inset and stable geometry before
+     * scrolling the rail.
+     */
+    private fun awaitSettlementKeyboard(scenario: ActivityScenario<MainActivity>) {
+        compose.waitUntil(10_000) {
+            compose.onNodeWithTag("android_typed_prompt").fetchSemanticsNode()
+                .config.getOrNull(SemanticsProperties.Focused) == true
+        }
+        compose.waitUntil(10_000) {
+            var imeUp = false
+            scenario.onActivity { imeUp = imeBottomPx(it) > 0 }
+            imeUp
+        }
+        compose.settleGeometry()
     }
     private fun showResponse(text: String) {
         compose.onNodeWithTag("android_conversation_rail").performScrollToNode(hasText(text))

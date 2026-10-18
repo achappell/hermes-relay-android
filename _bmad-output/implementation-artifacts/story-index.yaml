@@ -972,7 +972,7 @@ stories:
     parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-11-settings-restructure.md
     validation: _bmad-output/implementation-artifacts/validation-android-ux-11.md
-    scope_note: 'Full-screen grouped Settings implemented locally with JVM and disposable-emulator coverage (checklist, order, 2.0x overflow, Revoke confirmation, Room chips). Full non-live instrumentation 114 run/113 pass; the single failure is a pre-existing ClientHolderLifecycleSmokeTest flake that also reproduces on main. Physical Pixel 1x/2x walk and manual TalkBack order remain open; parent status is in-progress. DIAG-02 automatic reports are not hosted yet.'
+    scope_note: 'Full-screen grouped Settings implemented locally with JVM and disposable-emulator coverage (checklist, order, 2.0x overflow, Revoke confirmation, Room chips). Full non-live instrumentation 114/114 after a test-only fix of the ClientHolderLifecycleSmokeTest settlement-keyboard race, which also failed on main. Physical Pixel 1x/2x walk and manual TalkBack order remain open; parent status is in-progress. DIAG-02 automatic reports are not hosted yet.'
     depends_on:
       - android:ANDROID-UX-01
       - android:ANDROID-HOME-13
