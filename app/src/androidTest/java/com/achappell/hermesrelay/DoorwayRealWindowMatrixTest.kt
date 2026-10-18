@@ -1,24 +1,23 @@
 package com.achappell.hermesrelay
 
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.performTextInput
-import androidx.compose.ui.test.getUnclippedBoundsInRoot
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performScrollTo
 import android.content.res.Configuration
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
-import androidx.test.espresso.Espresso.pressBack
-import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.After
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.ExternalResource
@@ -26,18 +25,13 @@ import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 
 /**
- * `ANDROID-HOME-11` matrix, actual-emulator layer.
+ * `ANDROID-HOME-11` matrix, real-window layer.
  *
- * This runs the real `MainActivity` on a real AVD: the real window, the real
- * status/navigation-bar insets, the real OS soft keyboard and the real
- * multi-window bounds the shell driver configured before the run. Only the Home
- * behind the screen is a fixture (`HermesRelayApplication.homeRuntimeBox`); the
- * fixture makes every control state reachable, so an idle-only screen cannot
- * stand in for the missing states.
- *
- * The shell driver records the device receipts (wm size/density, font scale,
- * navigation mode, task bounds) and the screenshots; this test records the
- * observable geometry and the real IME inset.
+ * Runs the real `MainActivity` on a real AVD: the real window, real status and
+ * navigation bars, the real OS keyboard. Only the Home behind the screen is a
+ * fixture (`HermesRelayApplication.homeRuntimeBox`). The driver passes the
+ * declared row as instrumentation arguments and every test first asserts the
+ * running font scale, rotation, navigation mode and display match it.
  */
 @RunWith(AndroidJUnit4::class)
 class DoorwayRealWindowMatrixTest {
@@ -48,106 +42,35 @@ class DoorwayRealWindowMatrixTest {
     @get:Rule
     val rules: RuleChain = RuleChain.outerRule(fixtureRuntime).around(composeRule)
 
-    /**
-     * Leaves no soft keyboard behind: a keyboard left open would make the next
-     * test's first Back close the keyboard instead of what that test expects.
-     */
-    @org.junit.After
-    fun leaveNoKeyboard() = hideKeyboard()
+    private lateinit var row: DeclaredRow
+
+    @Before
+    fun declareRow() {
+        row = assertDeclaredRow(composeRule.activity)
+        installUnobscuredBand(composeRule, composeRule.activity)
+    }
+
+    /** Leaves no keyboard behind for the next test, and no band. */
+    @After
+    fun leaveNoKeyboard() {
+        unobscuredBand = null
+        hideKeyboard()
+    }
 
     private fun hideKeyboard() {
-        runCatching {
-            composeRule.runOnIdle {
-                val activity = composeRule.activity
-                activity.currentFocus?.clearFocus()
-                activity.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
-                    .hideSoftInputFromWindow(activity.window.decorView.windowToken, 0)
-            }
-            composeRule.waitUntil(10_000) { imeBottomPx() == 0 }
+        if (ime() == 0) return
+        composeRule.runOnIdle {
+            val activity = composeRule.activity
+            activity.currentFocus?.clearFocus()
+            WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+                .hide(WindowInsetsCompat.Type.ime())
         }
+        composeRule.waitUntil(10_000) { ime() == 0 }
     }
 
-    private companion object {
-        const val KeyboardSwipes = 30
-        const val FourLineStatus = "This Profile is unavailable until relay authorization"
-        const val SendAction = "Start typed turn"
-        const val ResendAction = "Resend this turn"
-        const val DiscardAction = "Discard this turn"
-        const val TranscriptFirstLine = "LINE-01 first line of the long response"
-        const val TranscriptLastLine = "LINE-40 last line of the long response"
-        val MenuEntries = listOf(
-            "android_menu_configure_relay",
-            "android_menu_conversations",
-            "android_menu_approvals",
-            "android_menu_history",
-            "android_menu_disconnect",
-        )
-        val SheetEntries = listOf(
-            "android_menu_conversations" to "android_conversations_sheet",
-            "android_menu_approvals" to "android_approvals_sheet",
-            "android_menu_history" to "android_history_sheet",
-        )
-    }
+    private fun ime() = imeBottomPx(composeRule.activity)
 
-    /**
-     * Reaches a node with the keyboard up the way a person does: real finger
-     * drags (`input swipe`) inside the part of the window the keyboard leaves,
-     * until the node is wholly visible above the keyboard.
-     */
-    private fun revealAboveKeyboard(label: String, preferUp: Boolean, nodes: () -> List<androidx.compose.ui.semantics.SemanticsNode>) {
-        val ui = InstrumentationRegistry.getInstrumentation().uiAutomation
-        val d = density()
-        val origin = IntArray(2)
-        fun visible(): Pair<Float, Float> {
-            composeRule.runOnIdle { composeRule.activity.window.decorView.getLocationInWindow(origin) }
-            val top = composeRule.onAllNodesWithTag("android_doorway_header").fetchSemanticsNodes()
-                .firstOrNull()?.let { 0f } ?: 0f
-            val statusTop = ViewCompat.getRootWindowInsets(composeRule.activity.window.decorView)
-                ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top?.toFloat() ?: top
-            val bottom = (composeRule.activity.window.decorView.height - imeBottomPx()).toFloat()
-            return statusTop to bottom
-        }
-        fun whollyVisible(): Boolean {
-            val (top, bottom) = visible()
-            return nodes().any { node ->
-                val clipped = node.boundsInWindow
-                // A node taller than the space above the keyboard counts once
-                // it fills that space; anything else must be wholly inside it.
-                val needed = minOf(node.size.height.toFloat(), bottom - top) - 1f
-                node.layoutInfo.isPlaced && clipped.height >= needed && needed > 0f &&
-                    clipped.top >= top - 1f && clipped.bottom <= bottom + 1f
-            }
-        }
-        var swipes = 0
-        while (!whollyVisible() && swipes < KeyboardSwipes) {
-            val (top, bottom) = visible()
-            val node = nodes().firstOrNull()
-            val up = when {
-                node == null || node.size.height == 0 -> preferUp
-                else -> node.positionInWindow.y + node.size.height > bottom
-            }
-            val span = minOf(60f * d, (bottom - top) * 0.6f)
-            val start = if (up) bottom - 8f * d else top + 8f * d
-            val end = if (up) start - span else start + span
-            val x = composeRule.activity.window.decorView.width / 2
-            ui.executeShellCommand("input swipe $x ${start.toInt()} $x ${end.toInt()} 600").close()
-            composeRule.waitForIdle()
-            Thread.sleep(300)
-            swipes += 1
-        }
-        assertTrue(
-            "$label must be wholly visible above the open keyboard after $swipes real drags, " +
-                "saw ${nodes().map { it.boundsInWindow }} visible=${visible()} ime=${imeBottomPx()}px",
-            whollyVisible(),
-        )
-    }
-
-    private fun density() = composeRule.activity.resources.displayMetrics.density
-
-    private fun imeBottomPx(): Int =
-        ViewCompat.getRootWindowInsets(composeRule.activity.window.decorView)
-            ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
-
+    private fun window() = composeRule.activity.window.decorView.let { "${it.width}x${it.height}" }
 
     /** The cell descriptor for the window the OS actually gave this Activity. */
     private fun realCell(imeUp: Boolean): DoorwayMatrix.Cell {
@@ -156,7 +79,7 @@ class DoorwayRealWindowMatrixTest {
         val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         return DoorwayMatrix.Cell(
             DoorwayMatrix.Display(
-                "real-window-${if (landscape) "landscape" else "portrait"}",
+                "${row.row}-${row.navigation}-${if (landscape) "landscape" else "portrait"}",
                 metrics.widthPixels / metrics.density,
                 metrics.heightPixels / metrics.density,
             ),
@@ -164,79 +87,6 @@ class DoorwayRealWindowMatrixTest {
             imeUp,
             landscape,
         )
-    }
-
-    /**
-     * With the keyboard down: the real regions stay ordered in the real window,
-     * the real rail scrolls, and the state, Recover, composer and tap-to-speak
-     * controls are reachable with real input.
-     */
-    @Test
-    fun real_window_keeps_every_control_reachable_without_the_keyboard() {
-        val ime = imeBottomPx()
-        assertTrue("the fixture must start without a soft keyboard, saw IME ${ime}px", ime == 0)
-        val cell = realCell(imeUp = false)
-        val metrics = composeRule.activity.resources.displayMetrics
-        println(
-            "HOME11-WINDOW no-ime window=" +
-                "${composeRule.activity.window.decorView.width}x${composeRule.activity.window.decorView.height} " +
-                "density=${metrics.density} fontScale=${cell.fontScale} " +
-                "landscape=${cell.landscape} imePx=${imeBottomPx()}",
-        )
-        composeRule.settleGeometry()
-        composeRule.assertBarsDoNotOverlap(cell)
-        composeRule.reachRailItem("android_doorway_state", cell)
-
-        // Disconnected state: Recover is a primary control and this is the real
-        // OS window, so the press must both reach the client and connect. The
-        // fixture starts held down, so this is the state the client really shows,
-        // but only once the client has settled out of any recovery attempt.
-        composeRule.awaitTerminalDisconnect({ fixtureRuntime.runtime() }, cell)
-        composeRule.reachRailItem("android_connect", cell)
-        composeRule.onAllNodesWithTag("android_connect", useUnmergedTree = true)[0].assertIsEnabled()
-        // The physical press must arrive at the client: count attempts across it,
-        // and let the press's own (held-down) recovery settle before going on.
-        val before = fixtureRuntime.port.connectAttempts
-        composeRule.reachAndClickRail("android_connect", cell)
-        composeRule.waitUntil(10_000) { fixtureRuntime.port.connectAttempts > before }
-        composeRule.awaitTerminalDisconnect({ fixtureRuntime.runtime() }, cell)
-
-        // Release the fixture and press again: this press connects.
-        fixtureRuntime.port.failReconnect = false
-        composeRule.reachRailItem("android_connect", cell)
-        composeRule.awaitEnabled("android_connect", cell)
-        composeRule.reachAndClickRail("android_connect", cell)
-        composeRule.waitUntil(10_000) { fixtureRuntime.port.connected }
-
-        // Connected state: the connected controls are reachable and Recover is
-        // correctly gone.
-        composeRule.waitUntil(10_000) {
-            composeRule.onAllNodesWithTag("android_connect").fetchSemanticsNodes().isEmpty()
-        }
-        composeRule.settleGeometry()
-        composeRule.assertBarsDoNotOverlap(cell)
-        composeRule.reachAction("android_typed_prompt", cell)
-        composeRule.reachAction("android_tap_to_speak", cell)
-        // Every menu entry is displayed in this window, and each sheet entry
-        // really opens its sheet.
-        openMenu(cell)
-        for (entry in MenuEntries) {
-            composeRule.onNodeWithTag(entry).performScrollTo().assertIsDisplayed()
-        }
-        pressBack()
-        composeRule.waitForIdle()
-        for ((entry, sheet) in SheetEntries) {
-            openMenu(cell)
-            composeRule.onNodeWithTag(entry).performScrollTo().assertIsDisplayed().performClick()
-            composeRule.waitUntil(10_000) {
-                composeRule.onAllNodesWithTag(sheet).fetchSemanticsNodes().isNotEmpty()
-            }
-            composeRule.onNodeWithTag(sheet).assertIsDisplayed()
-            pressBack()
-            composeRule.waitUntil(10_000) {
-                composeRule.onAllNodesWithTag(sheet).fetchSemanticsNodes().isEmpty()
-            }
-        }
     }
 
     private fun openMenu(cell: DoorwayMatrix.Cell) {
@@ -248,60 +98,98 @@ class DoorwayRealWindowMatrixTest {
     }
 
     /**
-     * With the real soft keyboard up: the OS reports a real IME inset, the
-     * focused composer stays above it in the resized window, and the rail keeps
-     * a readable height rather than collapsing.
+     * Keyboard down: ordered regions; Recover in the settled disconnected state
+     * with a real press reaching the client; then connected: composer,
+     * tap-to-speak, every menu entry and every sheet.
      */
     @Test
-    fun real_window_keeps_the_composer_above_the_open_keyboard() {
-        val cell = realCell(imeUp = true)
-        composeRule.reachAction("android_typed_prompt", cell)
-        composeRule.onNodeWithTag("android_typed_prompt").performClick()
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-        var ime = imeBottomPx()
-        if (ime == 0) {
-            // In a split the companion task can hold window focus, so focus the
-            // field through its own semantics and show the keyboard for the
-            // view that now holds focus.
-            composeRule.onNodeWithTag("android_typed_prompt")
-                .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.RequestFocus)
-            composeRule.runOnIdle {
-                val view = composeRule.activity.currentFocus ?: composeRule.activity.window.decorView
-                composeRule.activity
-                    .getSystemService(android.view.inputmethod.InputMethodManager::class.java)
-                    .showSoftInput(view, 0)
-            }
-            composeRule.waitUntil(10_000) { imeBottomPx() > 0 }
-            ime = imeBottomPx()
-        }
-        assertTrue("the OS must report a real soft-keyboard inset, saw ${ime}px", ime > 0)
-        println(
-            "HOME11-WINDOW ime-up window=" +
-                "${composeRule.activity.window.decorView.width}x${composeRule.activity.window.decorView.height} " +
-                "imePx=$ime density=${density()} fontScale=${cell.fontScale} landscape=${cell.landscape}",
-        )
-
-        // Reachability is measured against the doorway's own viewport, which
-        // ends above the real keyboard: the field and Send must both be
-        // reachable there by scrolling, with the keyboard still up.
+    fun real_window_keeps_every_control_reachable_without_the_keyboard() {
+        assertTrue("the fixture must start without a keyboard, saw ${ime()}px", ime() == 0)
+        val cell = realCell(imeUp = false)
+        println("HOME11-WINDOW no-ime window=${window()} fontScale=${cell.fontScale} landscape=${cell.landscape}")
         composeRule.settleGeometry()
-        revealAboveKeyboard("the prompt field", preferUp = true) {
-            composeRule.onAllNodesWithTag("android_typed_prompt", useUnmergedTree = true).fetchSemanticsNodes()
+        composeRule.assertBarsDoNotOverlap(cell)
+        composeRule.reachRailItem("android_doorway_state", cell)
+
+        composeRule.awaitTerminalDisconnect({ fixtureRuntime.runtime() }, cell)
+        composeRule.reachRailItem("android_connect", cell)
+        composeRule.onAllNodesWithTag("android_connect", useUnmergedTree = true)[0].assertIsEnabled()
+        val before = fixtureRuntime.port.connectAttempts
+        composeRule.reachAndClickRail("android_connect", cell)
+        composeRule.waitUntil(10_000) { fixtureRuntime.port.connectAttempts > before }
+        composeRule.connectFixture(fixtureRuntime.port, { fixtureRuntime.runtime() }, cell)
+
+        composeRule.settleGeometry()
+        composeRule.assertBarsDoNotOverlap(cell)
+        composeRule.reachAction("android_typed_prompt", cell)
+        composeRule.reachAction("android_tap_to_speak", cell)
+        openMenu(cell)
+        for (entry in MenuEntries) {
+            composeRule.onNodeWithTag(entry).performScrollTo().assertIsDisplayed()
         }
-        revealAboveKeyboard("Send", preferUp = true) {
+        pressBack()
+        composeRule.waitForIdle()
+        for ((entry, sheet) in SheetEntries) {
+            openMenu(cell)
+            composeRule.onNodeWithTag(entry).performScrollTo().assertIsDisplayed().performClick()
+            composeRule.waitUntil(10_000) { composeRule.onAllNodesWithTag(sheet).fetchSemanticsNodes().isNotEmpty() }
+            composeRule.onNodeWithTag(sheet).assertIsDisplayed()
+            pressBack()
+            composeRule.waitUntil(10_000) { composeRule.onAllNodesWithTag(sheet).fetchSemanticsNodes().isEmpty() }
+        }
+    }
+
+    /**
+     * Keyboard up, connected: the prompt, Send and the idle doorway state, then
+     * — after a completed 40-line turn — the newest response line, the prompt
+     * and Send each come into view above the real keyboard by real drags,
+     * clear of every bar and region.
+     */
+    @Test
+    fun real_window_keeps_the_composer_and_newest_line_above_the_open_keyboard() {
+        val cell = realCell(imeUp = true)
+        composeRule.connectFixture(fixtureRuntime.port, { fixtureRuntime.runtime() }, cell)
+        composeRule.raiseKeyboard(composeRule.activity, cell)
+        composeRule.settleGeometry()
+        println(
+            "HOME11-WINDOW ime-up window=${window()} imePx=${ime()} fontScale=${cell.fontScale} " +
+                "landscape=${cell.landscape}",
+        )
+        val activity = composeRule.activity
+        fun field() = composeRule.revealAboveKeyboard(
+            activity, "the prompt field", "android_action_surface", RevealEdge.Whole, true,
+        ) { composeRule.onAllNodesWithTag("android_typed_prompt", useUnmergedTree = true).fetchSemanticsNodes() }
+        fun send() = composeRule.revealAboveKeyboard(activity, "Send", "android_action_surface", RevealEdge.Whole, true) {
             composeRule.onAllNodesWithText(SendAction, useUnmergedTree = true).fetchSemanticsNodes()
         }
-        revealAboveKeyboard("the doorway state", preferUp = false) {
+        // Idle and connected: the doorway state card is shown (it gives way to
+        // the turn while one is running).
+        field()
+        send()
+        composeRule.revealAboveKeyboard(activity, "the doorway state", "android_conversation_rail", RevealEdge.Whole, false) {
             composeRule.onAllNodesWithTag("android_doorway_state", useUnmergedTree = true).fetchSemanticsNodes()
         }
-        assertTrue("the keyboard must still be up, saw ${imeBottomPx()}px", imeBottomPx() > 0)
+        // A completed 40-line turn: its newest line.
+        composeRule.sendLongTurn(activity, fixtureRuntime.port, cell, complete = true)
+        composeRule.raiseKeyboard(activity, cell)
+        composeRule.settleGeometry()
+        composeRule.revealAboveKeyboard(
+            activity, "the newest response line", "android_conversation_rail", RevealEdge.Bottom, true,
+        ) {
+            composeRule.onAllNodesWithTag("android_response_text", useUnmergedTree = true).fetchSemanticsNodes()
+        }
+        field()
+        send()
+        assertTrue("the keyboard must still be up", keyboardShown(composeRule.activity))
         composeRule.settleGeometry()
         composeRule.assertBarsDoNotOverlap(cell)
     }
 
     /**
-     * Authorization unavailable, with the long Profile name: the four-line
-     * status block, Edit relay, Recover and the composer stay reachable.
+     * Authorization unavailable, long Profile name: the status block, Edit
+     * relay, the composer and the menu are reachable; Recover is correctly
+     * absent. The status block's line count is asserted where the row
+     * declares a minimum and logged everywhere.
      */
     @Test
     fun real_window_keeps_the_authorization_state_reachable() {
@@ -314,23 +202,19 @@ class DoorwayRealWindowMatrixTest {
                 .fetchSemanticsNodes().isNotEmpty(),
         )
         composeRule.reachRailItem("android_doorway_state", cell)
-        composeRule.reachRailText(FourLineStatus, cell)
+        composeRule.reachRailText(StatusBlock, cell)
         val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
-        composeRule.onAllNodesWithText(FourLineStatus, substring = true, useUnmergedTree = true)[0]
-            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) {
-                it(layouts)
-            }
-        println(
-            "HOME11-WINDOW status-block lines=${layouts.firstOrNull()?.lineCount} " +
-                "fontScale=${cell.fontScale} landscape=${cell.landscape}",
-        )
+        composeRule.onAllNodesWithText(StatusBlock, substring = true, useUnmergedTree = true)[0]
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        val lines = checkNotNull(layouts.firstOrNull()) { "$cell: the status block has no text layout" }.lineCount
+        println("HOME11-WINDOW status-block lines=$lines fontScale=${cell.fontScale} landscape=${cell.landscape}")
+        row.statusLinesMin?.let { minimum ->
+            assertTrue("$cell: the status block must render at least $minimum lines, saw $lines", lines >= minimum)
+        }
         composeRule.reachRailItem("android_edit_relay", cell)
-        // Blocked authorization offers Edit relay, not Recover
-        // (`canAttemptClientConnection`), so Connect is correctly absent here.
         assertTrue(
             "$cell: Recover must not be offered while authorization is blocked",
-            composeRule.onAllNodesWithTag("android_connect", useUnmergedTree = true)
-                .fetchSemanticsNodes().isEmpty(),
+            composeRule.onAllNodesWithTag("android_connect", useUnmergedTree = true).fetchSemanticsNodes().isEmpty(),
         )
         composeRule.reachAction("android_typed_prompt", cell)
         composeRule.reachAction("android_tap_to_speak", cell)
@@ -343,112 +227,87 @@ class DoorwayRealWindowMatrixTest {
     }
 
     /**
-     * A real typed turn through the real composer, then: its phase and
-     * Interrupt; a 40-line response whose first and last lines are both
-     * reachable in the rail; and, after the transport drops mid-turn,
-     * Recover, Resend and Discard.
+     * Keyboard down, a real typed turn: phase and Interrupt; the newest item
+     * reachable by the rail alone whenever the doorway fits; the response's first
+     * and last lines reachable in the rail; after a mid-turn transport loss,
+     * the unconfirmed turn, Recover, Resend and Discard.
      */
     @Test
     fun real_window_keeps_turn_controls_and_the_whole_transcript_reachable() {
         val cell = realCell(imeUp = false)
-        composeRule.awaitTerminalDisconnect({ fixtureRuntime.runtime() }, cell)
-        fixtureRuntime.port.failReconnect = false
-        composeRule.reachRailItem("android_connect", cell)
-        composeRule.awaitEnabled("android_connect", cell)
-        composeRule.reachAndClickRail("android_connect", cell)
-        composeRule.waitUntil(10_000) { fixtureRuntime.port.connected }
-
-        composeRule.reachAction("android_typed_prompt", cell)
-        composeRule.onNodeWithTag("android_typed_prompt").performTextInput("matrix long response")
-        if (imeBottomPx() > 0) {
-            revealAboveKeyboard("Send", preferUp = true) {
-                composeRule.onAllNodesWithText(SendAction, useUnmergedTree = true).fetchSemanticsNodes()
-            }
-        } else {
-            composeRule.reachActionText(SendAction, cell)
-        }
-        composeRule.onAllNodesWithText(SendAction, useUnmergedTree = true)[0].performClick()
-        composeRule.waitUntil(10_000) { fixtureRuntime.port.lastBinding != null }
-        val binding = requireNotNull(fixtureRuntime.port.lastBinding)
-        // This test measures the keyboard-free window; the IME cells are
-        // real_window_keeps_the_composer_above_the_open_keyboard.
-        composeRule.runOnIdle {
-            val activity = composeRule.activity
-            activity.currentFocus?.clearFocus()
-            androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-                .hide(WindowInsetsCompat.Type.ime())
-        }
-        composeRule.waitUntil(10_000) { imeBottomPx() == 0 }
-
-        composeRule.runOnIdle { fixtureRuntime.port.emit(AndroidNormalizedEvent.Thinking(binding)) }
+        composeRule.connectFixture(fixtureRuntime.port, { fixtureRuntime.runtime() }, cell)
+        val binding = composeRule.sendLongTurn(composeRule.activity, fixtureRuntime.port, cell)
+        hideKeyboard()
         composeRule.settleGeometry()
         composeRule.assertBarsDoNotOverlap(cell)
+        composeRule.assertNewestItemReachableWhenFitting(cell)
         composeRule.reachRailItem("android_turn_phase", cell)
         composeRule.reachRailItem("android_interrupt", cell)
         composeRule.onNodeWithTag("android_interrupt").assertIsEnabled()
 
-        val response = buildString {
-            append("$TranscriptFirstLine\n")
-            for (line in 2..39) append("LINE-%02d a line of the long response\n".format(line))
-            append(TranscriptLastLine)
-        }
-        composeRule.runOnIdle {
-            fixtureRuntime.port.emit(AndroidNormalizedEvent.ResponseTextDelta(binding, response))
-        }
-        composeRule.settleGeometry()
-        composeRule.assertBarsDoNotOverlap(cell)
         // First line: the response's top is reachable inside the rail.
         composeRule.reachRailItem("android_response_text", cell)
-        // Last line: stepping the rail reaches the response's bottom edge inside
+        // Last line: stepping the rail brings the response's bottom edge inside
         // the visible rail, above the composer.
-        val railBox = composeRule.bounds("android_conversation_rail")
-        repeat(400) {
-            val text = composeRule.bounds("android_response_text")
-            if (text.bottom.value <= composeRule.bounds("android_conversation_rail").bottom.value + 0.5f) {
-                return@repeat
-            }
-            composeRule.scrollContainer("android_conversation_rail", 40f * density())
+        val step = 40f * composeRule.activity.resources.displayMetrics.density
+        var steps = 0
+        while (steps < TranscriptSteps &&
+            composeRule.bounds("android_response_text").bottom > composeRule.bounds("android_conversation_rail").bottom
+        ) {
+            composeRule.scrollContainer("android_conversation_rail", step)
             composeRule.waitForIdle()
+            steps += 1
         }
         val tail = composeRule.bounds("android_response_text")
         val rail = composeRule.bounds("android_conversation_rail")
         val actions = composeRule.bounds("android_action_surface")
         assertTrue(
             "$cell: the last response line must be reachable inside the rail above the composer, " +
-                "saw $tail rail=$rail (start $railBox) actions=$actions",
-            tail.bottom.value <= rail.bottom.value + 0.5f &&
-                tail.bottom.value > rail.top.value &&
+                "saw $tail rail=$rail actions=$actions after $steps steps",
+            tail.bottom.value <= rail.bottom.value + 0.5f && tail.bottom.value > rail.top.value &&
                 rail.bottom.value <= actions.top.value + 0.5f,
         )
 
-        // Transport lost mid-turn: the unconfirmed turn offers Resend/Discard.
         fixtureRuntime.port.failReconnect = true
         composeRule.runOnIdle {
             fixtureRuntime.port.emit(AndroidNormalizedEvent.Disconnected(binding.connectionId, "The socket closed."))
         }
         composeRule.awaitTerminalDisconnect({ fixtureRuntime.runtime() }, cell)
-        composeRule.settleGeometry()
-        composeRule.assertBarsDoNotOverlap(cell)
-        // A settled turn returns focus to the prompt, which raises the real
-        // keyboard. This test measures the keyboard-free window (the open
-        // keyboard is real_window_keeps_the_composer_above_the_open_keyboard),
-        // so the keyboard is closed the way a person closes it: Back.
-        val imeAtSettle = imeBottomPx()
+        // A settled turn returns focus to the prompt and raises the keyboard;
+        // this test measures the keyboard-free window, so close it with a real
+        // Back key as a person would.
+        composeRule.waitForIdle()
+        val imeAtSettle = ime()
         if (imeAtSettle > 0) {
-            InstrumentationRegistry.getInstrumentation().uiAutomation
-                .executeShellCommand("input keyevent KEYCODE_BACK").close()
-            composeRule.waitUntil(10_000) { imeBottomPx() == 0 }
+            shell("input keyevent KEYCODE_BACK")
+            composeRule.waitUntil(10_000) { ime() == 0 }
         }
-        println(
-            "HOME11-WINDOW lost-turn imeAtSettlePx=$imeAtSettle fontScale=${cell.fontScale} " +
-                "landscape=${cell.landscape}",
-        )
+        println("HOME11-WINDOW lost-turn imeAtSettlePx=$imeAtSettle fontScale=${cell.fontScale} landscape=${cell.landscape}")
         composeRule.settleGeometry()
         composeRule.assertBarsDoNotOverlap(cell)
         composeRule.reachRailItem("android_unconfirmed_turn", cell)
         composeRule.reachRailItem("android_connect", cell)
         composeRule.reachRailText(ResendAction, cell)
         composeRule.reachRailText(DiscardAction, cell)
+    }
+
+    private companion object {
+        const val StatusBlock = "This Profile is unavailable until relay authorization"
+        const val ResendAction = "Resend this turn"
+        const val DiscardAction = "Discard this turn"
+        const val TranscriptSteps = 400
+        val MenuEntries = listOf(
+            "android_menu_configure_relay",
+            "android_menu_conversations",
+            "android_menu_approvals",
+            "android_menu_history",
+            "android_menu_disconnect",
+        )
+        val SheetEntries = listOf(
+            "android_menu_conversations" to "android_conversations_sheet",
+            "android_menu_approvals" to "android_approvals_sheet",
+            "android_menu_history" to "android_history_sheet",
+        )
     }
 
     /**

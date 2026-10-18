@@ -94,24 +94,32 @@ open; no acceptance requirement or historical evidence is replaced.
 
 ## 2026-10-17 — emulator layout matrix
 
-`validation-android-home-11.md` records the full emulator matrix against the
-real window on four owned API 36 AVDs (phone 360×640 dp, pixel_6, 10.1" WXGA,
-pixel_fold inner): 144 of 144 manifest cells pass (both phones, tablet, Fold
-inner, and real WM Shell split on both phones × font 1.0/1.3/2.0 × keyboard ×
-orientation × gesture/three-button navigation). No layout defect was found and
-no production code changed. An earlier "landscape Recover unreachable" note was
-a fixture error and is retracted there.
+`validation-android-home-11.md` records the counted emulator matrix. It ran on
+the real window of four new owned API 36 AVDs (360×640 dp phone, pixel_6,
+10.1" WXGA, pixel_fold inner). Every cell's font scale, rotation, navigation
+mode and display were read back by the driver and asserted by the tests. All
+96 runs pass, covering 144/144 manifest cells. The portrait split cells are the
+≈ 50 %-height row; the landscape split cells are recorded separately as
+half-width. No layout defect was found and no production code changed. An
+earlier "landscape Recover unreachable" note was a fixture error and is
+retracted there; every run before 2026-10-17 is superseded.
 
 For the spec owner:
 
-- The acceptance line's `LocalDensity` + simulated-insets technique was tried
-  and retired: a synthetic viewport larger than the host phone window cannot be
-  judged by the platform's display checks. The real-window tests assert the
-  same things with real font scale and real insets.
-- In landscape, Android's split is side by side, so the landscape split cells
-  are half-width windows, recorded as such.
-- A settled turn returns focus to the prompt and raises the keyboard; on a
-  small landscape phone that leaves ≈ 97 dp of doorway, in which the composer
-  and Send remain reachable by scrolling.
+- The acceptance line's `LocalDensity` + simulated-insets technique was
+  retired: a synthetic viewport larger than the host phone window cannot be
+  judged by display checks. The real-window tests carry the same assertions
+  with real font scale and insets. This substitution needs acceptance.
+- The rail does not auto-follow the newest item. A new response is reachable
+  by scrolling the rail alone (asserted) but is not always shown without
+  scrolling. This is a product decision, recorded as a finding and not as a
+  defect.
+- A settled turn returns focus to the prompt and raises the keyboard; with it
+  up on a small landscape phone, about 97 dp of doorway remains, in which the
+  composer, Send and the newest line are reachable.
+- The four-line status block is claimed only where measured: small phone
+  portrait at 1.3× and 2.0×.
 
-Still open: the physical Pixel 2.0× / keyboard screenshots.
+Still open: the physical Pixel 2.0× / keyboard screenshots. The branch's full
+non-live instrumentation suite is 103/105 because of a pre-existing
+`ModalSheetBackTest` order dependence, reproduced on baseline `edac2f6`.

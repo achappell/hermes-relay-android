@@ -48,44 +48,52 @@ the physical-Pixel cells remain a separate open gate.
 
 ## 2. Evidence layers — what counts
 
-| Layer | Status | Why |
-| --- | --- | --- |
-| **A — synthetic rows** (`DoorwayLayoutFixtureTest`, a `Box` of the logical viewport inside the test window with a `LocalDensity` font override) | **Retired, counted as nothing.** Last full run: 6 of 6 phase tests failed (`layerA/layerA-final-2.txt`) | The synthetic viewport is larger than the host window for most rows (a 914 dp or 1280 dp viewport inside a 640 dp phone window), so the platform's `assertIsDisplayed` reports real, on-screen-sized controls as not displayed. Every failure was against the host window, not the modelled one; the same configurations pass on a real window. The source is preserved at `layerA/retired-source/` and removed from the test tree, so no failing or skipped class ships. |
-| **B — the real window** (`DoorwayRealWindowMatrixTest`, `DoorwaySplitWindowMatrixTest`) | **Primary and only counted evidence** | The real `MainActivity` on an owned AVD with that device's native display, real system `font_scale`, real rotation, real navigation mode, the real OS keyboard and real WM Shell split-screen. Only the Home behind the screen is a fixture (`HermesRelayApplication.homeRuntimeBox`). |
+| Layer | Status |
+| --- | --- |
+| **A — synthetic rows** (`LocalDensity` font override, a `Box` of the logical viewport inside the test window) | **Retired; counts for nothing.** A viewport larger than the host phone window cannot be judged by the platform's display checks (6/6 phase tests failed for that reason). Not in the test tree. |
+| **B — the real window** (`DoorwayRealWindowMatrixTest`, `DoorwaySplitWindowMatrixTest`) | **The only counted evidence.** Real `MainActivity`, real font scale, rotation, navigation mode, OS keyboard and WM Shell split on owned AVDs; only the Home behind the screen is a fixture. |
 
-The spec's acceptance line asks for a `LocalDensity` + simulated-insets Compose
-test per row. That technique is what Layer A was, and it could not represent the
-large viewports truthfully on a phone host. The real-window layer meets the
-same assertions with real font scale and real insets instead; this substitution
-is recorded here for the spec owner rather than presented as the literal
-technique.
+The spec's acceptance line names the `LocalDensity` + simulated-insets
+technique. It could not represent the large viewports truthfully, so the real
+window carries the same assertions instead. This substitution is for the spec
+owner to accept; it is not presented as the literal technique.
 
-## 3. What each real-window test asserts
+### Superseded evidence
 
-The fixture uses a deliberately long Profile name
+Every result recorded before 2026-10-17 (commit `75fcc61` and earlier) is
+superseded and not counted. Its receipts were taken **before** each cell's
+configuration was applied, so they described the previous cell. No test
+asserted navigation mode, and receipts are not evidence of it. The counted run
+below uses new empty AVDs, the corrected driver and the declared-row checks.
+
+## 3. What each test asserts
+
+The fixture uses a long Profile name
 (`Alexandra-Cassandra Montgomery-Worthington of the Northern Territories`) and
-starts held down: reconnects settle as terminal `Unrecoverable(TransportUnavailable)`,
-so the disconnected state is the settled one the user really sees.
+starts held down: reconnects settle as terminal `Unrecoverable`, which is the
+disconnected state a person sees.
 
-| Test | State | Asserted (every check scrolls only the way the user can) |
+Every reached control is checked twice. First, the platform reports it
+displayed inside its own region's visible part. Second,
+`assertClearOfBars` requires its visible bounds to sit inside the window's
+unobscured band (below the status bar, above the navigation bar and the real
+keyboard, read live from the window insets) and to overlap no other region
+(header, rail, composer surface). `assertBarsDoNotOverlap` requires the regions
+to be ordered. When the doorway does not scroll as a whole, it also requires
+the doorway to fill its viewport: header at the top, composer at the bottom,
+and the rail's slot between them, so no gap is left mid-screen. A missing root
+or scroller fails the cell; there is no infinite fallback window.
+
+| Test | Covers cells | Asserts |
 | --- | --- | --- |
-| `real_window_keeps_every_control_reachable_without_the_keyboard` | disconnected, then connected | bars do not overlap (header above rail above composer); doorway state; **Recover** enabled and a real press reaches the client (attempt counted); release fixture, press again → connected; Recover gone; prompt field; tap-to-speak; **menu entries Configure relay, Conversations, Approvals, History, Disconnect all displayed**; Conversations, Approvals and History **each open their sheet**, and Back closes it |
-| `real_window_keeps_the_composer_above_the_open_keyboard` | disconnected, real OS keyboard up | OS reports a real IME inset; the prompt field, **Send** and the doorway state are each brought wholly into the part of the window the keyboard leaves, by real finger drags (`input swipe`), with the keyboard still up; bars ordered |
-| `real_window_keeps_the_authorization_state_reachable` | Profile verified, authorization unavailable | long Profile name rendered; doorway state; the **four-line status block** (`This Profile is unavailable until relay authorization is verified…`, measured line count logged as `HOME11-WINDOW status-block lines=`); Edit relay; Recover correctly **absent** (`canAttemptClientConnection` blocks it for authorization); prompt; tap-to-speak; menu Configure/Conversations/Approvals/History displayed |
-| `real_window_keeps_turn_controls_and_the_whole_transcript_reachable` | connected; a real typed turn | type into the real field, reach and press Send (real drags if the keyboard is up) → turn accepted; turn phase and **Interrupt** (enabled); a 40-line response: its top reachable in the rail, and its **last line** reachable inside the rail and above the composer; then the transport drops mid-turn → **unconfirmed turn, Recover, Resend and Discard** each reachable |
-| `split_screen_grants_the_client_half_the_display_and_keeps_the_composer_reachable` | real WM Shell split, disconnected | window ≈ 50 % of the display on the split axis (ratio logged); bars ordered; doorway state; Recover reachable, a real press reaches the client; prompt; tap-to-speak; menu Configure/Conversations/Approvals/History displayed and each sheet opens; real keyboard up inside the split window; field and Send wholly above the keyboard |
+| `real_window_keeps_every_control_reachable_without_the_keyboard` | full window, IME off | regions ordered and filling; doorway state; Recover enabled while disconnected, and a real press reaches the client; connect; prompt; tap-to-speak; menu Configure/Conversations/Approvals/History/Disconnect displayed; each of the three sheets opens and closes |
+| `real_window_keeps_the_composer_and_newest_line_above_the_open_keyboard` | full window, IME up | real keyboard up. Prompt, Send and the idle doorway state are each brought into view above the keyboard by **real finger strokes** (`input swipe`; flings only for far targets; strokes kept out of the status bar, keyboard toolbar and system-gesture areas). Then a completed 40-line turn: the **bottom edge of the newest response** (its last line) above the keyboard, then prompt and Send again. Each is clear of bars. Keyboard still up; regions ordered. |
+| `real_window_keeps_the_authorization_state_reachable` | full window, IME off | long Profile name rendered; doorway state; the status block, with its line count measured and logged, and **asserted ≥ 4 where the row claims it** (section 5); Edit relay; Recover correctly absent (`canAttemptClientConnection`); prompt; tap-to-speak; menu entries other than Disconnect |
+| `real_window_keeps_turn_controls_and_the_whole_transcript_reachable` | full window, IME off | real typed turn; turn phase and Interrupt. When the doorway fits (outer range 0), the newest item is reachable by scrolling the **rail alone**, with the doorway itself never scrolling. The response's first line, and its last line inside the rail above the composer. After a mid-turn transport loss: unconfirmed turn, Recover, Resend and Discard (the keyboard the settled turn raises is closed with a real Back key first). |
+| `split_screen_grants_the_client_half_the_display_and_keeps_the_composer_reachable` | split, IME off and up | real WM Shell split, asserted on the **axis Android splits**: height on a portrait display (≈ 50 %-height cells), width on a landscape display (**half-width cells**), with the other axis ≥ 90 %. Disconnected phase: regions, state, Recover (real press reaches the client), prompt, tap-to-speak, menu Configure/Conversations/Approvals/History, and each sheet opens. **Connected phase: menu Disconnect displayed.** Keyboard phase: prompt, Send and the idle state above the real keyboard, then a completed 40-line turn's newest line, prompt and Send, all by real strokes and clear of bars. The split is exited and verified gone afterwards. |
 
-Not asserted, by design: `android_stop_capture`/`android_cancel_capture` need a
-live microphone (`-no-audio` AVDs; this ticket opens none) — **unverified, not
-passed**. Split-screen cells assert the disconnected doorway; the connected
-menu's Disconnect entry is asserted in the full-window cells only.
-
-A turn that settles returns focus to the prompt (`ClientRuntimeEffects`), which
-raises the real keyboard. The lost-turn controls are asserted after closing it
-with a real Back key; with the keyboard up, reachability is the keyboard test's
-job. In landscape on the small phone the keyboard leaves ≈ 97 dp of doorway; a
-manual probe with real drags showed Send scrolling into that space
-(`layerB/manual-ime-landscape/probe-2.png`).
+Not asserted: stop/cancel capture (needs a live microphone; the AVDs run
+`-no-audio`). These are unverified, not passed.
 
 ## 4. Device configuration manifest (Layer B)
 
@@ -96,10 +104,10 @@ touched. Each `adb` invocation names its serial explicitly.
 
 | AVD | Device profile | Native display | Port | Used for |
 | --- | --- | --- | --- | --- |
-| `hermes_home11_phone_20261016` | `small_phone` | 720×1280 @ 320 dpi = 360×640 dp | 5556 | R1, R5 |
-| `hermes_home11_large_20261016` | `pixel_6` | 1080×2400 @ 420 dpi ≈ 411×914 dp | 5558 | R2, R6 |
-| `hermes_home11_tablet_20261016` | `10.1in WXGA (Tablet)` | 1280×800 @ 160 dpi = 1280×800 dp (natural landscape) | 5560 | R3 |
-| `hermes_home11_fold_20261016` | `pixel_fold` (inner display) | 2208×1840 @ 420 dpi ≈ 841×701 dp | 5562 | R4 |
+| `hermes_home11_phone_20261017` | `small_phone` | 720×1280 @ 320 dpi = 360×640 dp | 5556 | R1, R5 |
+| `hermes_home11_large_20261017` | `pixel_6` | 1080×2400 @ 420 dpi ≈ 411×914 dp | 5558 | R2, R6 |
+| `hermes_home11_tablet_20261017` | `10.1in WXGA (Tablet)` | 1280×800 @ 160 dpi = 1280×800 dp (natural landscape) | 5560 | R3 |
+| `hermes_home11_fold_20261017` | `pixel_fold` (inner display) | 2208×1840 @ 420 dpi ≈ 841×701 dp | 5562 | R4 |
 
 Per-row receipts captured: `wm size`, `wm density`, `dumpsys window displays`,
 `settings get system font_scale`, `settings get secure navigation_mode`,
@@ -112,149 +120,253 @@ All four are API 36 `google_apis` arm64 (`sdk_gphone64_arm64` 16 /
 `BE2A.250530.026.F3`). AVDs ran sequentially to avoid host contention and were
 deleted at the end; the evidence stays (section 9).
 
-Per-cell driver configuration (`run-real-window-matrix.sh`): navigation mode by
-`cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.<gestural|threebutton>`;
-`settings put system font_scale`; rotation by `accelerometer_rotation 0`,
-`wm user-rotation lock <r>` **and `wm fixed-to-user-rotation enabled`** (a
-portrait-locked launcher otherwise keeps a phone at ROTATION_0 — see section 7);
-a receipt of the display size after rotation per cell.
+The row manifest and driver are committed: `scripts/run-home11-avd.sh` boots an
+AVD, installs the APKs and runs `scripts/run-home11-layout-matrix.sh`, whose
+header holds the manifest (row → natural display size, and the cells where the
+four-line status block is claimed). Per cell the driver:
 
-## 5. Results — manifest cells (commit-candidate APK)
+1. applies navigation mode (`cmd overlay enable-exclusive --category
+   com.android.internal.systemui.navbar.<gestural|threebutton>`), font scale,
+   `show_ime_with_hard_keyboard`, and rotation (`accelerometer_rotation 0`,
+   `user_rotation`, `wm user-rotation lock`, `wm fixed-to-user-rotation
+   enabled` — a portrait-locked launcher otherwise keeps a phone at
+   ROTATION_0); the commands' own output goes into the receipt;
+2. reads back `font_scale`, `navigation_mode` and the display rotation and
+   marks the cell `CONFIG-MISMATCH` (not run, not counted) if any differs;
+3. writes the cell's receipt **after** applying it;
+4. runs the instrumentation with the declared row as arguments
+   (`home11_row`, `home11_font`, `home11_rotation`, `home11_nav`,
+   `home11_display`, and `home11_status_lines_min` where claimed). Each test
+   first asserts the running font scale, display rotation, `navigation_mode`
+   and natural display size match the declaration (`HOME11-ROW` line).
 
-All rows below come from one run of the final test APK on all four AVDs
-(`real/<avd>/final-real-commit/`, `real/<avd>/split-rerun-commit/`). Each
-full-window run executes the four real-window tests; each split run executes
-the split test. A run passes only when every test in it passes.
+## 5. Results (counted run, 2026-10-17)
 
-| Viewport row | AVD / real window | Runs (nav 2 × font 3 × orientation 2) | Tests | Result |
-| --- | --- | --- | --- | --- |
-| R1 small phone 360×640 dp | phone, 720×1280 @ 2.0 | 12 / 12 OK | 48 / 48 | **Pass** |
-| R2 large phone ≈411×914 dp | pixel_6, 1080×2400 @ 2.625 | 12 / 12 OK | 48 / 48 | **Pass** |
-| R3 tablet 10" | 10.1" WXGA, 1280×800 @ 1.0 | 12 / 12 OK | 48 / 48 | **Pass** |
-| R4 Fold inner | pixel_fold, 2208×1840 @ 2.625 | 12 / 12 OK | 48 / 48 | **Pass** |
-| R5 split, small phone | real WM Shell split on the phone AVD | 12 / 12 OK | 12 / 12 | **Pass** |
-| R6 split, large phone | real WM Shell split on the pixel_6 AVD | 12 / 12 OK | 12 / 12 | **Pass** |
+One run of one APK pair on four new, empty, owned API 36 AVDs
+(`hermes_home11_{phone,large,tablet,fold}_20261017`). Every cell is
+`nav 2 × font 3 × rotation 2 × class 2` per AVD. There were **0 configuration
+mismatches**.
 
-Logical cells (viewport × font × IME × orientation × navigation): every
-full-window run covers IME off (tests 1, 3, 4) and IME up (test 2); every split
-run covers IME off then IME up. **144 of 144 cells pass; 0 fail; 0 unexecuted.**
-
-| | Pass | Fail | Unexecuted |
+| AVD row | Real-window runs (4 tests each) | Split runs | Result |
 | --- | --- | --- | --- |
-| R1–R4 (4 × 3 fonts × 2 IME × 2 orientations × 2 nav) | 96 | 0 | 0 |
-| R5–R6 (2 × 3 × 2 × 2 × 2) | 48 | 0 | 0 |
-| By font 1.0 / 1.3 / 2.0 | 48 / 48 / 48 | 0 | 0 |
-| By IME off / up | 72 / 72 | 0 | 0 |
-| By orientation portrait / landscape | 72 / 72 | 0 | 0 |
-| By navigation gesture / three-button | 72 / 72 | 0 | 0 |
+| small-phone (720×1280 @ 2.0) | 12/12 OK (48 tests) | 12/12 OK | pass |
+| large-phone (1080×2400 @ 2.625) | 12/12 OK (48 tests) | 12/12 OK | pass |
+| tablet-10in (1280×800 @ 1.0, natural landscape) | 12/12 OK (48 tests) | 12/12 OK | pass |
+| fold-inner (2208×1840 @ 2.625) | 12/12 OK (48 tests) | 12/12 OK | pass |
 
-Receipts that make the cells real rather than nominal:
+**96 of 96 runs pass (240 test executions), 0 fail, 0 unexecuted.**
 
-- **Rotation.** Every landscape full-window run logs a landscape window
-  (`HOME11-WINDOW … window=1280x720` small, `2400x1080` large, `1280x800`
-  tablet, `2208x1840` Fold) — 24 landscape lines per AVD. Each cell's
-  `receipts-<cell>.txt` records the display size after rotation.
-- **Font scale.** `HOME11-WINDOW … fontScale=` matches the driver's setting in
-  every run.
-- **Keyboard.** The OS-reported IME inset is logged per run, e.g. 478 px small
-  landscape, 883 px large portrait.
-- **Split.** Portrait phone splits are the spec's 50 %-height cells:
-  small `window=720x630 of 720x1280` (ratio 0.49), large `1080x1187 of
-  1080x2400` (0.49). In landscape Android splits side by side, so those cells
-  are **half-width** windows (small `630x720`/`678x720`, large
-  `1123x1080`/`1186x1080` of the rotated display); they pass, and are recorded
-  as half-width rather than relabelled as half-height.
-- **Four-line status block.** Measured line counts on the small phone:
-  portrait 3 / 4 / 6 lines at 1.0 / 1.3 / 2.0; landscape 2 / 2 / 3. The block
-  reaches four or more lines at 1.3× and 2.0× in portrait.
-- Screenshots: `<cell>-start.png` / `-end.png` per run, plus
-  `split-ime-up` captures; device profile `native-profile-<avd>.txt`.
+Manifest cells (viewport × font × IME × orientation × navigation):
 
-### Beyond the manifest
+| Row | Cells | Pass | Fail | Unexecuted |
+| --- | --- | --- | --- | --- |
+| Small phone, large phone, tablet, Fold inner — full window | 96 | 96 | 0 | 0 |
+| Small phone split, portrait (≈ 50 % height: window 720×630 of 720×1280) | 12 | 12 | 0 | 0 |
+| Large phone split, portrait (≈ 50 % height: window 1080×1187 of 1080×2400) | 12 | 12 | 0 | 0 |
+| Small phone split, landscape — **half-width** (window 630×720 / 678×720 of 1280×720) | 12 | 12 | 0 | 0 |
+| Large phone split, landscape — **half-width** | 12 | 12 | 0 | 0 |
 
-| Extra cells | Result |
-| --- | --- |
-| Fold inner in split (12 runs) | 12 / 12 pass (window `1091x1840 of 2208x1840`) |
-| Tablet in split, natural landscape (6 runs) | 6 / 6 pass (window `635x800 of 1280x800`) |
-| Tablet in split, rotated to portrait (6 runs) | **6 / 6 fail — harness, unresolved.** The granted window is `800x635` at y=277 of an 800×1280 display; four real taps on the prompt never raise the IME (`DoorwaySplitWindowMatrixTest.kt:257`). The keyboard-free part of the same runs reached every asserted control before the IME step. Not a product claim either way; not counted. |
+The spec's "split-screen at 50 % height" row is the 24 portrait split cells.
+The 24 landscape split cells are recorded separately as half-width windows,
+because that is what Android grants in landscape. Beyond the manifest, tablet
+and Fold split pass on both axes (24 + 24 cells, in the table below).
+
+**Status block.** The status block is claimed to reach four or more lines only
+where it was measured to: small phone portrait at 1.3 and 2.0, where the test
+asserts `lineCount ≥ 4`. Everywhere else the count is logged and nothing is
+claimed. Measured counts: small phone portrait 3/4/6 lines at 1.0/1.3/2.0,
+landscape 2/2/3; large phone portrait 3/3/4, landscape 1/2/2; tablet 1–2;
+Fold 1–3.
+
+**Newest item in a fitting doorway.** In 30 runs the doorway fits its viewport.
+In 20 of them the response is already displayed without scrolling; in the
+other 10 it is reached by scrolling the rail alone (finding 3).
+
+### Per-run table
+
+`Status lines`, `Fitting` and `Split` come from each run's own log lines
+(`HOME11-WINDOW`, `HOME11-SPLIT`). `Row checks` is the number of tests in the
+run that asserted the declared row.
+
+| Row | Nav | Font | Rot | Class | Result | Window (no IME) | IME px | Status lines | Fitting: newest item shown unscrolled | Split axis / window / ratio | Row checks |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| small-phone | gestural | 1.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 3 | false |  | 4 |
+| small-phone | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
+| small-phone | gestural | 1.0 | 1 | RealWindow | OK 4 | 1280x720 | 478 | 2 | n/a |  | 4 |
+| small-phone | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 478 |  | n/a | width 630x720 of 1280x720 (0.49) | 1 |
+| small-phone | gestural | 1.3 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 4 | n/a |  | 4 |
+| small-phone | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
+| small-phone | gestural | 1.3 | 1 | RealWindow | OK 4 | 1280x720 | 478 | 2 | n/a |  | 4 |
+| small-phone | gestural | 1.3 | 1 | SplitWindow | OK 1 |  |  |  | n/a |  | 0 |
+| small-phone | gestural | 2.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 6 | n/a |  | 4 |
+| small-phone | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
+| small-phone | gestural | 2.0 | 1 | RealWindow | OK 4 |  |  |  | n/a |  | 0 |
+| small-phone | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 478 |  | n/a | width 630x720 of 1280x720 (0.49) | 1 |
+| small-phone | threebutton | 1.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 3 | n/a |  | 4 |
+| small-phone | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
+| small-phone | threebutton | 1.0 | 1 | RealWindow | OK 4 | 1280x720 | 400 | 2 | n/a |  | 4 |
+| small-phone | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 400 |  | n/a | width 678x720 of 1280x720 (0.53) | 1 |
+| small-phone | threebutton | 1.3 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 4 | n/a |  | 4 |
+| small-phone | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
+| small-phone | threebutton | 1.3 | 1 | RealWindow | OK 4 | 1280x720 | 400 | 2 | n/a |  | 4 |
+| small-phone | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 400 |  | n/a | width 678x720 of 1280x720 (0.53) | 1 |
+| small-phone | threebutton | 2.0 | 0 | RealWindow | OK 4 | 720x1280 | 598 | 6 | n/a |  | 4 |
+| small-phone | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 157 |  | n/a | height 720x630 of 720x1280 (0.49) | 1 |
+| small-phone | threebutton | 2.0 | 1 | RealWindow | OK 4 | 1280x720 | 400 | 3 | n/a |  | 4 |
+| small-phone | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 400 |  | n/a | width 678x720 of 1280x720 (0.53) | 1 |
+| large-phone | gestural | 1.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 |
+| large-phone | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
+| large-phone | gestural | 1.0 | 1 | RealWindow | OK 4 | 2400x1080 | 686 | 1 | n/a |  | 4 |
+| large-phone | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 686 |  | n/a | width 1123x1080 of 2400x1080 (0.47) | 1 |
+| large-phone | gestural | 1.3 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 |
+| large-phone | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
+| large-phone | gestural | 1.3 | 1 | RealWindow | OK 4 | 2400x1080 | 686 | 2 | n/a |  | 4 |
+| large-phone | gestural | 1.3 | 1 | SplitWindow | OK 1 |  | 686 |  | n/a | width 1123x1080 of 2400x1080 (0.47) | 1 |
+| large-phone | gestural | 2.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 4 | false |  | 4 |
+| large-phone | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
+| large-phone | gestural | 2.0 | 1 | RealWindow | OK 4 | 2400x1080 | 686 | 2 | n/a |  | 4 |
+| large-phone | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 686 |  | n/a | width 1123x1080 of 2400x1080 (0.47) | 1 |
+| large-phone | threebutton | 1.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 |
+| large-phone | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
+| large-phone | threebutton | 1.0 | 1 | RealWindow | OK 4 | 2400x1080 | 560 | 1 | n/a |  | 4 |
+| large-phone | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 560 |  | n/a | width 1186x1080 of 2400x1080 (0.49) | 1 |
+| large-phone | threebutton | 1.3 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 3 | true |  | 4 |
+| large-phone | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
+| large-phone | threebutton | 1.3 | 1 | RealWindow | OK 4 | 2400x1080 | 560 | 2 | n/a |  | 4 |
+| large-phone | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 560 |  | n/a | width 1186x1080 of 2400x1080 (0.49) | 1 |
+| large-phone | threebutton | 2.0 | 0 | RealWindow | OK 4 | 1080x2400 | 883 | 4 | false |  | 4 |
+| large-phone | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 53 |  | n/a | height 1080x1187 of 1080x2400 (0.49) | 1 |
+| large-phone | threebutton | 2.0 | 1 | RealWindow | OK 4 | 2400x1080 | 560 | 2 | n/a |  | 4 |
+| large-phone | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 560 |  | n/a | width 1186x1080 of 2400x1080 (0.49) | 1 |
+| tablet-10in | gestural | 1.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 |
+| tablet-10in | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
+| tablet-10in | gestural | 1.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 1 | true |  | 4 |
+| tablet-10in | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
+| tablet-10in | gestural | 1.3 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 |
+| tablet-10in | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
+| tablet-10in | gestural | 1.3 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 |
+| tablet-10in | gestural | 1.3 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
+| tablet-10in | gestural | 2.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 2 | false |  | 4 |
+| tablet-10in | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
+| tablet-10in | gestural | 2.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 |
+| tablet-10in | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
+| tablet-10in | threebutton | 1.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 |
+| tablet-10in | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
+| tablet-10in | threebutton | 1.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 1 | true |  | 4 |
+| tablet-10in | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
+| tablet-10in | threebutton | 1.3 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 1 | true |  | 4 |
+| tablet-10in | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
+| tablet-10in | threebutton | 1.3 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 |
+| tablet-10in | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
+| tablet-10in | threebutton | 2.0 | 0 | RealWindow | OK 4 | 1280x800 | 368 | 2 | false |  | 4 |
+| tablet-10in | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 368 |  | n/a | width 635x800 of 1280x800 (0.50) | 1 |
+| tablet-10in | threebutton | 2.0 | 1 | RealWindow | OK 4 | 800x1280 | 368 | 2 | true |  | 4 |
+| tablet-10in | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 0 |  | n/a | height 800x635 of 800x1280 (0.50) | 1 |
+| fold-inner | gestural | 1.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 1 | true |  | 4 |
+| fold-inner | gestural | 1.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
+| fold-inner | gestural | 1.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 |
+| fold-inner | gestural | 1.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
+| fold-inner | gestural | 1.3 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | false |  | 4 |
+| fold-inner | gestural | 1.3 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
+| fold-inner | gestural | 1.3 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 |
+| fold-inner | gestural | 1.3 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
+| fold-inner | gestural | 2.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | false |  | 4 |
+| fold-inner | gestural | 2.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
+| fold-inner | gestural | 2.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 3 | false |  | 4 |
+| fold-inner | gestural | 2.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
+| fold-inner | threebutton | 1.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 1 | true |  | 4 |
+| fold-inner | threebutton | 1.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
+| fold-inner | threebutton | 1.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 |
+| fold-inner | threebutton | 1.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
+| fold-inner | threebutton | 1.3 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | false |  | 4 |
+| fold-inner | threebutton | 1.3 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
+| fold-inner | threebutton | 1.3 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 2 | true |  | 4 |
+| fold-inner | threebutton | 1.3 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
+| fold-inner | threebutton | 2.0 | 0 | RealWindow | OK 4 | 2208x1840 | 841 | 2 | n/a |  | 4 |
+| fold-inner | threebutton | 2.0 | 0 | SplitWindow | OK 1 |  | 841 |  | n/a | width 1091x1840 of 2208x1840 (0.49) | 1 |
+| fold-inner | threebutton | 2.0 | 1 | RealWindow | OK 4 | 1840x2208 | 841 | 3 | false |  | 4 |
+| fold-inner | threebutton | 2.0 | 1 | SplitWindow | OK 1 |  | 78 |  | n/a | height 1840x1091 of 1840x2208 (0.49) | 1 |
 
 ## 6. Findings
 
-1. **No product layout defect was found.** No production file changed.
-2. **Retraction (2026-10-16).** An earlier hand-off recorded "Recover is
-   unreachable in landscape" as a product finding. It was wrong: the fixture
-   had auto-connected, and while connected `ConnectionRecoveryZone` correctly
-   renders no Recover (`!isConnected && canAttemptConnection`). With a held-down
-   fixture, Recover is composed, enabled and pressable in the landscape rail.
-3. **A settled turn raises the keyboard.** `ClientRuntimeEffects` returns focus
-   to the prompt when a turn settles, so after a lost turn the real keyboard
-   opens. On a 360×640 phone in landscape that leaves ≈ 97 dp of doorway above
-   the keyboard; the composer and Send are still reachable there by real drags
-   (`manual-ime-landscape/probe-2.png`). Recorded as product behaviour, not as
-   a defect, for the spec owner.
-4. **Existing test ordering defect (not caused here).** The full non-live
-   instrumentation suite on the final APK: **105 run, 104 pass, 1 fail** —
-   `ModalSheetBackTest.back_dismisses_only_the_approvals_sheet`. The failure
-   needs only pre-existing classes to reproduce: `HomeRuntimeRecreationTest`
-   followed by `ModalSheetBackTest` fails the same way, while
-   `ModalSheetBackTest` alone and after `AccessibilityOrderTest` passes. Any
-   earlier `MainActivity` in the process makes its first Back miss the sheet.
-   Left unchanged (out of scope); `final/control-*-modal.txt` hold the runs.
-5. `AccessibilityOrderTest` passes unchanged (10 / 10) on the final APK.
-
-### Harness defects found and fixed along the way (test code only)
-
-- A portrait-locked launcher kept phones at ROTATION_0 despite a locked user
-  rotation; phone "landscape" runs before `wm fixed-to-user-rotation enabled`
-  were portrait and are superseded (`real/*/final-real`, `final-real-v4`,
-  `split-rerun` and `split-rerun-rotfix` directories are not counted).
-- Reachability is measured against the doorway's own scroll viewport, which
-  ends above a real keyboard, not against the window root.
-- Lazy rail regions are rewound by index; the displayed copy of a recycled
-  lazy item is the one checked.
-- In a split the companion task can own input focus: the test gives its own
-  window focus with a real tap on its header and uses a real Back key.
-- Each real-window class restores `HermesRelayApplication.homeRuntimeBox` and
-  ends its fixture runtime, and closes the keyboard, so later classes start
-  clean.
+1. **No product layout defect was found. Production code is unchanged.**
+2. **Retraction (2026-10-16).** "Recover unreachable in landscape" was a
+   fixture error: the fixture had auto-connected, and while connected
+   `ConnectionRecoveryZone` correctly offers no Recover.
+3. **For the spec owner: the rail does not auto-follow the newest item.**
+   There is no `scrollToItem`/`animateScrollTo` in `app/src/main`. When a long
+   response arrives, the rail keeps its position, so in 10 fitting-doorway runs
+   the new response sits below the rail's first items until the user scrolls
+   the rail. The spec requires the item to be "displayed or reachable"; it is
+   reachable by the rail alone, and that is asserted. Whether to follow new
+   content is a product decision. This is recorded as a finding, not a defect
+   or a pass.
+4. **A settled turn raises the keyboard.** `ClientRuntimeEffects` returns
+   focus to the prompt. With the keyboard up on a 360×640 phone in landscape,
+   about 97 dp of doorway remains; prompt, Send and the newest line are
+   reachable there by real strokes (asserted).
+5. **Tablet portrait split: real cause found and resolved in the test.** In a
+   top/bottom split WM Shell moves the lower stage up above the keyboard.
+   The client window therefore receives **no IME inset** while the keyboard is
+   showing: the window origin moved from y = 645 to y = 277, exactly the 368 px
+   keyboard. The earlier test waited for an inset that never arrives. It now
+   asks the input-method service (`mInputShown`), and the cells pass.
+6. **`ModalSheetBackTest` order dependence (pre-existing).**
+   - Baseline `edac2f6` APK on the same owned AVD, portrait:
+     `HomeRuntimeRecreationTest` then `ModalSheetBackTest` fails 2 of 3 runs
+     (`back_dismisses_only_the_approvals_sheet`); `ModalSheetBackTest` alone
+     passes.
+   - Baseline full non-live suite: 100 run, 0 failures.
+   - Branch full non-live suite: **105 run, 103 pass, 2 fail**
+     (`ModalSheetBackTest.back_dismisses_only_the_approvals_sheet` and
+     `…_history_sheet`).
+   - The new real-window classes run earlier in the same process and add more
+     preceding `MainActivity` launches, which trigger the existing order
+     dependence in the full suite. The suite is red on this branch. The defect
+     is in `ModalSheetBackTest`/its predecessors and is not fixed here.
+7. `AccessibilityOrderTest` passes within the branch full suite.
 
 ## 7. Gates (final tree)
 
-| Gate | Result | Log |
-| --- | --- | --- |
-| JVM `testDebugUnitTest --rerun-tasks` | 57 suites, 784 tests, 0 failures / errors / skips (XML archived) | `gates/commit/jvm.log`, `gates/commit/jvm-xml/` |
-| `assembleDebug lintDebug assembleDebugAndroidTest` | BUILD SUCCESSFUL | `gates/commit/assemble-lint.log` |
-| `scripts/check-apk-metadata.sh` | "APK metadata is correct: min SDK 26, version 0.3.1 (301), backup off with extraction rules, 16 KB aligned, signing skipped (EXPECTED_SIGNER_SHA256 unset)." | `gates/commit/apk-metadata.log` |
-| `scripts/run-flake-gate.sh AndroidDoorwayStateTest,AndroidRecoveryControllerTest,AndroidAvailabilityTest,HomeRuntimeReconnectTest 1` | 1 consecutive run, 0 failures | `gates/commit/flake-gate-N1.log` |
-| Full non-live instrumentation (emulator-5556) | 105 run, 104 pass, 1 pre-existing order failure (finding 4) | `final/full-instrumentation-commit.txt` |
-| APK identity | the gate build's debug and androidTest APKs are byte-identical (SHA-256) to those installed for the counted matrix run | `layerB/commit-apk-sha256.txt` |
+| Gate | Result |
+| --- | --- |
+| JVM `testDebugUnitTest --rerun-tasks` (XML archived first) | 57 suites, 784 tests, 0 failures/errors/skips |
+| `assembleDebug lintDebug assembleDebugAndroidTest` | BUILD SUCCESSFUL |
+| `scripts/check-apk-metadata.sh` | "APK metadata is correct: min SDK 26, version 0.3.1 (301), backup off with extraction rules, 16 KB aligned, signing skipped (EXPECTED_SIGNER_SHA256 unset)." |
+| Flake gate N=1 (four classes) | 1 consecutive run, 0 failures |
+| Full non-live instrumentation, baseline `edac2f6` | 100 run, 0 failures |
+| Full non-live instrumentation, branch | **105 run, 103 pass, 2 fail** (finding 6) — **not green** |
+
+APK SHA-256 values:
+- Counted matrix: debug `7bedc1cd…`, androidTest `d48938c1…`.
+- Gate rebuild: androidTest `d48938c1…` (identical) and debug `8f1b26a5…`.
+  No `app/src/main` file differs from `edac2f6`; the debug bytes differ only
+  by rebuild.
 
 ## 8. Open gates and limits
 
-- **Physical Pixel gate — open.** The spec's 2.0× and keyboard screenshots on
-  a physical Pixel were not taken; no device was available. Every result here
-  is an emulator AVD with a device's native profile, not a physical claim.
-- No live Home, pairing, microphone or audio claim: the Home behind every
-  screen is the in-memory fixture.
-- Capture-only controls (stop/cancel capture) unverified (no microphone).
-- The connected menu's Disconnect entry is asserted in full-window cells only;
-  split cells assert the disconnected menu.
-- Tablet-in-portrait split with the keyboard: unresolved harness failure
-  (section 5), outside the manifest.
-- `DoorwayMatrix.kt` still carries a dead `layout_viewport` lookup and two
-  comments from the retired synthetic layer. They were left in place so the
-  committed source rebuilds the exact APKs the counted matrix ran (Gradle
-  reports the build up to date against the same SHA-256s); removing them is a
-  safe follow-up.
+- **Physical Pixel gate — open.** Everything here is emulator evidence.
+- No live Home, pairing, microphone or audio claim. Stop/cancel capture is
+  unverified.
+- The spec's `LocalDensity` technique is replaced by real-window evidence
+  (section 2); this needs the spec owner's acceptance.
+- Full suite red (finding 6).
+- After a drag with the keyboard up, the test clock can read two alternating
+  layouts (logged as `unsettled-after-drag`). The real display was sampled as
+  still: unchanged screenshots and stable semantics. Visibility after drags is
+  therefore required on three consecutive reads.
 
 ## 9. Evidence location
 
-Evidence is kept outside the repository at
-`~/Library/Application Support/Hermes Recovery/home11-20261016/` (screenshots,
-per-cell receipts, logcat, instrumentation output, gate logs, JUnit XML,
-retired Layer-A source, driver scripts `run-real-window-matrix.sh`,
-`run-avd-config.sh`, `probe-split-screen.sh`). Paths in this record are
-relative to that directory. The four owned AVDs were deleted after the
-evidence was preserved. Owner emulator 5554, the original AVD/userdata and
-`home08b-20261014` were never touched; every `adb` call named its serial; no
-Gradle `connected*` task ran; no credentials or state were copied.
+`~/Library/Application Support/Hermes Recovery/home11-20261017/`:
+- `matrix/<row>/`: per cell, the post-apply receipt, the instrumentation
+  output, logcat with `HOME11-ROW/WINDOW/SPLIT` lines, start/end screenshots
+  and the split keyboard screenshot; also `results-<row>.txt`,
+  `native-profile-<row>.txt`, `apk-sha256.txt` and `per-run-table.md`.
+- `final/`: baseline and branch full suites and the baseline control runs.
+- `gates/`: gate logs and JVM XML.
+
+The 2026-10-16 directory holds superseded runs only. Owned AVDs were deleted
+after preservation. Owner emulator 5554 and `home08b-20261014` were never
+touched; every `adb` call named its serial; no Gradle `connected*` task was
+run.

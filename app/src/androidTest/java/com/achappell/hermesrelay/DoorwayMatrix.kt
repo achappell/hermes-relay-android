@@ -24,6 +24,7 @@ import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 
 /**
  * Shared fixture for the `ANDROID-HOME-11` real-window matrix
@@ -213,6 +214,8 @@ internal fun ComposeContentTestRule.bounds(tag: String): DpRect =
     onNodeWithTag(tag).getUnclippedBoundsInRoot()
 
 /** The outer scroller's scroll range; null when the layout does not scroll as a whole. */
+internal fun ComposeContentTestRule.outerScrollMax(): Float? = outerScrollRange()
+
 private fun ComposeContentTestRule.outerScrollRange(): Float? = try {
     outerScroller().fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
         .maxValue()
@@ -226,15 +229,32 @@ private fun ComposeContentTestRule.outerScrollRange(): Float? = try {
  * geometry assertion taken during one reads two different frames.
  */
 internal fun ComposeContentTestRule.settleGeometry() {
-    var previous = ""
-    repeat(GeometrySettleSteps) {
-        val current = RegionTags.joinToString("/") { safeBounds(it) }
-        waitForIdle()
-        if (current == previous) return
-        previous = current
-        Thread.sleep(GeometrySettleMillis)
-    }
+    val reads = awaitStableGeometry()
+    check(reads == null) { "the doorway geometry never settled; last reads: $reads" }
 }
+
+/**
+ * Waits until three consecutive reads of the region bounds and outer scroll
+ * position agree. Returns null once they do, or the last reads on timeout.
+ */
+internal fun ComposeContentTestRule.awaitStableGeometry(timeoutMillis: Long = GeometrySettleTimeoutMillis): String? {
+    val reads = ArrayDeque<String>()
+    var stableReads = 0
+    val settled = runCatching {
+        waitUntil(timeoutMillis) {
+            val current = RegionTags.joinToString("/") { safeBounds(it) } + " outer=" + outerScrollPosition()
+            if (current == reads.lastOrNull()) stableReads += 1 else stableReads = 0
+            reads.addLast(current)
+            if (reads.size > 4) reads.removeFirst()
+            stableReads >= GeometryStableReads
+        }
+    }.isSuccess
+    return if (settled) null else reads.joinToString(" | ")
+}
+
+internal fun ComposeContentTestRule.outerScrollPosition(): String = runCatching {
+    outerScroller().fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value().toString()
+}.getOrElse { "none" }
 
 private val RegionTags = listOf(
     "android_doorway_header",
@@ -299,6 +319,17 @@ internal fun ComposeContentTestRule.assertBarsDoNotOverlap(cell: DoorwayMatrix.C
         check(actions.bottom.value <= scroller.bottom.value + 0.5f) {
             "$cell: a fitting layout must not scroll the composer away, saw actions=$actions scroller=$scroller"
         }
+        // Filling the viewport: the header sits at the top and the composer at
+        // the bottom of the doorway, so the rail's slot spans everything
+        // between them and no gap can strand the newest line mid-screen. (The
+        // tagged rail list itself may be shorter than its slot when its
+        // content is.)
+        check(abs(header.top.value - scroller.top.value) <= 0.5f && abs(actions.bottom.value - scroller.bottom.value) <= 0.5f) {
+            "$cell: a fitting layout must fill its viewport, saw header=$header actions=$actions scroller=$scroller"
+        }
+        check(rail.top.value <= header.bottom.value + 0.5f) {
+            "$cell: a fitting layout's rail must start right below the header, saw header=$header rail=$rail"
+        }
     } else {
         check(contentHeight > visibleHeight + 0.5f) {
             "$cell: the whole layout scrolls only when the regions exceed it, saw content=${contentHeight}dp " +
@@ -313,46 +344,32 @@ private fun ComposeContentTestRule.rectOf(node: SemanticsNodeInteraction): DpRec
 private fun heightOf(rect: DpRect) = rect.bottom.value - rect.top.value
 
 /**
- * The window a row is measured against. The synthetic layer tags it
- * `layout_viewport`; the real-Activity layer has no such node, so it falls
- * back to the window root.
+ * The part of the window the doorway is visible in: the root that holds the
+ * doorway (a dropdown or sheet popup adds a second root), cut to the doorway's
+ * own scroller, which ends above a real keyboard. A missing root or scroller
+ * fails the cell rather than widening the window.
  */
-private fun ComposeContentTestRule.windowRect(): DpRect =
-    runCatching { bounds("layout_viewport") }.getOrElse {
-        // The real-Activity layer has no viewport tag, and a dropdown or sheet
-        // popup adds a second root, so pick the root that actually holds the
-        // doorway rather than assuming a single root.
+private fun ComposeContentTestRule.windowRect(): DpRect {
+    val root = checkNotNull(
         runCatching {
-            val root = onAllNodes(isRoot())
+            onAllNodes(isRoot())
                 .filter(hasAnyDescendant(hasTestTag("android_doorway_header")))
                 .onFirst()
                 .getUnclippedBoundsInRoot()
-            // The doorway's own scroller is what the user can see: with the
-            // real keyboard up it ends above the keyboard, not at the root.
-            val viewport = runCatching { rectOf(outerScroller()) }.getOrNull() ?: root
-            DpRect(
-                maxOf(root.left, viewport.left),
-                maxOf(root.top, viewport.top),
-                minOf(root.right, viewport.right),
-                minOf(root.bottom, viewport.bottom),
-            )
-        }.getOrElse {
-            DpRect(
-                Float.NEGATIVE_INFINITY.dp,
-                Float.NEGATIVE_INFINITY.dp,
-                Float.POSITIVE_INFINITY.dp,
-                Float.POSITIVE_INFINITY.dp,
-            )
-        }
+        }.getOrNull(),
+    ) { "the window root holding the doorway is missing" }
+    val viewport = checkNotNull(runCatching { rectOf(outerScroller()) }.getOrNull()) {
+        "the doorway's outer scroller is missing"
     }
+    return DpRect(
+        maxOf(root.left, viewport.left),
+        maxOf(root.top, viewport.top),
+        minOf(root.right, viewport.right),
+        minOf(root.bottom, viewport.bottom),
+    )
+}
 
-/**
- * Whether the node is visible inside its container *within the row's window*.
- * A row's window can be larger than the physical test window (a 10" tablet
- * viewport does not fit on a phone AVD), so the synthetic layer measures
- * visibility against `layout_viewport` — the window the row models — and never
- * against the physical root. The emulator layer measures the real window.
- */
+/** Whether the node is visible inside its container within the visible window. */
 private fun ComposeContentTestRule.visibleInWindow(
     container: String,
     node: () -> SemanticsNodeInteraction,
@@ -515,8 +532,7 @@ private fun ComposeContentTestRule.reachRailNode(
  * actually used: the outer doorway parked at the end that shows the region
  * (top for the rail, bottom for the composer), the region rewound, then
  * stepped by its own scroller until the node is inside the visible region and
- * the platform reports it displayed. Proven on the real OS window by the
- * HOME11-SWEEP trace.
+ * the platform reports it displayed.
  */
 private fun ComposeContentTestRule.reachRegionNode(
     container: String,
@@ -578,7 +594,52 @@ private fun ComposeContentTestRule.reachRegionNode(
                     "attached=${it.layoutInfo.isAttached}"
             }
     }
-    return nodes()[nodes().fetchSemanticsNodes().indices.first(::insideAt)].assertIsDisplayed()
+    val found = nodes()[nodes().fetchSemanticsNodes().indices.first(::insideAt)].assertIsDisplayed()
+    assertClearOfBars(container, found, "$cell: $tag")
+    return found
+}
+
+/**
+ * The part of the window no bar covers, in root dp: below the status bar,
+ * above the navigation bar and above the keyboard. Each real-window test
+ * installs it from the window's real insets.
+ */
+internal var unobscuredBand: (() -> DpRect)? = null
+
+/**
+ * The visible part of a reached control lies inside [unobscuredBand] and
+ * touches no other region: a control the header, the composer surface, a bar or
+ * the keyboard covers is not reachable however it scrolls.
+ */
+internal fun ComposeContentTestRule.assertClearOfBars(
+    ownRegion: String,
+    control: SemanticsNodeInteraction,
+    label: String,
+) = assertClearOfBars(ownRegion, control.fetchSemanticsNode(), label)
+
+internal fun ComposeContentTestRule.assertClearOfBars(
+    ownRegion: String,
+    node: androidx.compose.ui.semantics.SemanticsNode,
+    label: String,
+) {
+    val density = node.layoutInfo.density.density
+    fun dp(r: androidx.compose.ui.geometry.Rect) =
+        DpRect((r.left / density).dp, (r.top / density).dp, (r.right / density).dp, (r.bottom / density).dp)
+    val visible = dp(node.boundsInRoot)
+    check(visible.bottom > visible.top) { "$label: the control has no visible area, saw $visible" }
+    val band = checkNotNull(unobscuredBand) { "$label: the test did not install the unobscured band" }()
+    check(
+        visible.top.value >= band.top.value - 0.5f && visible.bottom.value <= band.bottom.value + 0.5f,
+    ) { "$label: the control's visible part $visible is under a bar or the keyboard, band=$band" }
+    for (other in RegionTags - ownRegion) {
+        val region = runCatching { dp(onNodeWithTag(other).fetchSemanticsNode().boundsInRoot) }.getOrNull()
+            ?: continue
+        val overlap = minOf(visible.bottom.value, region.bottom.value) - maxOf(visible.top.value, region.top.value)
+        val across = minOf(visible.right.value, region.right.value) - maxOf(visible.left.value, region.left.value)
+        check(overlap <= 0.5f || across <= 0.5f) {
+            "$label: the control's visible part $visible overlaps $other $region"
+        }
+    }
 }
 
 /**
@@ -667,11 +728,11 @@ internal fun ComposeContentTestRule.reachHeaderControl(tag: String, cell: Doorwa
         "$cell: header control $tag is unreachable, saw ${safeBounds(tag)} in " +
             safeBounds("android_doorway_header")
     }
+    assertClearOfBars("android_doorway_header", onNodeWithTag(tag), "$cell: $tag")
 }
 
-private const val GeometrySettleSteps = 20
-private const val GeometrySettleMillis = 60L
-private const val ScrollStepPx = 120f
+private const val GeometrySettleTimeoutMillis = 10_000L
+private const val GeometryStableReads = 3
 private const val RailStepPx = 40f
 private const val RailSteps = 80
 private const val OuterSweepSteps = 40
