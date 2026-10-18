@@ -58,6 +58,7 @@ development_status:
   # PR #134 header reachability slice is ready for review (review), not done; broader story stays in-progress.
   # Amanda 2026-10-07 waived manual physical TalkBack spoken-output/focus-gesture acceptance only.
   # Spoken output/focus gestures unverified; residual spoken-label/focus-order/gesture risk remains.
+  # SessionHeaderCard implementation and tests are present locally; JVM suite passed and instrumentation compiled but was not run (no attached emulator/device). HOME-11 rerun and physical Pixel/TalkBack evidence remain open.
   android-ux-04: backlog
   android-ux-05: backlog
   android-ux-06: backlog

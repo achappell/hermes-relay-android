@@ -22,6 +22,7 @@ class HomeRuntimeTest {
     private class Fixture(
         initiation: AndroidInitiationResult,
         speech: AndroidSpeechInput? = null,
+        clock: MonotonicClock = MonotonicClock.Real,
     ) {
         val port = FakeHomePort(initiation)
         val store = InMemoryAndroidHistoryStore()
@@ -35,6 +36,7 @@ class HomeRuntimeTest {
                 workExecutor = InlineExecutorService(),
                 onTornDown = onTornDown,
                 journal = journal,
+                clock = clock,
             )
         }
     }
@@ -89,6 +91,23 @@ class HomeRuntimeTest {
         assertEquals("Partial answer", recreated.turnState.responseText)
         assertTrue(recreated.initiationState is AndroidInitiationState.Accepted)
         assertEquals(1, fixture.port.turnObservations)
+    }
+
+    @Test
+    fun connection_duration_survives_activity_recreation_in_the_process_runtime() {
+        val clock = ManualClock()
+        val fixture = Fixture(accepted(), clock = clock)
+        val runtime = fixture.box.resolve()
+        runtime.activityCreated()
+        runtime.recoveryController.acceptNewConversation(AndroidReconnectOutcome.Connected("connection-1"))
+        clock.advanceMillis(65_000)
+        assertEquals(65_000L, runtime.connectionElapsedMillis())
+
+        runtime.activityDestroyed(isFinishing = false, isChangingConfigurations = true)
+        val recreated = fixture.box.resolve()
+        recreated.activityCreated()
+        assertSame(runtime, recreated)
+        assertEquals(65_000L, recreated.connectionElapsedMillis())
     }
 
     @Test

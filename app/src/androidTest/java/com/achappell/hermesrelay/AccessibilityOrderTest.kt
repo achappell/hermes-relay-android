@@ -1,5 +1,6 @@
 package com.achappell.hermesrelay
 
+import android.view.accessibility.AccessibilityEvent
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.foundation.layout.Box
@@ -38,6 +39,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * `UX-DR21` names the Android reading order explicitly:
@@ -56,6 +58,7 @@ class AccessibilityOrderTest {
 
     @After
     fun restoreAccessibilityServiceFlags() {
+        InstrumentationRegistry.getInstrumentation().uiAutomation.setOnAccessibilityEventListener(null)
         originalAccessibilityFlags?.let { original ->
             val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
             automation.serviceInfo = automation.serviceInfo.apply { flags = original }
@@ -458,7 +461,7 @@ class AccessibilityOrderTest {
     }
 
     @Test
-    fun the_profile_and_response_labels_are_headings() {
+    fun session_header_traversal_is_header_profile_state_and_status_alone_is_polite() {
         val port = ConnectedFakePort()
 
         composeRule.setContent {
@@ -467,15 +470,61 @@ class AccessibilityOrderTest {
             }
         }
 
-        val config = composeRule
-            .onNodeWithText("Selected Hermes Profile")
-            .fetchSemanticsNode()
-            .config
+        val headerIndex = traversalIndexOf("android_session_title")
+        val profileIndex = traversalIndexOf("android_session_profile")
+        val stateIndex = traversalIndexOf("android_session_status")
+        assertTrue("HEADER precedes PROFILE", headerIndex < profileIndex)
+        assertTrue("PROFILE precedes STATE", profileIndex < stateIndex)
+        assertEquals(LiveRegionMode.Polite, liveRegionOf("android_session_status"))
+        assertNull(liveRegionOf("android_session_elapsed"))
 
-        assertTrue(
-            "the Profile label is not exposed as a heading",
-            config.contains(SemanticsProperties.Heading),
-        )
+        composeRule.onNodeWithTag("android_session_title").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_session_profile").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_session_status").assertIsDisplayed()
+    }
+
+    @Test
+    fun session_status_updates_announced_text_while_duration_ticks_remain_non_live() {
+        val connection = mutableStateOf<AndroidConnectionState>(AndroidConnectionState.Disconnected)
+        val liveRegionEvents = CopyOnWriteArrayList<String>()
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.setOnAccessibilityEventListener { event ->
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+                val source = event.source
+                if (source?.liveRegion == View.ACCESSIBILITY_LIVE_REGION_POLITE) {
+                    liveRegionEvents += source.text?.toString().orEmpty()
+                }
+            }
+        }
+        val duration = mutableStateOf("00:00")
+        composeRule.setContent {
+            HermesRelayTheme {
+                DoorwayHeaderZone(
+                    snapshot = ConnectedFakePort().snapshot(),
+                    connectionState = connection.value,
+                    elapsedLabel = duration.value,
+                    canShowConversations = true,
+                )
+            }
+        }
+        val status = composeRule.onNodeWithTag("android_session_status")
+        status.assertTextEquals("Disconnected")
+        assertEquals(LiveRegionMode.Polite, liveRegionOf("android_session_status"))
+        assertNull(liveRegionOf("android_session_elapsed"))
+
+        composeRule.runOnIdle {
+            connection.value = AndroidConnectionState.Connected
+        }
+        status.assertTextEquals("Connected")
+        composeRule.waitUntil(5_000) { liveRegionEvents.any { it.contains("Connected") } }
+        val statusAnnouncementCount = liveRegionEvents.size
+        composeRule.runOnIdle { duration.value = "00:01" }
+        composeRule.onNodeWithTag("android_session_elapsed").assertTextEquals("00:01")
+        status.assertTextEquals("Connected")
+        composeRule.waitForIdle()
+        assertEquals(statusAnnouncementCount, liveRegionEvents.size)
+        assertEquals(LiveRegionMode.Polite, liveRegionOf("android_session_status"))
+        assertNull(liveRegionOf("android_session_elapsed"))
     }
 
     @Test

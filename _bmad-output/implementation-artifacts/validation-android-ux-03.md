@@ -1,6 +1,6 @@
 # ANDROID-UX-03 validation record
 
-Status: header reachability slice **ready for review** (`review`); parent ANDROID-UX-03 story `in-progress`. Not done or fully TalkBack verified. This PR validates the existing header's layout/reachability only; the planned `SessionHeaderCard` and the parent story remain open. Baseline: `origin/main` `3681339073348d9986e7adc51a129f584a27b289`; device pass on a Pixel 6a (Android 17, API 37), 2026-10-07.
+Status: SessionHeaderCard implementation and JVM/instrumentation test changes are present locally; parent ANDROID-UX-03 remains `in-progress` because instrumented/device acceptance is still open. Existing 2026-10-07 evidence below applies only to the previous reachability slice; it does not verify this SessionHeaderCard. Physical Pixel/TalkBack acceptance remains unverified.
 
 ## Implemented
 
@@ -8,11 +8,18 @@ Status: header reachability slice **ready for review** (`review`); parent ANDROI
 - Preserved the existing menu actions, content description, test tag, `A11yOrder` traversal bands, and live-region modifier.
 - Added `DoorwayHeaderLayoutTest` (instrumented, synthetic content): font scales 1x/2x x light/dark; asserts title, description, Profile label, Profile name and authorization are displayed, stacked top to bottom and inside the header; the header is inside the screen; the full Profile name stays in the accessible text; the overflow menu is displayed, clickable, keeps its single content description, stays on screen without overlapping the title, opens, and offers Conversations. It captures closed/open-menu screenshots into the app cache (pulled off-repo and deleted).
 
+## Current SessionHeaderCard implementation
+
+- Replaced the stacked app-bar body with a compact card containing a connection-state dot, one-line conversation title action, one-line Profile name, status-only polite live region, and separate elapsed-duration text. The existing settings callback, menu actions and Disconnect handling are retained.
+- Added process-runtime monotonic connection-start tracking, asynchronous title lookup through the existing Home conversation-list API, and fake-clock JVM coverage for state color-role/label mapping and elapsed-time formatting.
+- Updated header-layout and navigation instrumentation assertions for 1x/2x long title/Profile behavior, title/settings callbacks, and status-versus-duration live-region semantics; updated `AccessibilityOrderTest` to assert HEADER/PROFILE/STATE traversal and status text changes without a live region on duration ticks.
+- The `AccessibilityOrderTest` subscribes to accessibility content-change events and compares polite live-region event counts after a status change and a duration-only tick. These instrumented tests compiled but did not run: no emulator/device was attached (`adb devices -l` returned an empty list). `ANDROID-HOME-11` matrix rerun and physical Pixel/TalkBack spoken-output/focus acceptance remain open; prior Pixel results cover only the old header.
+
 ## Local verification
 
-- `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug compileDebugAndroidTestKotlin --no-daemon --console=plain`: `BUILD SUCCESSFUL` (Android Studio JBR, SDK from the main checkout's ignored `local.properties`).
-- `python3 -m unittest discover -s tests -p 'test_bmad_issue_tracking*.py'`: 18 tests passed; `bash -n scripts/apply_repo_issue_tracking_overrides.sh` and `--check` passed.
-- `scripts/check-apk-metadata.sh` could not run locally (`apkanalyzer` is not installed). Equivalent `aapt dump badging` of the debug APK: min SDK 26, versionName `0.3.1`, versionCode `301` (= 0*10000+3*100+1 as the script expects). CI runs the real script.
+- `ANDROID_HOME=/Users/amanda/Library/Android/sdk ./gradlew testDebugUnitTest --no-daemon --console=plain`: `BUILD SUCCESSFUL`. The first attempt was blocked by the fresh worktree having no `local.properties`; using the already-installed SDK via `ANDROID_HOME` avoided changing workstation configuration. A subsequent Kotlin compile error in `ConversationsHolder.State` was diagnosed and fixed before the successful rerun.
+- `ANDROID_HOME=/Users/amanda/Library/Android/sdk ./gradlew assembleDebugAndroidTest compileDebugAndroidTestKotlin --no-daemon --console=plain`: `BUILD SUCCESSFUL`; this verifies Android test compilation/package only, not runtime behavior.
+- Instrumented tests, the full non-live instrumentation suite, lint, and the HOME-11 real-window matrix were not run because no emulator/device is attached. The instrumentation APK is built. Physical Pixel/TalkBack acceptance remains unverified.
 
 ## Device acceptance (Pixel 6a)
 

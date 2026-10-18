@@ -853,7 +853,7 @@ stories:
     parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-03-session-header.md
     validation: _bmad-output/implementation-artifacts/validation-android-ux-03.md
-    scope_note: 'PR #134 header reachability slice ready for review, not done; parent remains in-progress. Amanda 2026-10-07 waived manual physical TalkBack spoken-output/focus-gesture acceptance; actual spoken output/focus gestures unverified, residual spoken-label/focus-order/gesture risk remains. Full status/timer/title-tap/settings/Disconnect and HOME-11 matrix remain outside this slice.'
+    scope_note: 'PR #134 header reachability slice remains ready for review, not done. SessionHeaderCard implementation and JVM/instrumentation changes are present locally; JVM suite passed and instrumented tests compiled but did not run because no emulator/device was attached. HOME-11 matrix and physical Pixel/TalkBack gates remain unverified; parent status remains in-progress.'
     depends_on:
       - android:ANDROID-UX-01
       - android:ANDROID-HOME-12

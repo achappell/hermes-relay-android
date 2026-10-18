@@ -93,7 +93,9 @@ import java.util.Date
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun DoorwayHeaderZone(
     snapshot: AndroidClientSnapshot,
-    authorizationState: AndroidAuthorizationState,
+    connectionState: AndroidConnectionState = AndroidConnectionState.Disconnected,
+    elapsedLabel: String? = null,
+    conversationTitle: String? = null,
     canConfigure: Boolean = false,
     canShowHistory: Boolean = false,
     onConfigure: () -> Unit = {},
@@ -111,158 +113,166 @@ internal fun DoorwayHeaderZone(
     val showMenu = canConfigure || canShowHistory || canShowConversations || canShowApprovals ||
         canDisconnect
     val menuDescription = stringResource(R.string.android_menu_content_description)
+    val headerStatus = sessionHeaderStatus(connectionState)
+    val stateColor = when (headerStatus.colorRole) {
+        SessionHeaderColorRole.Live -> stateColors.live
+        SessionHeaderColorRole.Attention -> stateColors.attention
+        SessionHeaderColorRole.Unavailable -> stateColors.unavailable
+    }
+    val stateText = when (connectionState) {
+        AndroidConnectionState.Connected,
+        AndroidConnectionState.Disconnected,
+        -> stringResource(headerStatus.labelRes)
+        is AndroidConnectionState.Reconnecting ->
+            stringResource(headerStatus.labelRes, connectionState.attempt, connectionState.of)
+        is AndroidConnectionState.Failed ->
+            stringResource(headerStatus.labelRes, connectionState.reason)
+    }
+    val visibleConversationTitle = conversationTitle?.takeIf(String::isNotBlank)
+        ?: HomeConversationRows.UNTITLED
+    val titleDescription = stringResource(
+        if (canShowConversations) R.string.android_session_title_content_description
+        else R.string.android_session_title_description,
+        visibleConversationTitle,
+    )
+    val sessionTitle = snapshot.selectedProfile?.displayName
+        ?: stringResource(R.string.android_profile_none)
+    val settingsDescription = stringResource(R.string.android_session_settings_description)
+    val profileDescription = stringResource(
+        R.string.android_session_profile_content_description,
+        stringResource(R.string.android_profile_label),
+        sessionTitle,
+    )
 
     Surface(
         modifier = Modifier.testTag("android_doorway_header"),
         color = stateColors.consoleSurface,
         contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = HermesShapes.card,
+        tonalElevation = 1.dp,
     ) {
-        Row(
-            modifier = Modifier
+        Column(
+            Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(horizontal = HermesSpacing.lg, vertical = HermesSpacing.sm),
-            verticalAlignment = Alignment.Top,
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .width(8.dp)
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(stateColor),
+                )
+                Text(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = HermesSpacing.sm)
+                        .a11yHeading(A11yOrder.HEADER)
+                        .semantics {
+                            contentDescription = titleDescription
+                            if (canShowConversations) {
+                                role = Role.Button
+                                onClick(label = titleDescription) {
+                                    onShowConversations()
+                                    true
+                                }
+                            }
+                        }
+                        .testTag("android_session_title"),
+                    text = visibleConversationTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                IconButton(
+                    modifier = Modifier
+                        .testTag("android_session_settings")
+                        .a11yOrder(A11yOrder.ACTION)
+                        .semantics { contentDescription = settingsDescription },
+                    onClick = onConfigure,
+                    enabled = canConfigure,
+                ) { Icon(HermesIcons.settings, contentDescription = null) }
+                if (showMenu) {
+                    Box {
+                        IconButton(
+                            modifier = Modifier.testTag("android_more_menu")
+                                .a11yOrder(A11yOrder.ACTION)
+                                .semantics { contentDescription = menuDescription },
+                            onClick = { menuExpanded = true },
+                        ) { Icon(HermesIcons.overflow, contentDescription = null) }
+                        DropdownMenu(
+                            modifier = Modifier.testTag("android_navigation_menu"),
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            if (canConfigure) DropdownMenuItem(
+                                modifier = Modifier.testTag("android_menu_configure_relay"),
+                                text = { Text(stringResource(R.string.android_configure_relay)) },
+                                onClick = { menuExpanded = false; onConfigure() },
+                            )
+                            if (canShowConversations) DropdownMenuItem(
+                                modifier = Modifier.testTag("android_menu_conversations"),
+                                text = { Text(stringResource(R.string.android_conversations_label)) },
+                                onClick = { menuExpanded = false; onShowConversations() },
+                            )
+                            if (canShowApprovals) DropdownMenuItem(
+                                modifier = Modifier.testTag("android_menu_approvals"),
+                                text = { Text(stringResource(R.string.android_approvals_label)) },
+                                onClick = { menuExpanded = false; onShowApprovals() },
+                            )
+                            if (canShowHistory) DropdownMenuItem(
+                                modifier = Modifier.testTag("android_menu_history"),
+                                text = { Text(stringResource(R.string.android_history_label)) },
+                                onClick = { menuExpanded = false; onShowHistory() },
+                            )
+                            if (canDisconnect) DropdownMenuItem(
+                                modifier = Modifier.testTag("android_menu_disconnect")
+                                    .semantics { role = Role.Button },
+                                enabled = disconnectEnabled,
+                                text = { Text(stringResource(R.string.android_disconnect)) },
+                                onClick = { menuExpanded = false; onDisconnect() },
+                            )
+                        }
+                    }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(start = HermesSpacing.md),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    modifier = Modifier.a11yHeading(A11yOrder.HEADER),
-                    text = stringResource(snapshot.titleRes),
-                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f)
+                        .a11yHeading(A11yOrder.PROFILE)
+                        .semantics { contentDescription = profileDescription }
+                        .testTag("android_session_profile"),
+                    text = sessionTitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = stateColors.identity,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    modifier = Modifier.a11yOrder(A11yOrder.HEADER),
-                    text = stringResource(snapshot.descriptionRes),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    modifier = Modifier.a11yOrder(A11yOrder.STATE)
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                        .testTag("android_session_status"),
+                    text = stateText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = stateColor,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = HermesSpacing.xs),
-                    horizontalAlignment = Alignment.Start,
-                ) {
+                if (elapsedLabel != null) {
                     Text(
-                        modifier = Modifier.a11yHeading(A11yOrder.PROFILE),
-                        text = stringResource(R.string.android_profile_label),
+                        modifier = Modifier.padding(start = HermesSpacing.xs)
+                            .a11yOrder(A11yOrder.STATE)
+                            .testTag("android_session_elapsed"),
+                        text = elapsedLabel,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = stateColor,
                         maxLines = 1,
                     )
-                    Text(
-                        modifier = Modifier.a11yOrder(A11yOrder.PROFILE),
-                        text = snapshot.selectedProfile?.displayName
-                            ?: stringResource(R.string.android_profile_none),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = stateColors.identity,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        modifier = Modifier.a11yOrder(A11yOrder.PROFILE),
-                        text = stringResource(
-                            R.string.android_authorization_label,
-                            stringResource(authorizationState.labelRes()),
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
-            }
-            if (showMenu) {
-                Box {
-                    IconButton(
-                        modifier = Modifier
-                            .testTag("android_more_menu")
-                            .a11yOrder(A11yOrder.ACTION)
-                            .semantics {
-                                contentDescription = menuDescription
-                            },
-                        onClick = { menuExpanded = true },
-                    ) {
-                        Icon(
-                            imageVector = HermesIcons.overflow,
-                            // The IconButton's semantics already carry the menu description.
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    DropdownMenu(
-                        modifier = Modifier.testTag("android_navigation_menu"),
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                    ) {
-                        if (canConfigure) {
-                            DropdownMenuItem(
-                                modifier = Modifier.testTag("android_menu_configure_relay"),
-                                text = {
-                                    Text(stringResource(R.string.android_configure_relay))
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onConfigure()
-                                },
-                            )
-                        }
-                        if (canShowConversations) {
-                            DropdownMenuItem(
-                                modifier = Modifier.testTag("android_menu_conversations"),
-                                text = {
-                                    Text(stringResource(R.string.android_conversations_label))
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onShowConversations()
-                                },
-                            )
-                        }
-                        if (canShowApprovals) {
-                            DropdownMenuItem(
-                                modifier = Modifier.testTag("android_menu_approvals"),
-                                text = {
-                                    Text(stringResource(R.string.android_approvals_label))
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onShowApprovals()
-                                },
-                            )
-                        }
-                        if (canShowHistory) {
-                            DropdownMenuItem(
-                                modifier = Modifier.testTag("android_menu_history"),
-                                text = {
-                                    Text(stringResource(R.string.android_history_label))
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onShowHistory()
-                                },
-                            )
-                        }
-                        if (canDisconnect) {
-                            DropdownMenuItem(
-                                modifier = Modifier
-                                    .testTag("android_menu_disconnect")
-                                    .semantics { role = Role.Button },
-                                enabled = disconnectEnabled,
-                                text = {
-                                    Text(stringResource(R.string.android_disconnect))
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onDisconnect()
-                                },
-                            )
-                        }
-                    }
                 }
             }
         }

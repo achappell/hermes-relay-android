@@ -12,6 +12,7 @@ depends_on:
   - android:ANDROID-HOME-12
 parity_source: 'PX-19 (matrix C1)'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/99
+baseline_commit: 48218efd9c8ae615cc42b51b23177ce2a09c9c01
 validation: _bmad-output/implementation-artifacts/validation-android-ux-03.md
 ---
 
