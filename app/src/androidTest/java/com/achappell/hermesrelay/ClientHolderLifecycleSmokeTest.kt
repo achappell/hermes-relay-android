@@ -71,6 +71,7 @@ class ClientHolderLifecycleSmokeTest {
                 port.emit(AndroidNormalizedEvent.AudioEnded(port.binding))
                 port.emit(AndroidNormalizedEvent.TurnCompleted(port.binding, "Final visible reply"))
                 compose.waitUntil(10_000) { runtime.turnState.isTerminal }
+                assertEquals("terminal response stays in runtime", "Final visible reply", runtime.turnState.responseText)
                 showResponse("Final visible reply")
                 compose.onNodeWithTag("android_conversation_rail").performScrollToNode(hasTestTag("android_turn_phase"))
                 compose.onNodeWithTag("android_turn_phase").assertTextEquals("Turn phase: Complete").assertIsDisplayed()
@@ -87,9 +88,10 @@ class ClientHolderLifecycleSmokeTest {
         compose.onNodeWithTag(tag).assertIsEnabled().performSemanticsAction(SemanticsActions.OnClick) { it() }
     }
     private fun showResponse(text: String) {
-        compose.onNodeWithTag("android_conversation_rail").performScrollTo()
-        compose.onNodeWithTag("android_conversation_rail").performScrollToNode(hasTestTag("android_response_text"))
-        compose.onNodeWithTag("android_response_text").assertTextEquals(text).assertIsDisplayed()
+        compose.onNodeWithTag("android_conversation_rail").performScrollToNode(hasText(text))
+        val response = compose.onNodeWithTag("android_response_text")
+        response.performScrollTo()
+        response.assertTextEquals(text).assertIsDisplayed()
     }
 
     private class FixturePort : AndroidClientPort {

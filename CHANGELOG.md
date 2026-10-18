@@ -24,6 +24,7 @@
 - Request audio focus once for active reply/voice-session work, end capture and pause the reply on transient focus loss, and stop on permanent loss; focus gain never re-arms the microphone.
 - Request `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `WAKE_LOCK` and (Android 13+) `POST_NOTIFICATIONS` for the reply notification; a denied notification permission never blocks a reply.
 - Offer Disconnect while Home is reconnecting, and reconnect automatically (never resend) after a transport loss with an unconfirmed turn.
+- Add a compact SessionHeaderCard with connection-state indicator and status, accessible Profile name, tappable conversation title, connection elapsed time, and existing Settings action.
 - Request the normal `ACCESS_NETWORK_STATE` permission to notice the network returning.
 - Add deliberate Home Disconnect with user-only attribution and mid-reply confirmation.
 - Add 2-second interrupt acknowledgement and interrupt-and-listen behavior to Android voice controls.

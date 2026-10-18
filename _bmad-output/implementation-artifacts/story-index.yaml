@@ -853,7 +853,7 @@ stories:
     parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-ux-03-session-header.md
     validation: _bmad-output/implementation-artifacts/validation-android-ux-03.md
-    scope_note: 'PR #134 header reachability slice remains ready for review, not done. SessionHeaderCard implementation and JVM/instrumentation changes are present locally; JVM suite passed and instrumented tests compiled but did not run because no emulator/device was attached. HOME-11 matrix and physical Pixel/TalkBack gates remain unverified; parent status remains in-progress.'
+    scope_note: 'SessionHeaderCard implementation and automated coverage committed locally; JVM, focused/full instrumentation, APK gates and all 144 HOME-11 logical cells pass (96/96 matrix runs, 240 test executions). Full instrumentation is 108 tests versus the 105-test fresh-main baseline (+3 UX-03 tests). Physical Pixel 1x/2x and manual TalkBack status-announcement gates remain open; parent status is in-progress.'
     depends_on:
       - android:ANDROID-UX-01
       - android:ANDROID-HOME-12

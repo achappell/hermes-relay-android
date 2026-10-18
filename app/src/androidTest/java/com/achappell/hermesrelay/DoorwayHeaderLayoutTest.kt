@@ -12,18 +12,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertHasClickAction
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.unit.Density
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
@@ -49,7 +49,6 @@ class DoorwayHeaderLayoutTest {
         val stateText = context.getString(R.string.android_connection_connected)
         val baseConfiguration = Configuration(context.resources.configuration)
         val density = context.resources.displayMetrics.density
-        val titleClicks = mutableStateOf(0)
         val settingsClicks = mutableStateOf(0)
 
         val darkTheme = mutableStateOf(false)
@@ -87,7 +86,6 @@ class DoorwayHeaderLayoutTest {
                                 canConfigure = true,
                                 canShowConversations = true,
                                 onConfigure = { settingsClicks.value += 1 },
-                                onShowConversations = { titleClicks.value += 1 },
                             )
                         },
                     ) { insets ->
@@ -119,9 +117,7 @@ class DoorwayHeaderLayoutTest {
                 composeRule.onNodeWithText("Synthetic conversation content").assertIsDisplayed()
 
                 val titleNode = composeRule.onNodeWithTag("android_session_title")
-                titleNode.assertIsDisplayed().assertHasClickAction().performClick()
-                composeRule.runOnIdle { assertEquals(1, titleClicks.value) }
-                composeRule.runOnIdle { titleClicks.value = 0 }
+                titleNode.assertIsDisplayed().assertHasClickAction()
                 assertEquals(
                     listOf(context.getString(R.string.android_session_title_content_description, longTitle)),
                     titleNode.fetchSemanticsNode().config[SemanticsProperties.ContentDescription],

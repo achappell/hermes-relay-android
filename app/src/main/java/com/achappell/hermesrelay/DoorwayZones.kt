@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -170,16 +171,13 @@ internal fun DoorwayHeaderZone(
                         .weight(1f)
                         .padding(start = HermesSpacing.sm)
                         .a11yHeading(A11yOrder.HEADER)
-                        .semantics {
-                            contentDescription = titleDescription
-                            if (canShowConversations) {
-                                role = Role.Button
-                                onClick(label = titleDescription) {
-                                    onShowConversations()
-                                    true
-                                }
-                            }
-                        }
+                        .clickable(
+                            enabled = canShowConversations,
+                            role = Role.Button,
+                            onClickLabel = titleDescription,
+                            onClick = onShowConversations,
+                        )
+                        .semantics { contentDescription = titleDescription }
                         .testTag("android_session_title"),
                     text = visibleConversationTitle,
                     style = MaterialTheme.typography.titleMedium,

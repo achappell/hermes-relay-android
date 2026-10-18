@@ -98,7 +98,7 @@ run_cell() {
   : > "$receipts"
   if ! apply_cell "$nav" "$scale" "$rot" "$receipts"; then
     echo "### $class $tag CONFIG-MISMATCH (not run, not counted)" >> "$OUT/results-$ROW.txt"
-    return
+    return 1
   fi
   receipt "$receipts"
   local status_arg=()
@@ -106,11 +106,12 @@ run_cell() {
 
   adb_s logcat -c
   adb_s exec-out screencap -p > "$OUT/$class-$tag-start.png"
+  local instrumentation_status=0
   adb_s shell am instrument -w \
     -e class "$PKG.$class" \
     -e home11_row "$ROW" -e home11_font "$scale" -e home11_rotation "$rot" \
     -e home11_nav "$nav" -e home11_display "$DISPLAY_SIZE" ${status_arg[@]+"${status_arg[@]}"} \
-    "$RUNNER" > "$log" 2>&1
+    "$RUNNER" > "$log" 2>&1 || instrumentation_status=$?
   adb_s exec-out screencap -p > "$OUT/$class-$tag-end.png"
   adb_s logcat -d -s System.out:* > "$OUT/$class-$tag-logcat.txt" 2>/dev/null
   if [ "$class" = DoorwaySplitWindowMatrixTest ]; then
@@ -121,6 +122,10 @@ run_cell() {
     grep -hE 'HOME11-(ROW|WINDOW|SPLIT)' "$OUT/$class-$tag-logcat.txt" | sed -E 's/.*(HOME11-)/\1/' || true
     grep -E 'OK \(|Tests run|FAILURES|^[0-9]+\) ' "$log" || true
   } >> "$OUT/results-$ROW.txt"
+  if (( instrumentation_status != 0 )) || ! grep -Eq '^OK \([0-9]+ tests?\)$' "$log"; then
+    echo "### $class $tag FAIL (exit=$instrumentation_status)" >> "$OUT/results-$ROW.txt"
+    return 1
+  fi
 }
 
 {
@@ -133,7 +138,10 @@ for nav in $NAVS; do
   for scale in $SCALES; do
     for rot in $ROTATIONS; do
       for class in $CLASSES; do
-        run_cell "$nav" "$scale" "$rot" "$class"
+        if ! run_cell "$nav" "$scale" "$rot" "$class"; then
+          echo "matrix stopped after first failed cell: $class $nav $scale rotation=$rot" >&2
+          exit 1
+        fi
       done
     done
   done

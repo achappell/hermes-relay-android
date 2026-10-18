@@ -1,6 +1,5 @@
 package com.achappell.hermesrelay
 
-import android.view.accessibility.AccessibilityEvent
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.foundation.layout.Box
@@ -9,37 +8,38 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.core.view.ViewCompat
-import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertIsFocused
-import androidx.compose.ui.test.getUnclippedBoundsInRoot
-import androidx.compose.ui.test.performSemanticsAction
-import androidx.compose.ui.unit.dp
-import androidx.test.platform.app.InstrumentationRegistry
-import org.junit.After
-import org.junit.Assert.assertFalse
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
-import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
 import androidx.test.espresso.Espresso.closeSoftKeyboard
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.achappell.hermesrelay.ui.theme.HermesRelayTheme
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * `UX-DR21` names the Android reading order explicitly:
@@ -58,7 +58,6 @@ class AccessibilityOrderTest {
 
     @After
     fun restoreAccessibilityServiceFlags() {
-        InstrumentationRegistry.getInstrumentation().uiAutomation.setOnAccessibilityEventListener(null)
         originalAccessibilityFlags?.let { original ->
             val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
             automation.serviceInfo = automation.serviceInfo.apply { flags = original }
@@ -308,7 +307,7 @@ class AccessibilityOrderTest {
     }
 
     @Test
-    fun verification_during_recovery_keeps_connection_guidance_readable_but_not_live() {
+    fun authorization_verification_keeps_connection_status_and_recovery_guidance_readable() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         composeRule.setContent {
             HermesRelayTheme {
@@ -318,14 +317,11 @@ class AccessibilityOrderTest {
                 )
             }
         }
-        val authorization = composeRule.onNodeWithText(
-            context.getString(
-                R.string.android_authorization_label,
-                context.getString(R.string.android_authorization_verifying),
-            ),
+        val status = composeRule.onNodeWithTag("android_session_status")
+        status.assertTextEquals(
+            context.getString(R.string.android_connection_disconnected),
         )
-        authorization.assertIsDisplayed()
-        assertFalse(authorization.fetchSemanticsNode().config.contains(SemanticsProperties.LiveRegion))
+        assertEquals(LiveRegionMode.Polite, liveRegionOf("android_session_status"))
         composeRule.onNodeWithTag("android_send_blocked")
             .assertTextEquals(context.getString(R.string.android_composer_block_disconnected))
         assertNull(liveRegionOf("android_send_blocked"))
@@ -476,7 +472,7 @@ class AccessibilityOrderTest {
         assertTrue("HEADER precedes PROFILE", headerIndex < profileIndex)
         assertTrue("PROFILE precedes STATE", profileIndex < stateIndex)
         assertEquals(LiveRegionMode.Polite, liveRegionOf("android_session_status"))
-        assertNull(liveRegionOf("android_session_elapsed"))
+        composeRule.onNodeWithTag("android_session_elapsed").assertDoesNotExist()
 
         composeRule.onNodeWithTag("android_session_title").assertIsDisplayed()
         composeRule.onNodeWithTag("android_session_profile").assertIsDisplayed()
@@ -484,18 +480,8 @@ class AccessibilityOrderTest {
     }
 
     @Test
-    fun session_status_updates_announced_text_while_duration_ticks_remain_non_live() {
+    fun session_status_is_the_only_polite_region_and_elapsed_ticks_are_not_live() {
         val connection = mutableStateOf<AndroidConnectionState>(AndroidConnectionState.Disconnected)
-        val liveRegionEvents = CopyOnWriteArrayList<String>()
-        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-        automation.setOnAccessibilityEventListener { event ->
-            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-                val source = event.source
-                if (source?.liveRegion == View.ACCESSIBILITY_LIVE_REGION_POLITE) {
-                    liveRegionEvents += source.text?.toString().orEmpty()
-                }
-            }
-        }
         val duration = mutableStateOf("00:00")
         composeRule.setContent {
             HermesRelayTheme {
@@ -508,23 +494,30 @@ class AccessibilityOrderTest {
             }
         }
         val status = composeRule.onNodeWithTag("android_session_status")
+        val elapsed = composeRule.onNodeWithTag("android_session_elapsed")
+        val liveRegionCount = {
+            composeRule.onAllNodes(
+                SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion),
+                useUnmergedTree = true,
+            ).fetchSemanticsNodes().size
+        }
         status.assertTextEquals("Disconnected")
         assertEquals(LiveRegionMode.Polite, liveRegionOf("android_session_status"))
         assertNull(liveRegionOf("android_session_elapsed"))
+        assertEquals("only the status is a live region", 1, liveRegionCount())
 
         composeRule.runOnIdle {
             connection.value = AndroidConnectionState.Connected
         }
         status.assertTextEquals("Connected")
-        composeRule.waitUntil(5_000) { liveRegionEvents.any { it.contains("Connected") } }
-        val statusAnnouncementCount = liveRegionEvents.size
-        composeRule.runOnIdle { duration.value = "00:01" }
-        composeRule.onNodeWithTag("android_session_elapsed").assertTextEquals("00:01")
-        status.assertTextEquals("Connected")
-        composeRule.waitForIdle()
-        assertEquals(statusAnnouncementCount, liveRegionEvents.size)
         assertEquals(LiveRegionMode.Polite, liveRegionOf("android_session_status"))
+        assertEquals("status changes remain in the single live region", 1, liveRegionCount())
+
+        composeRule.runOnIdle { duration.value = "00:01" }
+        elapsed.assertTextEquals("00:01")
+        status.assertTextEquals("Connected")
         assertNull(liveRegionOf("android_session_elapsed"))
+        assertEquals("timer ticks do not create another live region", 1, liveRegionCount())
     }
 
     @Test
