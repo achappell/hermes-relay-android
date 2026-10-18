@@ -311,19 +311,44 @@ run that asserted the declared row.
    showing: the window origin moved from y = 645 to y = 277, exactly the 368 px
    keyboard. The earlier test waited for an inset that never arrives. It now
    asks the input-method service (`mInputShown`), and the cells pass.
-6. **`ModalSheetBackTest` order dependence (pre-existing).**
-   - Baseline `edac2f6` APK on the same owned AVD, portrait:
-     `HomeRuntimeRecreationTest` then `ModalSheetBackTest` fails 2 of 3 runs
-     (`back_dismisses_only_the_approvals_sheet`); `ModalSheetBackTest` alone
-     passes.
-   - Baseline full non-live suite: 100 run, 0 failures.
-   - Branch full non-live suite: **105 run, 103 pass, 2 fail**
-     (`ModalSheetBackTest.back_dismisses_only_the_approvals_sheet` and
-     `…_history_sheet`).
-   - The new real-window classes run earlier in the same process and add more
-     preceding `MainActivity` launches, which trigger the existing order
-     dependence in the full suite. The suite is red on this branch. The defect
-     is in `ModalSheetBackTest`/its predecessors and is not fixed here.
+6. **Test isolation: a keyboard request left behind by a finished Activity
+   (repaired here).**
+   - **Symptom.** The first branch full suite was 103/105:
+     `ModalSheetBackTest.back_dismisses_only_the_approvals_sheet` and
+     `…_history_sheet` failed. Baseline `edac2f6` was 100/100.
+   - **Mechanism, from logcat on an owned AVD.** A screen that asks for the
+     keyboard through the insets API (the doorway does this when a settled
+     turn refocuses the prompt) leaves the window's IME request standing if
+     its Activity finishes first. The system then grants the next window in
+     the process IME control with a show request (`ImeTracker … onRequestShow
+     ORIGIN_SERVER reason CONTROLS_CHANGED`), even though no keyboard appears
+     (`mInputShown=false`). That window registers
+     `ImeBackAnimationController` as its top back callback. The test's Back
+     becomes `onRequestHide … HIDE_SOFT_INPUT_REQUEST_HIDE_WITH_CONTROL
+     fromUser true`, is cancelled as `PHASE_CLIENT_ALREADY_HIDDEN`, and never
+     reaches the sheet's own handler. The first Back after such a class clears
+     the stale request, which is why only one sheet test per class failed.
+     The cause is not window focus: the sheet's window was focused in both
+     passing and failing runs.
+   - **Not a product defect.** `ModalSheetBackTest` hosts the sheets in a bare
+     `ComponentActivity`. The stale request comes from earlier test Activities
+     that finish with the keyboard requested.
+   - **Repair (test code only).** `closeKeyboardBeforeFinishing` lets pending
+     frames run, then clears the request through the same insets API the
+     screen used (`WindowInsetsControllerCompat.hide(ime())`) plus an IMM hide,
+     and waits until the input method service reports the keyboard hidden. Both
+     new real-window classes call it in `@After`. Before this fix, their
+     `@After` returned early whenever no IME inset was visible, and the
+     request stayed behind.
+     `ModalSheetBackTest` and its assertions are unchanged.
+   - **After repair.** The branch full non-live suite is **105/105 on three
+     consecutive runs** (`final/full-instrumentation-branch-repaired-{1,2,3}.txt`).
+   - **Still pre-existing at baseline.** `HomeRuntimeRecreationTest` run
+     directly before `ModalSheetBackTest` fails 2/3 on `edac2f6`. Its request
+     is issued as the scenario closes, so the same cleanup inside that test did
+     not clear it, and the experiment was reverted. In suite order other
+     classes run between the two, which clears the request. That test is left
+     unchanged and recorded here.
 7. `AccessibilityOrderTest` passes within the branch full suite.
 
 ## 7. Gates (final tree)
@@ -335,7 +360,7 @@ run that asserted the declared row.
 | `scripts/check-apk-metadata.sh` | "APK metadata is correct: min SDK 26, version 0.3.1 (301), backup off with extraction rules, 16 KB aligned, signing skipped (EXPECTED_SIGNER_SHA256 unset)." |
 | Flake gate N=1 (four classes) | 1 consecutive run, 0 failures |
 | Full non-live instrumentation, baseline `edac2f6` | 100 run, 0 failures |
-| Full non-live instrumentation, branch | **105 run, 103 pass, 2 fail** (finding 6) — **not green** |
+| Full non-live instrumentation, branch (after the finding-6 repair) | 105/105 on three consecutive runs (was 103/105 before the repair) |
 
 APK SHA-256 values:
 - Counted matrix: debug `7bedc1cd…`, androidTest `d48938c1…`.
@@ -350,7 +375,8 @@ APK SHA-256 values:
   unverified.
 - The spec's `LocalDensity` technique is replaced by real-window evidence
   (section 2); this needs the spec owner's acceptance.
-- Full suite red (finding 6).
+- `HomeRuntimeRecreationTest` → `ModalSheetBackTest` adjacency fails at baseline (finding 6); not in suite order.
+- The counted 96-run matrix used androidTest `d48938c1…`. The suite repair changed only `@After` keyboard cleanup, with no assertion change; a post-repair smoke on the small phone (`final/post-repair-smoke/`) passed 7 of 8 runs. The failing run was the keyboard test at 2.0 landscape gestural ("the doorway state must come into view above the keyboard after 185 real drags"); the launcher's app drawer was open at its end screenshot. Five immediate reruns of that cell passed. The cause of that one run is not established; it is recorded as an intermittent harness failure, not a pass.
 - After a drag with the keyboard up, the test clock can read two alternating
   layouts (logged as `unsettled-after-drag`). The real display was sampled as
   still: unchanged screenshots and stable semantics. Visibility after drags is

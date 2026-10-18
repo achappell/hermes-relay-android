@@ -50,6 +50,7 @@ class DoorwaySplitWindowMatrixTest {
     @After
     fun leaveSplitScreen() {
         unobscuredBand = null
+        closeKeyboardBeforeFinishing(composeRule.activity)
         val task = Regex("com\\.achappell\\.hermesrelay/\\.MainActivity t(\\d+)")
             .find(shell("dumpsys activity activities"))?.groupValues?.get(1)
         if (task != null) shell("dumpsys activity service SystemUIService WMShell splitscreen exitSplitScreen $task")

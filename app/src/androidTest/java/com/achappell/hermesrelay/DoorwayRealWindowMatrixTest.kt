@@ -54,7 +54,7 @@ class DoorwayRealWindowMatrixTest {
     @After
     fun leaveNoKeyboard() {
         unobscuredBand = null
-        hideKeyboard()
+        closeKeyboardBeforeFinishing(composeRule.activity)
     }
 
     private fun hideKeyboard() {

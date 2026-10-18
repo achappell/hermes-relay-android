@@ -104,6 +104,37 @@ internal fun shell(command: String): String {
 internal fun keyboardShown(activity: Activity): Boolean =
     imeBottomPx(activity) > 0 || shell("dumpsys input_method").lines().any { it.trim() == "mInputShown=true" }
 
+/**
+ * Closes the keyboard and waits until the input method service reports it
+ * hidden. A test whose Activity finishes with the keyboard up (a settled turn
+ * refocuses the prompt) leaves the show request to the next window the process
+ * opens: that window's first Back is then taken by the keyboard's back handler
+ * instead of reaching its own (seen as ModalSheetBackTest's Back missing the
+ * sheet after such a class).
+ */
+internal fun closeKeyboardBeforeFinishing(activity: Activity) {
+    val instrumentation = InstrumentationRegistry.getInstrumentation()
+    // Let any pending frame run first, so a refocus the screen has already
+    // scheduled issues its keyboard request before this clears it.
+    instrumentation.waitForIdleSync()
+    instrumentation.runOnMainSync {
+        activity.currentFocus?.clearFocus()
+        // The screen asks for the keyboard through the insets API, which
+        // records the window's requested visibility; only the same API clears
+        // that request, the input method manager hide only hides the window.
+        androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+            .hide(WindowInsetsCompat.Type.ime())
+        activity.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+            .hideSoftInputFromWindow(activity.window.decorView.windowToken, 0)
+    }
+    val deadline = System.currentTimeMillis() + KeyboardCloseMillis
+    while (System.currentTimeMillis() < deadline) {
+        instrumentation.waitForIdleSync()
+        if (shell("dumpsys input_method").lines().none { it.trim() == "mInputShown=true" }) return
+    }
+    error("the keyboard was still showing ${KeyboardCloseMillis}ms after it was closed")
+}
+
 internal fun imeBottomPx(activity: Activity): Int =
     ViewCompat.getRootWindowInsets(activity.window.decorView)
         ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
@@ -437,6 +468,7 @@ private const val HugeScrollPx = 1_000_000f
 private const val DragSettleMillis = 1_500L
 private const val ConsecutiveReads = 3
 private const val KeyboardTaps = 4
+private const val KeyboardCloseMillis = 10_000L
 
 internal val LongResponse: String = buildString {
     append("LINE-01 first line of the long response\n")

@@ -121,5 +121,6 @@ For the spec owner:
   portrait at 1.3× and 2.0×.
 
 Still open: the physical Pixel 2.0× / keyboard screenshots. The branch's full
-non-live instrumentation suite is 103/105 because of a pre-existing
-`ModalSheetBackTest` order dependence, reproduced on baseline `edac2f6`.
+non-live instrumentation suite is 105/105. A keyboard request that the new
+classes left behind was taking `ModalSheetBackTest`'s first Back; this was
+repaired in test cleanup and is recorded in the validation record.
