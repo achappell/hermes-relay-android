@@ -54,7 +54,7 @@ class PairedHomesFeedbackTest {
     fun selecting_a_profile_still_completes_configuration() {
         showConfiguration()
         composeRule.onNodeWithText("Select").performScrollTo().performClick()
-        composeRule.onAllNodesWithTag("android_relay_configuration_sheet").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("android_settings_screen").assertCountEquals(0)
     }
 
     @Test
@@ -62,7 +62,7 @@ class PairedHomesFeedbackTest {
         val fixture = showConfiguration(twoProfiles = true)
         composeRule.onAllNodesWithText("Delete")[1].performScrollTo().performClick()
         assertEquals(1, fixture.configuration.collection.profiles.size)
-        composeRule.onAllNodesWithTag("android_relay_configuration_sheet").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("android_settings_screen").assertCountEquals(0)
     }
 
 
@@ -73,7 +73,7 @@ class PairedHomesFeedbackTest {
         enter("android_home_pair_address", "https://home.example")
         composeRule.onNodeWithTag("android_home_pair_code_submit").performScrollTo().performClick()
         composeRule.waitUntil(5_000) {
-            composeRule.onAllNodesWithTag("android_relay_configuration_sheet").fetchSemanticsNodes().isEmpty()
+            composeRule.onAllNodesWithTag("android_settings_screen").fetchSemanticsNodes().isEmpty()
         }
     }
 
@@ -86,9 +86,9 @@ class PairedHomesFeedbackTest {
         composeRule.onNodeWithTag("android_paired_home_refresh").performScrollTo().performClick()
         composeRule.waitUntil(5_000) {
             composeRule.onAllNodesWithTag("android_paired_home_message").fetchSemanticsNodes().isNotEmpty() ||
-                composeRule.onAllNodesWithTag("android_relay_configuration_sheet").fetchSemanticsNodes().isEmpty()
+                composeRule.onAllNodesWithTag("android_settings_screen").fetchSemanticsNodes().isEmpty()
         }
-        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_settings_screen").assertIsDisplayed()
         composeRule.onNodeWithTag("android_paired_home_message")
             .performScrollTo().assertIsDisplayed().assertTextEquals(message)
     }
@@ -155,7 +155,7 @@ class PairedHomesFeedbackTest {
         }
         composeRule.onNodeWithTag("android_more_menu").performClick()
         composeRule.onNodeWithTag("android_menu_configure_relay").performClick()
-        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_settings_screen").assertIsDisplayed()
         return Fixture(configuration, calls)
     }
 

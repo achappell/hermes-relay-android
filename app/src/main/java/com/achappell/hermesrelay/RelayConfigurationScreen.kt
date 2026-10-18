@@ -1,15 +1,21 @@
 package com.achappell.hermesrelay
 
+import android.Manifest
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -22,12 +28,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.achappell.hermesrelay.ui.theme.HermesShapes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,6 +48,7 @@ import kotlinx.coroutines.withContext
  * The token field is write-only: it is never seeded from storage and never
  * rendered back, so a stored credential cannot be read off the screen.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun RelayConfigurationScreen(
     controller: RelayConfigurationController,
@@ -64,15 +75,6 @@ internal fun RelayConfigurationScreen(
     var setupChecking by remember { mutableStateOf(false) }
     var collection by remember { mutableStateOf(controller.collection) }
     val editingStandard = collection.profiles.firstOrNull { it.id == editingStandardId }
-    var endpoint by rememberSaveable { mutableStateOf("") }
-    var clientId by rememberSaveable { mutableStateOf("") }
-    var deviceId by rememberSaveable { mutableStateOf("") }
-    var displayName by rememberSaveable { mutableStateOf("") }
-    var token by remember { mutableStateOf("") }
-    var errors by remember {
-        mutableStateOf<Map<RelayProfileField, RelayProfileError>>(emptyMap())
-    }
-
     var pairedHomesRevision by remember { mutableStateOf(0) }
 
     fun refresh() {
@@ -88,121 +90,278 @@ internal fun RelayConfigurationScreen(
 
     Column(
         modifier = Modifier.testTag("android_relay_configuration"),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            text = stringResource(R.string.android_relay_config_title),
-            style = MaterialTheme.typography.titleMedium,
-        )
-
-        collection.profiles.forEach { profile ->
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (profile.id == collection.selectedId) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                ),
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(profile.displayName, style = MaterialTheme.typography.titleSmall)
-                    Text(stringResource(when (profile.mode) {
-                        RelayConnectionMode.HomeBridge -> R.string.android_mode_home
-                        RelayConnectionMode.Standard -> R.string.android_mode_standard
-                        RelayConnectionMode.Legacy -> R.string.android_mode_legacy
-                    }))
-                    Text(profile.endpoint, style = MaterialTheme.typography.bodySmall)
-                    Text(
-                        text = stringResource(
-                            R.string.android_relay_identity,
-                            profile.clientId,
-                            profile.deviceId,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(
-                            enabled = !setupChecking && profile.mode != RelayConnectionMode.Legacy,
-                            onClick = {
-                                controller.select(profile.id)
-                                completeSetup()
-                            },
-                        ) {
-                            Text(stringResource(R.string.android_relay_select))
-                        }
-                        TextButton(
-                            enabled = !setupChecking,
-                            onClick = {
-                                controller.delete(profile.id)
-                                completeSetup()
-                            },
-                        ) {
-                            Text(stringResource(R.string.android_relay_delete))
+        SettingsSectionCard(SettingsSection.Profiles) {
+            collection.profiles.forEach { profile ->
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (profile.id == collection.selectedId) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                    ),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(profile.displayName, style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(when (profile.mode) {
+                            RelayConnectionMode.HomeBridge -> R.string.android_mode_home
+                            RelayConnectionMode.Standard -> R.string.android_mode_standard
+                            RelayConnectionMode.Legacy -> R.string.android_mode_legacy
+                        }))
+                        Text(profile.endpoint, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = stringResource(
+                                R.string.android_relay_identity,
+                                profile.clientId,
+                                profile.deviceId,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                enabled = !setupChecking && profile.mode != RelayConnectionMode.Legacy,
+                                onClick = {
+                                    controller.select(profile.id)
+                                    completeSetup()
+                                },
+                            ) {
+                                Text(stringResource(R.string.android_relay_select))
+                            }
+                            TextButton(
+                                enabled = !setupChecking,
+                                onClick = {
+                                    controller.delete(profile.id)
+                                    completeSetup()
+                                },
+                            ) {
+                                Text(stringResource(R.string.android_relay_delete))
+                            }
+                            if (profile.mode == RelayConnectionMode.Standard) {
+                                TextButton(
+                                    enabled = !setupChecking,
+                                    onClick = {
+                                        editingStandardId = profile.id
+                                        setupMode = RelayConnectionMode.Standard
+                                    },
+                                ) { Text(stringResource(R.string.android_standard_edit)) }
+                            }
                         }
                     }
-                    if (profile.mode == RelayConnectionMode.Standard) {
-                        TextButton(
-                            enabled = !setupChecking,
-                            onClick = {
-                                editingStandardId = profile.id
-                                setupMode = RelayConnectionMode.Standard
+                }
+            }
+
+            if (collection.profiles.isEmpty()) {
+                Text(
+                    modifier = Modifier.testTag("android_relay_none"),
+                    text = stringResource(R.string.android_relay_none),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            Text(stringResource(R.string.android_connection_choose))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    enabled = !setupChecking,
+                    onClick = { setupMode = RelayConnectionMode.HomeBridge; editingStandardId = null },
+                    modifier = Modifier.testTag("android_choose_home"),
+                ) { Text(stringResource(R.string.android_mode_home)) }
+                TextButton(
+                    enabled = !setupChecking,
+                    onClick = { setupMode = RelayConnectionMode.Standard; editingStandardId = null },
+                    modifier = Modifier.testTag("android_choose_standard"),
+                ) { Text(stringResource(R.string.android_mode_standard)) }
+            }
+            if (setupMode == RelayConnectionMode.Standard) {
+                StandardSetupSection(
+                    controller = controller,
+                    editing = editingStandard,
+                    onChecking = { setupChecking = it },
+                    onSaved = ::completeSetup,
+                )
+            }
+        }
+
+        if (setupMode == RelayConnectionMode.HomeBridge) {
+            homePairing?.let { coordinator ->
+                SettingsSectionCard(SettingsSection.HomePairing) {
+                    HomePairingSection(
+                        coordinator = coordinator,
+                        pendingLink = pendingPairingLink,
+                        onPendingLinkConsumed = onPendingPairingLinkConsumed,
+                        onPaired = ::completeSetup,
+                    )
+                    PairedHomesSection(
+                        coordinator = coordinator,
+                        pairingRevision = pairedHomesRevision,
+                        onChanged = ::refresh,
+                    )
+                }
+            }
+        }
+
+        SettingsSectionCard(SettingsSection.Voice) {
+            VoiceSettings()
+        }
+
+        // Retain the existing operator/rollback path only for an existing legacy configuration.
+        val operatorHandleVisible = setupMode == RelayConnectionMode.HomeBridge && collection.profiles.any {
+            it.mode == RelayConnectionMode.Legacy || it.homeBinding != null
+        }
+        // Device administration belongs to operator-handle Profiles; a paired
+        // Profile has no administration binding to act on.
+        val administration = homeAdministration?.takeIf {
+            collection.selected?.mode == RelayConnectionMode.HomeBridge &&
+                collection.selected?.homeClientGrant == null
+        }
+        if (operatorHandleVisible || administration != null) {
+            var advancedExpanded by rememberSaveable { mutableStateOf(false) }
+            SettingsSectionCard(SettingsSection.Advanced) {
+                Text(
+                    text = stringResource(R.string.android_settings_advanced_explanation),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("android_settings_advanced_toggle"),
+                    onClick = { advancedExpanded = !advancedExpanded },
+                ) {
+                    Text(
+                        stringResource(
+                            if (advancedExpanded) {
+                                R.string.android_settings_advanced_hide
+                            } else {
+                                R.string.android_settings_advanced_show
                             },
-                        ) { Text(stringResource(R.string.android_standard_edit)) }
+                        ),
+                    )
+                }
+                if (advancedExpanded) {
+                    if (operatorHandleVisible) {
+                        OperatorHandleFields(controller = controller, onSaved = ::completeSetup)
+                    }
+                    administration?.let {
+                        HomeDeviceAdministrationScreen(
+                            controller = it,
+                            selectedProfileId = collection.selectedId,
+                            onChanged = onHomeAdministrationChanged,
+                            onCredentialChanged = onHomeCredentialChanged,
+                        )
                     }
                 }
             }
         }
 
-        Text(stringResource(R.string.android_connection_choose))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(
-                enabled = !setupChecking,
-                onClick = { setupMode = RelayConnectionMode.HomeBridge; editingStandardId = null },
-                modifier = Modifier.testTag("android_choose_home"),
-            ) { Text(stringResource(R.string.android_mode_home)) }
-            TextButton(
-                enabled = !setupChecking,
-                onClick = { setupMode = RelayConnectionMode.Standard; editingStandardId = null },
-                modifier = Modifier.testTag("android_choose_standard"),
-            ) { Text(stringResource(R.string.android_mode_standard)) }
+        if (onShareDiagnostics != null || versionLabel != null) {
+            SettingsSectionCard(SettingsSection.Troubleshooting) {
+                versionLabel?.let { label ->
+                    val description = stringResource(R.string.android_version_description, label)
+                    SelectionContainer {
+                        Text(
+                            modifier = Modifier
+                                .testTag("app-version")
+                                .semantics { contentDescription = description },
+                            text = label,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+                onShareDiagnostics?.let { share ->
+                    Text(
+                        text = stringResource(R.string.android_diagnostics_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    FilledTonalButton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("android_diagnostics_share"),
+                        onClick = share,
+                    ) {
+                        Text(stringResource(R.string.android_diagnostics_share))
+                    }
+                }
+            }
         }
-        if (setupMode == RelayConnectionMode.Standard) {
-            StandardSetupSection(
-                controller = controller,
-                editing = editingStandard,
-                onChecking = { setupChecking = it },
-                onSaved = ::completeSetup,
-            )
-        }
-        if (setupMode == RelayConnectionMode.HomeBridge) {
-        homePairing?.let { coordinator ->
-            HomePairingSection(
-                coordinator = coordinator,
-                pendingLink = pendingPairingLink,
-                onPendingLinkConsumed = onPendingPairingLinkConsumed,
-                onPaired = ::completeSetup,
-            )
-            PairedHomesSection(
-                coordinator = coordinator,
-                pairingRevision = pairedHomesRevision,
-                onChanged = ::refresh,
-            )
-        }
-        }
+    }
+}
 
-        if (collection.profiles.isEmpty()) {
+/** One grouped Settings card; its title is a TalkBack heading. */
+@Composable
+private fun SettingsSectionCard(
+    section: SettingsSection,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(section.tag),
+        shape = HermesShapes.card,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Text(
-                modifier = Modifier.testTag("android_relay_none"),
-                text = stringResource(R.string.android_relay_none),
-                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.semantics { heading() },
+                text = stringResource(section.titleRes),
+                style = MaterialTheme.typography.titleMedium,
             )
+            content()
         }
+    }
+}
 
-        // Retain the existing operator/rollback path only for an existing legacy configuration.
-        if (setupMode == RelayConnectionMode.HomeBridge && collection.profiles.any {
-                it.mode == RelayConnectionMode.Legacy || it.homeBinding != null
-            }) {
+/** Microphone access for tap-to-speak, with the system settings route (`ANDROID-VOICE-02`). */
+@Composable
+private fun VoiceSettings() {
+    val context = LocalContext.current
+    val source = remember(context) {
+        PlatformRuntimePermissionSource(context, Manifest.permission.RECORD_AUDIO)
+    }
+    var permission by remember { mutableStateOf(source.state()) }
+    LifecycleResumeEffect(source) {
+        permission = source.state()
+        onPauseOrDispose { }
+    }
+    Text(
+        modifier = Modifier.testTag("android_settings_microphone_state"),
+        text = stringResource(
+            if (permission == RuntimePermissionState.Granted) {
+                R.string.android_settings_microphone_allowed
+            } else {
+                R.string.android_settings_microphone_off
+            },
+        ),
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    OutlinedButton(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("android_settings_microphone_open"),
+        onClick = { context.startActivity(applicationDetailsSettingsIntent(context.packageName)) },
+    ) {
+        Text(stringResource(R.string.android_permission_open_settings))
+    }
+}
+
+/** The retained legacy operator/rollback Profile form. */
+@Composable
+private fun OperatorHandleFields(controller: RelayConfigurationController, onSaved: () -> Unit) {
+    var endpoint by rememberSaveable { mutableStateOf("") }
+    var clientId by rememberSaveable { mutableStateOf("") }
+    var deviceId by rememberSaveable { mutableStateOf("") }
+    var displayName by rememberSaveable { mutableStateOf("") }
+    var token by remember { mutableStateOf("") }
+    var errors by remember {
+        mutableStateOf<Map<RelayProfileField, RelayProfileError>>(emptyMap())
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = stringResource(R.string.android_settings_operator_handle),
+            style = MaterialTheme.typography.titleSmall,
+        )
         RelayField(
             tag = "android_relay_endpoint",
             value = endpoint,
@@ -239,7 +398,6 @@ internal fun RelayConfigurationScreen(
             error = errors[RelayProfileField.Token],
             masked = true,
         )
-
         FilledTonalButton(
             modifier = Modifier
                 .fillMaxWidth()
@@ -253,68 +411,16 @@ internal fun RelayConfigurationScreen(
                     deviceId = ""
                     displayName = ""
                     token = ""
-                    completeSetup()
+                    onSaved()
                 }
             },
         ) {
             Text(stringResource(R.string.android_relay_save))
         }
-        }
-
-        // Device administration belongs to operator-handle Profiles; a paired
-        // Profile has no administration binding to act on.
-        homeAdministration?.takeIf {
-            collection.selected?.mode == RelayConnectionMode.HomeBridge &&
-                collection.selected?.homeClientGrant == null
-        }?.let {
-            HomeDeviceAdministrationScreen(
-                controller = it,
-                selectedProfileId = collection.selectedId,
-                onChanged = onHomeAdministrationChanged,
-                onCredentialChanged = onHomeCredentialChanged,
-            )
-        }
-
-        if (onShareDiagnostics != null || versionLabel != null) {
-            Column(
-                modifier = Modifier.testTag("android_diagnostics"),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.android_diagnostics_title),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                versionLabel?.let { label ->
-                    val description = stringResource(R.string.android_version_description, label)
-                    SelectionContainer {
-                        Text(
-                            modifier = Modifier
-                                .testTag("app-version")
-                                .semantics { contentDescription = description },
-                            text = label,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                }
-                onShareDiagnostics?.let { share ->
-                    Text(
-                        text = stringResource(R.string.android_diagnostics_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    FilledTonalButton(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("android_diagnostics_share"),
-                        onClick = share,
-                    ) {
-                        Text(stringResource(R.string.android_diagnostics_share))
-                    }
-                }
-            }
-        }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeDeviceAdministrationScreen(
     controller: HomeDeviceAdministrationController,
@@ -331,7 +437,9 @@ private fun HomeDeviceAdministrationScreen(
     var deviceLabel by rememberSaveable { mutableStateOf("") }
     var offerCode by remember { mutableStateOf("") }
     var requestId by rememberSaveable { mutableStateOf("") }
-    var requestedRooms by rememberSaveable { mutableStateOf("") }
+    var requestedRooms by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var roomEntry by rememberSaveable { mutableStateOf("") }
+    var confirmRevoke by remember { mutableStateOf(false) }
     var requestedCapabilities by rememberSaveable { mutableStateOf("wake_claim") }
     var wakeMappingIds by rememberSaveable { mutableStateOf("") }
     var roomId by rememberSaveable { mutableStateOf("") }
@@ -478,12 +586,37 @@ private fun HomeDeviceAdministrationScreen(
             onValueChange = { requestId = it },
             label = stringResource(R.string.android_home_request_id),
         )
+        Text(
+            text = stringResource(R.string.android_home_requested_rooms),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        val knownRooms = configuration?.rooms.orEmpty()
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            (knownRooms.map { it.id } + requestedRooms).distinct().forEach { id ->
+                FilterChip(
+                    modifier = Modifier.testTag("android_home_requested_room_$id"),
+                    selected = id in requestedRooms,
+                    onClick = { requestedRooms = RoomSelection.toggle(requestedRooms, id) },
+                    label = { Text(knownRooms.firstOrNull { it.id == id }?.name ?: id) },
+                )
+            }
+        }
         HomeField(
             tag = "android_home_requested_rooms",
-            value = requestedRooms,
-            onValueChange = { requestedRooms = it },
-            label = stringResource(R.string.android_home_requested_rooms),
+            value = roomEntry,
+            onValueChange = { roomEntry = it },
+            label = stringResource(R.string.android_home_requested_room_entry),
         )
+        TextButton(
+            modifier = Modifier.testTag("android_home_requested_room_add"),
+            enabled = roomEntry.isNotBlank() && roomEntry.trim() !in requestedRooms,
+            onClick = {
+                requestedRooms = RoomSelection.toggle(requestedRooms, roomEntry)
+                roomEntry = ""
+            },
+        ) {
+            Text(stringResource(R.string.android_home_requested_room_add))
+        }
         HomeField(
             tag = "android_home_requested_capabilities",
             value = requestedCapabilities,
@@ -505,7 +638,7 @@ private fun HomeDeviceAdministrationScreen(
                 runAsync {
                     val submission = controller.submitEnrollmentRequest(
                         offerCode = offerCode,
-                        requestedRooms = csv(requestedRooms),
+                        requestedRooms = requestedRooms,
                         requestedCapabilities = csv(requestedCapabilities),
                     )
                     withContext(Dispatchers.Main) { requestId = submission.requestId }
@@ -525,7 +658,7 @@ private fun HomeDeviceAdministrationScreen(
                     controller.approveEnrollmentRequest(
                         requestId = requestId,
                         scope = HomeCredentialScope(
-                            rooms = csv(requestedRooms),
+                            rooms = requestedRooms,
                             capabilities = csv(requestedCapabilities),
                             wakeMappings = csv(wakeMappingIds),
                         ),
@@ -586,12 +719,20 @@ private fun HomeDeviceAdministrationScreen(
                 text = snapshot.wakeMappings.joinToString { "${it.id}: ${it.phrase}" },
                 style = MaterialTheme.typography.bodySmall,
             )
-            HomeField(
-                tag = "android_home_room_id",
-                value = roomId,
-                onValueChange = { roomId = it },
-                label = stringResource(R.string.android_home_room_id),
+            Text(
+                text = stringResource(R.string.android_home_room_id),
+                style = MaterialTheme.typography.bodyMedium,
             )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                snapshot.rooms.forEach { room ->
+                    FilterChip(
+                        modifier = Modifier.testTag("android_home_room_${room.id}"),
+                        selected = roomId == room.id,
+                        onClick = { roomId = if (roomId == room.id) "" else room.id },
+                        label = { Text(room.name) },
+                    )
+                }
+            }
             HomeField(
                 tag = "android_home_room_name",
                 value = roomName,
@@ -627,7 +768,7 @@ private fun HomeDeviceAdministrationScreen(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(
                 enabled = !busy,
                 onClick = {
@@ -651,13 +792,9 @@ private fun HomeDeviceAdministrationScreen(
                 Text(stringResource(R.string.android_home_reenroll))
             }
             TextButton(
+                modifier = Modifier.testTag("android_home_revoke"),
                 enabled = !busy,
-                onClick = {
-                    runAsync(credentialChanged = true) {
-                        controller.revokeDevice()
-                        "Device access revoked."
-                    }
-                },
+                onClick = { confirmRevoke = true },
             ) {
                 Text(stringResource(R.string.android_home_revoke))
             }
@@ -670,6 +807,32 @@ private fun HomeDeviceAdministrationScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+    }
+
+    if (confirmRevoke) {
+        AlertDialog(
+            modifier = Modifier.testTag("android_home_revoke_confirm"),
+            onDismissRequest = { confirmRevoke = false },
+            title = { Text(stringResource(R.string.android_home_revoke_title)) },
+            text = { Text(stringResource(R.string.android_home_revoke_body)) },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag("android_home_revoke_confirm_button"),
+                    onClick = {
+                        confirmRevoke = false
+                        runAsync(credentialChanged = true) {
+                            controller.revokeDevice()
+                            "Device access revoked."
+                        }
+                    },
+                ) { Text(stringResource(R.string.android_home_revoke)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRevoke = false }) {
+                    Text(stringResource(R.string.android_home_revoke_keep))
+                }
+            },
+        )
     }
 }
 

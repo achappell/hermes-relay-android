@@ -111,7 +111,7 @@ class StandardCaptureRecoveryTest {
         composeRule.scrollToConversationTag("android_edit_relay")
         composeRule.onNodeWithTag("android_connect").assertDoesNotExist()
         composeRule.onNodeWithTag("android_edit_relay").performClick()
-        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_settings_screen").assertIsDisplayed()
     }
 
     @Test

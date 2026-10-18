@@ -80,12 +80,12 @@ class MainActivityTest {
         composeRule.onNodeWithText("Configure a relay to begin.").assertIsDisplayed()
         composeRule.onNodeWithTag("android_configure_relay").assertIsDisplayed()
         composeRule
-            .onAllNodesWithTag("android_relay_configuration_sheet")
+            .onAllNodesWithTag("android_settings_screen")
             .assertCountEquals(0)
         composeRule.onNodeWithTag("android_more_menu").performClick()
         composeRule.onNodeWithTag("android_navigation_menu").assertIsDisplayed()
         composeRule.onNodeWithTag("android_menu_configure_relay").performClick()
-        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_settings_screen").assertIsDisplayed()
         composeRule.onAllNodesWithText("Ready").assertCountEquals(0)
     }
 
@@ -102,7 +102,7 @@ class MainActivityTest {
         composeRule.onNodeWithTag("android_session_settings")
             .assertIsDisplayed()
             .performClick()
-        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_settings_screen").assertIsDisplayed()
     }
 
     @Test
@@ -118,12 +118,32 @@ class MainActivityTest {
 
         composeRule.onNodeWithTag("android_more_menu").performClick()
         composeRule.onNodeWithTag("android_menu_configure_relay").performClick()
-        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_settings_screen").assertIsDisplayed()
 
         pressBack()
         composeRule.waitForIdle()
 
-        composeRule.onAllNodesWithTag("android_relay_configuration_sheet").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("android_settings_screen").assertCountEquals(0)
+        composeRule.onNodeWithTag("android_doorway_header").assertIsDisplayed()
+    }
+
+    @Test
+    fun done_dismisses_full_screen_settings_and_returns_to_home() {
+        composeRule.setContent {
+            HermesRelayTheme {
+                AndroidClientScreen(
+                    clientPort = BootstrapClientPort,
+                    configuration = emptyConfiguration(),
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("android_session_settings").performClick()
+        composeRule.onNodeWithTag("android_settings_screen").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_settings_done").assertIsDisplayed().performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onAllNodesWithTag("android_settings_screen").assertCountEquals(0)
         composeRule.onNodeWithTag("android_doorway_header").assertIsDisplayed()
     }
 
@@ -145,8 +165,8 @@ class MainActivityTest {
         composeRule.scrollToConversationTag("android_edit_relay")
         composeRule.onNodeWithTag("android_edit_relay").assertIsDisplayed()
         composeRule.onNodeWithTag("android_edit_relay").performClick()
-        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
-        composeRule.onNodeWithText("Hermes relay configuration").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_settings_screen").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_settings_section_profiles").assertIsDisplayed()
     }
 
     @Test
@@ -224,7 +244,7 @@ class MainActivityTest {
         composeRule.scrollToConversationTag("android_edit_relay")
         composeRule.onNodeWithTag("android_connect").assertDoesNotExist()
         composeRule.onNodeWithTag("android_edit_relay").performClick()
-        composeRule.onNodeWithTag("android_relay_configuration_sheet").assertIsDisplayed()
+        composeRule.onNodeWithTag("android_settings_screen").assertIsDisplayed()
     }
 
     @Test
