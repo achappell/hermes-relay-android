@@ -499,7 +499,7 @@ stories:
     parity_epic: ANDROID-PARITY-03
     parity_stream: S7
     spec: _bmad-output/implementation-artifacts/spec-android-home-11-hud-scroll-layout.md
-    scope_note: '2026-10-13: reproduced and fixed zero-height conversation/overlapping bars in landscape, plus implicit keyboard panning. Real-screen regressions and API 36 emulator portrait/landscape, 2x full-IME editing and long-transcript tail checks passed. See spec-compact-doorway-layout.md. Full HOME-11 matrix, tablet/Fold, split-screen and physical Pixel acceptance remain open; no merge implied.'
+    scope_note: '2026-10-13: reproduced and fixed zero-height conversation/overlapping bars in landscape, plus implicit keyboard panning (spec-compact-doorway-layout.md). 2026-10-18: emulator matrix on the real window (final APK, new AVDs) with driver read-back and per-cell declared-row assertions: 96/96 runs, 144/144 manifest cells pass (phones, 10in tablet, Fold inner, 50% split portrait plus half-width landscape split; fonts 1.0/1.3/2.0; keyboard; orientation; both nav modes); no layout defect, no production change; rail does not auto-follow newest item (finding); full non-live suite 105/105 after repairing a keyboard-request leak in test cleanup; see validation-android-home-11.md. Physical Pixel acceptance remains open; no merge implied.'
     depends_on:
       - android:5-A-3
     github_issue: https://github.com/achappell/hermes-relay-android/issues/75

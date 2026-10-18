@@ -2,6 +2,7 @@
 id: ANDROID-HOME-11
 title: Keep the Home conversation reachable at large font scales, with the keyboard, and on every screen size
 status: in-progress
+baseline_commit: edac2f6ec7f25deaeca5650110c515ecc4cb852a
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-03
@@ -90,3 +91,36 @@ response whose final line remained visible above the composer after rotation.
 These are targeted bugfix checks, not completion of the matrix above.
 The physical Pixel, tablet/Fold, split-screen and unsampled matrix cells remain
 open; no acceptance requirement or historical evidence is replaced.
+
+## 2026-10-17 — emulator layout matrix
+
+`validation-android-home-11.md` records the counted emulator matrix. It ran on
+the final APK on the real window of four new owned API 36 AVDs (2026-10-18) (360×640 dp phone, pixel_6,
+10.1" WXGA, pixel_fold inner). Every cell's font scale, rotation, navigation
+mode and display were read back by the driver and asserted by the tests. All
+96 runs pass, covering 144/144 manifest cells. The portrait split cells are the
+≈ 50 %-height row; the landscape split cells are recorded separately as
+half-width. No layout defect was found and no production code changed. An
+earlier "landscape Recover unreachable" note was a fixture error and is
+retracted there; every run before 2026-10-17 is superseded.
+
+For the spec owner:
+
+- The acceptance line's `LocalDensity` + simulated-insets technique was
+  retired: a synthetic viewport larger than the host phone window cannot be
+  judged by display checks. The real-window tests carry the same assertions
+  with real font scale and insets. This substitution needs acceptance.
+- The rail does not auto-follow the newest item. A new response is reachable
+  by scrolling the rail alone (asserted) but is not always shown without
+  scrolling. This is a product decision, recorded as a finding and not as a
+  defect.
+- A settled turn returns focus to the prompt and raises the keyboard; with it
+  up on a small landscape phone, about 97 dp of doorway remains, in which the
+  composer, Send and the newest line are reachable.
+- The four-line status block is claimed only where measured: small phone
+  portrait at 1.3× and 2.0×.
+
+Still open: the physical Pixel 2.0× / keyboard screenshots. The branch's full
+non-live instrumentation suite is 105/105. A keyboard request that the new
+classes left behind was taking `ModalSheetBackTest`'s first Back; this was
+repaired in test cleanup and is recorded in the validation record.
