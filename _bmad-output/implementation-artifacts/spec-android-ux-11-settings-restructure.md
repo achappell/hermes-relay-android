@@ -1,7 +1,7 @@
 ---
 id: ANDROID-UX-11
 title: Full-screen grouped Settings and device administration under Advanced
-status: backlog
+status: in-progress
 product_epic: 1
 release_scope: migration
 parity_epic: ANDROID-PARITY-03
@@ -12,6 +12,8 @@ depends_on:
   - android:ANDROID-HOME-13
 parity_source: 'PX-30, PX-31 (matrix D4, D5, O8)'
 github_issue: https://github.com/achappell/hermes-relay-android/issues/107
+baseline_commit: 8e08dea7f93910f809c51c79573643b1d195b0c3
+validation: _bmad-output/implementation-artifacts/validation-android-ux-11.md
 ---
 
 # ANDROID-UX-11 — Settings restructure and device administration under Advanced
@@ -54,3 +56,7 @@ Instrumented checklist and order tests.
 ## Device verification
 
 Pixel: walk every section at 1.0x and 2.0x.
+
+## Implementation status (2026-10-18)
+
+Implemented locally on `ux-11-settings-restructure`: full-screen `ClientSettingsScreen` replaces the sheet; Profiles, Home pairing, Voice, Advanced and Troubleshooting are grouped heading cards; administration and the legacy operator handle sit behind an explained Advanced disclosure; Room lists use chips; Revoke has a confirmation dialog. Automated JVM and emulator gates are recorded in the validation file. The physical Pixel 1.0x/2.0x walk and the manual TalkBack order pass remain open, so the story stays `in-progress`. DIAG-02 automatic reports and connection details are not hosted yet because those stories are backlog.

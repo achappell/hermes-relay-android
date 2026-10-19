@@ -12,6 +12,7 @@ import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
+import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onChildren
@@ -210,7 +211,7 @@ internal class LayoutMatrixPort(
 // Row assertions
 // ---------------------------------------------------------------------------
 
-internal fun ComposeContentTestRule.bounds(tag: String): DpRect =
+internal fun ComposeTestRule.bounds(tag: String): DpRect =
     onNodeWithTag(tag).getUnclippedBoundsInRoot()
 
 /** The outer scroller's scroll range; null when the layout does not scroll as a whole. */
@@ -228,7 +229,7 @@ private fun ComposeContentTestRule.outerScrollRange(): Float? = try {
  * appearing, the navigation bar changing) are not Compose idleness, so a
  * geometry assertion taken during one reads two different frames.
  */
-internal fun ComposeContentTestRule.settleGeometry() {
+internal fun ComposeTestRule.settleGeometry() {
     val reads = awaitStableGeometry()
     check(reads == null) { "the doorway geometry never settled; last reads: $reads" }
 }
@@ -237,7 +238,7 @@ internal fun ComposeContentTestRule.settleGeometry() {
  * Waits until three consecutive reads of the region bounds and outer scroll
  * position agree. Returns null once they do, or the last reads on timeout.
  */
-internal fun ComposeContentTestRule.awaitStableGeometry(timeoutMillis: Long = GeometrySettleTimeoutMillis): String? {
+internal fun ComposeTestRule.awaitStableGeometry(timeoutMillis: Long = GeometrySettleTimeoutMillis): String? {
     val reads = ArrayDeque<String>()
     var stableReads = 0
     val settled = runCatching {
@@ -252,7 +253,7 @@ internal fun ComposeContentTestRule.awaitStableGeometry(timeoutMillis: Long = Ge
     return if (settled) null else reads.joinToString(" | ")
 }
 
-internal fun ComposeContentTestRule.outerScrollPosition(): String = runCatching {
+internal fun ComposeTestRule.outerScrollPosition(): String = runCatching {
     outerScroller().fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value().toString()
 }.getOrElse { "none" }
 
@@ -262,7 +263,7 @@ private val RegionTags = listOf(
     "android_action_surface",
 )
 
-internal fun ComposeContentTestRule.safeBounds(tag: String): String =
+internal fun ComposeTestRule.safeBounds(tag: String): String =
     runCatching { bounds(tag).toString() }.getOrElse { "absent" }
 
 /** A fingerprint of the scroll positions, so a stuck search can stop early. */
@@ -396,7 +397,7 @@ private fun ComposeContentTestRule.visibleInWindow(
  * The outer doorway scroller: the only scrollable that contains the header as a
  * descendant (the rail and the composer's column are siblings of it).
  */
-private fun ComposeContentTestRule.outerScroller(): SemanticsNodeInteraction =
+private fun ComposeTestRule.outerScroller(): SemanticsNodeInteraction =
     onAllNodes(hasScrollAction())
         .filter(hasAnyDescendant(hasTestTag("android_doorway_header")))
         .onFirst()

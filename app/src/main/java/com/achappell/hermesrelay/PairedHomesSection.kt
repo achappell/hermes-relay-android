@@ -4,7 +4,8 @@ import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -84,6 +85,7 @@ internal object PairedHomesMessages {
  * Profiles and Unpair this Home (`ANDROID-HOME-13`). Calls block on IO; the
  * logic lives in [HomeClientPairingCoordinator].
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun PairedHomesSection(
     coordinator: HomeClientPairingCoordinator,
@@ -169,7 +171,7 @@ internal fun PairedHomesSection(
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilledTonalButton(
                             modifier = Modifier.testTag("android_paired_home_refresh"),
                             enabled = busyPairingId == null,

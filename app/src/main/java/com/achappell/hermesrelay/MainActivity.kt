@@ -323,7 +323,7 @@ internal fun AndroidClientScreen(
         }
 
         if (configurationVisible && configuration != null) {
-            ClientConfigurationSheet(
+            ClientSettingsScreen(
                 configuration, runtime.canReconfigure && prompt.isBlank(), homeAdministration,
                 homePairing, versionLabel, pendingPairingLink, onPendingPairingLinkConsumed,
                 onHomeAdministrationChanged = { configurationRevision += 1 },

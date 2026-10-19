@@ -172,6 +172,11 @@ class RelayConfigurationTest {
             }
         }
 
+        composeRule.onNodeWithTag("android_home_administration").assertDoesNotExist()
+        composeRule.onNodeWithTag("android_settings_advanced_toggle")
+            .performScrollTo()
+            .performClick()
+
         composeRule.onNodeWithTag("android_home_device_id")
             .performScrollTo()
             .performTextInput("android-1")

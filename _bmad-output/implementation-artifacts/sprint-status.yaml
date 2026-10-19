@@ -65,7 +65,7 @@ development_status:
   android-ux-08: backlog
   android-ux-09: done
   android-ux-10: backlog
-  android-ux-11: backlog
+  android-ux-11: in-progress # 2026-10-18 local branch: full-screen grouped Settings, Advanced administration, Room chips, Revoke confirm. 792 JVM; focused 55/55; full non-live 114/114 after fixing the ClientHolderLifecycleSmokeTest settlement-keyboard race (also failed on main). Physical Pixel 1x/2x and manual TalkBack open; no push/PR.
   android-ux-12: backlog
   android-ux-13: backlog
   android-ux-14: backlog
