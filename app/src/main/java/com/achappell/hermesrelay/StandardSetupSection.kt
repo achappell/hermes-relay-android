@@ -98,8 +98,16 @@ internal fun StandardSetupSection(
                             val verified = withContext(Dispatchers.IO) {
                                 val credentials = InMemoryRelayCredentialStore()
                                 credentials.putStandardCredential(candidate.id, token)
-                                val client = OkHttpStandardSessionClient(
-                                    collection = { RelayProfileCollection(listOf(candidate), candidate.id) },
+                                val candidateCollection = { RelayProfileCollection(listOf(candidate), candidate.id) }
+                                val client = controller.standardSetupHttpClient?.let { httpClient ->
+                                    OkHttpStandardSessionClient(
+                                        collection = candidateCollection,
+                                        credentials = credentials,
+                                        restartStore = InMemoryStandardRestartStore(),
+                                        httpClient = httpClient,
+                                    )
+                                } ?: OkHttpStandardSessionClient(
+                                    collection = candidateCollection,
                                     credentials = credentials,
                                     restartStore = InMemoryStandardRestartStore(),
                                 )

@@ -132,7 +132,7 @@
     <string name="android_composer_block_authorization">Verify the selected Hermes Profile before sending.</string>
     <string name="android_composer_block_disconnected">Connect before sending.</string>
     <string name="android_composer_block_active_turn">Finish the current turn before sending.</string>
-    <string name="android_composer_block_unconfirmed_turn">Decide whether to resend or discard the unconfirmed turn before sending another one.</string>
+    <string name="android_composer_block_unconfirmed_turn">Resolve the unconfirmed turn before sending another one.</string>
     <string name="android_composer_block_empty_prompt">Enter a prompt to send.</string>
     <string name="android_capture_starting">Starting microphone…</string>
     <string name="android_capture_listening">Listening…</string>

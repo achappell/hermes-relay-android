@@ -85,6 +85,8 @@ internal class RelayConfigurationController(
     private val homeClientPairings: HomeClientPairingStore? = null,
     private val standardRestartStore: StandardRestartStore? = null,
     private val idFactory: () -> String = { java.util.UUID.randomUUID().toString() },
+    /** Optional transport trust configuration; null keeps the production TLS defaults. */
+    internal val standardSetupHttpClient: okhttp3.OkHttpClient? = null,
 ) {
     var collection: RelayProfileCollection = profiles.load()
         private set

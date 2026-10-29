@@ -168,3 +168,20 @@ API 36 emulator rejected a disposable saved credential once, then returned to
 Verified/Ready after that credential was repaired. Original configuration and
 history checksums matched after deleting the probe. The separate default-profile
 audio observation remains unresolved; broader Standard acceptance is unchanged.
+
+## Controlled native recovery/isolation acceptance — 2026-10-29
+
+The approved follow-up exercises the current Android app from baseline
+`2565f3c` on a dedicated API 36 emulator: accepted mid-turn loss without replay,
+failed New retaining admission guards, deliberate successful recovery, endpoint
+editing with fresh credentials, rejected-auth namespace separation, and explicit
+HomeBridge/Standard history/session isolation. Native UI actions drive production
+runtime, transports and persistence against disposable TLS peers.
+
+The setup controller accepts an optional internal HTTP client for this bounded
+trust configuration; an omitted client preserves production TLS defaults. No
+trust-all policy, production endpoint/token, phone reset or upstream patch is
+introduced. This is not a new upstream compatibility or deployed-household gate:
+the separately recorded supported baseline and physical/voice limits remain in
+force. Results and informative fixture failures belong in
+`validation-android-std-01.md`; the story remains in review.
