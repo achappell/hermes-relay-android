@@ -177,3 +177,100 @@ Two scoped implementation reviews were completed and their four findings fixed b
 - Selecting the original connection independently restored Verified/Ready. The probe was deleted through actual Configure relay; cleanup instrumentation verified original authentication and removal of the owned Standard/Home/rollback slots. Final Profile JSON and all original history-file checksums exactly matched their starting values. Accessibility/services/radios were unchanged and zero held wakelocks were observed. The main app remains installed; temporary helper source, test APK and captures were removed.
 - Full JVM suite, debug/test APK assembly and lint passed. Direct MainActivity, StandardConfigurationRecovery and StandardCaptureRecovery instrumentation passed 25 tests. Thirty runs of AndroidRecoveryControllerTest, ReconnectLadderTest, OkHttpStandardSessionClientTest and StandardRuntimeTest passed 60 tests/run (1,800 executions), zero failures. APK metadata passed; signer comparison skipped without EXPECTED_SIGNER_SHA256. Initial metadata invocation could not locate build tools; explicit SDK-local PATH passed without installation or machine configuration changes. Final fixture-free test APK assembly also passed (46 s).
 - Independent transport/concurrency and native-safety/presentation reviews found no supported patch defect. The saved-credential status finding is resolved; default-profile response audio, cross-endpoint/Home live isolation and remaining physical/voice acceptance are not claimed resolved.
+
+## Controlled native recovery and endpoint/mode isolation — 2026-10-29
+
+Baseline `2565f3c`; isolated worktree and dedicated API 36 Google APIs ARM64
+emulator `hermes-standard-acceptance-20261029`, serial `emulator-5580`. The
+configured personal emulator was not started, installed over or reset. Existing
+uncommitted main-checkout specification, validation and Gradle-settings changes
+were left untouched.
+
+These checks use actual Compose UI actions, `HomeRuntime`, Standard/Home
+WebSocket transports and file-backed history/restart state against disposable
+TLS peers. Isolation also uses real Android Keystore-backed credential records
+in unique fixture preferences. No fake client port replaces production
+networking. Certificate trust is scoped to the injected fixture HTTP client;
+the setup controller's new optional internal client preserves production TLS
+defaults when omitted. No system CA, radio setting, production endpoint/token,
+upstream source or user phone was changed.
+
+Four native scenarios passed:
+
+1. An accepted turn receives partial response text, then a remote WebSocket
+   error close (`1011`) before any terminal. Reconnection uses its durable
+   reference and preserves uncertainty, retained text and sending/capture guards.
+2. A rejected explicit New leaves the draft/history and unresolved-turn marker
+   intact. A later successful deliberate New clears the guard without replay.
+   Ordered peer requests contain exactly six control RPCs across three upgrades:
+   initial create/submit, resume/rejected create, and deliberate create/submit.
+   Exactly two submitted payloads belong to their intended runtime sessions;
+   write-ahead markers exist before both submissions.
+3. Editing an endpoint with no fresh token is rejected without contacting the
+   new peer or changing the saved credential/history. Supplying a fresh token
+   checks and saves through the actual setup UI. The new endpoint has no prior
+   session/transcript/history; deliberately returning to the original endpoint
+   restores its retained history and remains usable. Rejected setup/runtime
+   authentication cannot fall back to separately seeded Home/Legacy credentials.
+4. Explicit Standard → HomeBridge → Standard selections preserve each mode's
+   credential, prompt and assistant-response history. Actual history sheets and
+   live response text are checked, and peer-observed upgrades/control/audio
+   requests contain no foreign credential, session reference, prompt or reply.
+
+Standard fixture responses deliberately exercise HTTP 404 from
+`/api/audio/speak-stream`; the app truthfully reports unavailable audio while
+retaining completed assistant text. Audio requests are counted separately from
+control upgrades. Home advertises audio unavailable. Neither this fixture nor
+the synthetic speech-recognition input establishes voice or physical microphone
+acceptance, and no production voice capability was disabled.
+
+Verification: full `testDebugUnitTest`, debug/test APK assembly and `lintDebug`
+passed with JDK 21.0.12.1 / Gradle 9.8.2: **792 tests, 59 suites, zero
+failures/errors/skips**. Direct instrumentation of
+`StandardRecoveryAcceptanceTest,StandardIsolationAcceptanceTest` passed **4/4**.
+APK metadata passed: min SDK 26, version 0.3.1 (301), backup/extraction policy and
+16 KB native alignment. Expected release-signer comparison was skipped because
+`EXPECTED_SIGNER_SHA256` was unset; no distribution-signing claim.
+
+The Standard JVM repetition gate
+`StandardRuntimeTest,OkHttpStandardSessionClientTest,StandardProfileTest` passed
+30 consecutive runs of 43 tests (**1,290 executions**). The native four-case
+matrix also passed three additional consecutive runs (**12 executions**).
+
+Informative failures were fixture defects, not concealed production failures:
+the initial 4-case run passed endpoint editing/auth rejection but failed because
+server-side OkHttp `cancel()` has no associated client Call and the disposable
+Home binding used an invalid `/api/ws` approved route. The corrected fixture
+uses a supported remote error close and Home root route, without extending the
+connection timeout. Stronger reply-history checks then found both the live
+response and history entry; the selector was scoped to the history-entry tag.
+An invalid import of the rule's member `onNode` was removed after the compiler
+rejected it. No runtime guard, assertion or scenario was excluded to obtain a
+pass. Teardown disposes Compose/runtime before closing transports/files, and
+native screenshots wait for UI/event idle rather than a fixed sleep.
+
+This is bounded native client/protocol-peer evidence, **not a new deployed
+Home or unmodified-agent compatibility run**. The recorded upstream 0.21.5
+baseline and prior live evidence remain separate. Native screenshot inspection
+did reproduce one misleading UI hint: the shared composer advised resend/discard
+in Standard mode despite its deliberate-New recovery policy. The hint is now
+mode-neutral; existing mode-specific recovery actions and admission guards are
+unchanged. No wording-only test was added; the native failed-New/Ready surfaces
+provide the before/after smoke and behavioral guard coverage. Physical phone,
+real provider/household
+failure injection, default-profile audio, automatic hands-free/barge-in and
+other remaining acceptance gates are not silently closed; story status remains
+review. No dependency on Puck access or the pending upstream audio contribution
+was introduced.
+
+After the final composer-hint-only correction, the complete JVM/build/lint/test
+APK command passed again (**792 tests, zero failures/errors/skips**) and all
+four native scenarios passed again. The failed-New screenshot now shows the
+mode-neutral hint, retained draft, uncertainty warning and disabled send;
+the deliberate-New screenshot shows Ready and enabled deliberate submission.
+Endpoint-rejection and explicit mode-selection screenshots were also inspected
+from the dedicated emulator's app cache. Local captures are retained under the
+temporary `hermes-standard-acceptance-*` evidence directory, not committed.
+The 30-run JVM and three-matrix native repetition receipts above precede only
+that final hint text correction; no transport or state logic changed afterward.
+Owning story/index/tracker YAML and evidence links passed a system-parser check.
