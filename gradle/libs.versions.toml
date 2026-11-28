@@ -11,7 +11,7 @@ androidxTestRunner = "1.7.0"
 androidxTestEspresso = "3.7.0"
 okhttp = "5.5.0"
 orgJson = "20260814"
-camerax = "1.6.2"
+camerax = "1.7.0"
 zxing = "3.5.4"
 lifecycle = "2.10.0"
 
